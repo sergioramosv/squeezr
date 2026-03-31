@@ -44,3 +44,7 @@ export function setBlock(hash: string, block: SessionBlock): void {
 export function sessionCacheSize(): number {
   return cache.size
 }
+
+export function clearSessionCache(): void {
+  cache.clear()
+}

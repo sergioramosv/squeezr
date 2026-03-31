@@ -2,6 +2,14 @@
 
 All notable changes to Squeezr will be documented here.
 
+## [1.4.0] - 2026-03-31
+
+### Added
+- **Full unit test suite** — 139 tests across 6 test files covering all modules: `deterministic.ts`, `cache.ts`, `sessionCache.ts`, `expand.ts`, `config.ts`, `compressor.ts`
+
+### Fixed
+- `extractInstallSummary` regex `/\d+ packages? in/` → `/\d+ packages? in \d/` to prevent false matches on `packages installed`
+
 ## [1.3.0] - 2026-03-31
 
 ### Added

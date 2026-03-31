@@ -36,6 +36,10 @@ export function expandStoreSize(): number {
   return store.size
 }
 
+export function clearExpandStore(): void {
+  store.clear()
+}
+
 // ── Tool definitions ──────────────────────────────────────────────────────────
 
 export const EXPAND_TOOL_ANTHROPIC = {

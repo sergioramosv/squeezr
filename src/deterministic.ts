@@ -338,7 +338,7 @@ function looksLikeCurl(t: string): boolean { return t.includes('* Connected to')
 
 function extractInstallSummary(text: string): string {
   const lines = text.split('\n')
-  return lines.filter(l => /added \d+/.test(l) || /removed \d+/.test(l) || /Done in/.test(l) || /\d+ packages? in/.test(l) || /warn/.test(l) || /vulnerabilit/.test(l) || /up to date/.test(l)).join('\n') || text
+  return lines.filter(l => /added \d+/.test(l) || /removed \d+/.test(l) || /Done in/.test(l) || /\d+ packages? in \d/.test(l) || /warn/.test(l) || /vulnerabilit/.test(l) || /up to date/.test(l)).join('\n') || text
 }
 
 function compactFileListing(text: string): string {
