@@ -2,6 +2,15 @@
 
 All notable changes to Squeezr will be documented here.
 
+## [1.1.0] - 2026-03-31
+
+### Added
+- **Differential compression** — session-level cache tracks compressed blocks across requests. Blocks identical to a previous request skip the entire pipeline (preprocessing + AI call). In a 100-request session with 40 tool results: ~4,000 Haiku calls → ~200.
+- **KV cache warming** — `storeOriginal` now uses a deterministic MD5-based ID instead of random bytes. Identical content always produces the same `[squeezr:id -ratio%]` string, preserving Anthropic's prefix cache across requests (90% cost reduction on unchanged history).
+- `sessionCache.ts` — in-memory Map persisting for the lifetime of the proxy session
+- `session_cache_hits` counter in stats summary and `/squeezr/stats` endpoint
+- `session_cache_size` exposed in `/squeezr/stats`
+
 ## [1.0.0] - 2026-03-31
 
 ### Changed
