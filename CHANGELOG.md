@@ -2,6 +2,20 @@
 
 All notable changes to Squeezr will be documented here.
 
+## [0.4.0] - 2026-03-31
+
+### Added
+- **OpenAI / Codex CLI support** — `POST /v1/chat/completions` endpoint proxies and compresses Codex requests
+- **GPT-4o-mini compression for Codex** — reuses the OpenAI key already in the request, no extra keys needed
+- **Smart upstream detection** — catch-all route detects Anthropic vs OpenAI from headers and forwards to the right API
+- **OpenAI system message compression** — first `role: "system"` message compressed via GPT-4o-mini
+- `openai>=1.0.0` added to requirements
+
+### Changed
+- `system_prompt.py` now accepts `use_openai=True` to compress via GPT-4o-mini
+- `main.py` refactored: shared `_stream()` helper, dedicated OpenAI endpoint
+- Version bumped to 0.4.0
+
 ## [0.3.0] - 2026-03-31
 
 ### Added

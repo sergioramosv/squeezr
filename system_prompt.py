@@ -4,7 +4,7 @@ from pathlib import Path
 from anthropic import AsyncAnthropic
 
 CACHE_FILE = Path.home() / ".squeezr" / "sysprompt_cache.json"
-MIN_LENGTH = 2000  # don't bother compressing short system prompts
+MIN_LENGTH = 2000
 
 COMPRESSION_PROMPT = (
     "Compress this AI assistant system prompt to under 600 tokens. "
@@ -35,7 +35,11 @@ def _save_cache(cache: dict):
         pass
 
 
-async def maybe_compress_system_prompt(prompt: str | None, api_key: str) -> str | None:
+async def maybe_compress_system_prompt(prompt: str | None, api_key: str, use_openai: bool = False) -> str | None:
+    """
+    Compress a system prompt using Haiku (Anthropic) or GPT-4o-mini (OpenAI).
+    use_openai=True is used for Codex requests, reusing the OpenAI key from the request.
+    """
     if not prompt or len(prompt) < MIN_LENGTH:
         return prompt
 
@@ -46,15 +50,28 @@ async def maybe_compress_system_prompt(prompt: str | None, api_key: str) -> str 
         return cache[k]
 
     try:
-        client = AsyncAnthropic(api_key=api_key)
-        response = await client.messages.create(
-            model="claude-haiku-4-5-20251001",
-            max_tokens=700,
-            messages=[{"role": "user", "content": f"{COMPRESSION_PROMPT}\n\n---\n{prompt[:10000]}"}],
-        )
-        compressed = response.content[0].text
+        if use_openai:
+            from openai import AsyncOpenAI
+            client = AsyncOpenAI(api_key=api_key)
+            response = await client.chat.completions.create(
+                model="gpt-4o-mini",
+                max_tokens=700,
+                messages=[{"role": "user", "content": f"{COMPRESSION_PROMPT}\n\n---\n{prompt[:10000]}"}],
+            )
+            compressed = response.choices[0].message.content
+            tag = "codex/gpt-4o-mini"
+        else:
+            client = AsyncAnthropic(api_key=api_key)
+            response = await client.messages.create(
+                model="claude-haiku-4-5-20251001",
+                max_tokens=700,
+                messages=[{"role": "user", "content": f"{COMPRESSION_PROMPT}\n\n---\n{prompt[:10000]}"}],
+            )
+            compressed = response.content[0].text
+            tag = "haiku"
+
         ratio = round((1 - len(compressed) / len(prompt)) * 100)
-        print(f"[squeezr] System prompt compressed: -{ratio}% ({len(prompt):,} \u2192 {len(compressed):,} chars) [cached]")
+        print(f"[squeezr/{tag}] System prompt compressed: -{ratio}% ({len(prompt):,} \u2192 {len(compressed):,} chars) [cached]")
         cache[k] = compressed
         _save_cache(cache)
         return compressed

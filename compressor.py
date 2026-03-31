@@ -218,3 +218,120 @@ async def compress_messages(messages: list, api_key: str, config) -> tuple:
         "by_tool": by_tool,
         "dry_run": False,
     }
+
+
+# ── OpenAI / Codex format ─────────────────────────────────────────────────────
+
+def build_openai_tool_name_map(messages: list) -> dict:
+    """Maps tool_call_id -> function_name from OpenAI assistant messages."""
+    mapping = {}
+    for msg in messages:
+        if msg.get("role") != "assistant":
+            continue
+        for tc in msg.get("tool_calls") or []:
+            mapping[tc.get("id", "")] = tc.get("function", {}).get("name", "unknown")
+    return mapping
+
+
+def get_openai_tool_results(messages: list) -> list:
+    """Returns [(msg_idx, content, tool_name)] for OpenAI tool messages."""
+    tool_name_map = build_openai_tool_name_map(messages)
+    results = []
+    for i, msg in enumerate(messages):
+        if msg.get("role") != "tool":
+            continue
+        content = msg.get("content", "")
+        if isinstance(content, list):
+            content = "\n".join(
+                c.get("text", "") for c in content
+                if isinstance(c, dict) and c.get("type") == "text"
+            )
+        if content:
+            tool_name = tool_name_map.get(msg.get("tool_call_id", ""), "unknown")
+            results.append((i, content, tool_name))
+    return results
+
+
+async def gpt_mini_compress(client, text: str) -> str:
+    response = await client.chat.completions.create(
+        model="gpt-4o-mini",
+        max_tokens=300,
+        messages=[{"role": "user", "content": f"{COMPRESSION_PROMPT}\n\n---\n{text[:4000]}"}],
+    )
+    return response.choices[0].message.content
+
+
+async def compress_openai_messages(messages: list, openai_key: str, config) -> tuple:
+    """
+    Compresses old tool messages in OpenAI/Codex format.
+    Uses GPT-4o-mini (same OpenAI key from the request) — no extra keys needed.
+    """
+    if config.disabled or not openai_key:
+        return messages, {"compressed": 0, "saved_chars": 0, "by_tool": [], "dry_run": False}
+
+    cache = get_cache(config)
+    pressure = estimate_context_pressure(messages)
+    threshold = config.threshold_for_pressure(pressure)
+
+    tool_results = get_openai_tool_results(messages)
+    candidates = tool_results[: -config.keep_recent] if len(tool_results) > config.keep_recent else []
+    to_compress = [(i, text, tool) for i, text, tool in candidates if len(text) >= threshold]
+
+    if not to_compress:
+        return messages, {"compressed": 0, "saved_chars": 0, "by_tool": [], "dry_run": False}
+
+    if config.dry_run:
+        potential = sum(len(t) for _, t, _ in to_compress)
+        print(
+            f"[squeezr dry-run/codex] Would compress {len(to_compress)} block(s) "
+            f"| potential -{potential:,} chars | pressure={pressure:.0%} threshold={threshold}"
+        )
+        return messages, {"compressed": 0, "saved_chars": 0, "by_tool": [], "dry_run": True}
+
+    messages = copy.deepcopy(messages)
+
+    from openai import AsyncOpenAI
+    oai_client = AsyncOpenAI(api_key=openai_key)
+
+    async def compress_one(text: str) -> str:
+        if config.cache_enabled:
+            cached = cache.get(text)
+            if cached:
+                return cached
+        result = await gpt_mini_compress(oai_client, text)
+        if config.cache_enabled:
+            cache.set(text, result)
+        return result
+
+    compressed_texts = await asyncio.gather(
+        *[compress_one(text) for _, text, _ in to_compress],
+        return_exceptions=True,
+    )
+
+    total_original = 0
+    total_compressed_size = 0
+    success_count = 0
+    by_tool = []
+
+    for (i, original, tool_name), result in zip(to_compress, compressed_texts):
+        if isinstance(result, Exception):
+            continue
+        ratio = round((1 - len(result) / max(len(original), 1)) * 100)
+        messages[i]["content"] = f"[squeezr -{ratio}%] {result}"
+        saved = len(original) - len(result)
+        total_original += len(original)
+        total_compressed_size += len(result)
+        success_count += 1
+        by_tool.append({"tool": tool_name, "saved_chars": saved, "original_chars": len(original)})
+
+    if pressure >= 0.50:
+        print(f"[squeezr/codex] Context pressure: {pressure:.0%} \u2192 threshold={threshold} chars")
+
+    return messages, {
+        "compressed": success_count,
+        "saved_chars": total_original - total_compressed_size,
+        "original_chars": total_original,
+        "compressed_chars": total_compressed_size,
+        "by_tool": by_tool,
+        "dry_run": False,
+    }
