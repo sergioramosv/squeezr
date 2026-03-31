@@ -16,7 +16,7 @@ The result: your context fills up fast, costs spike, and sessions hit the limit 
 
 ## How Squeezr fixes it
 
-Squeezr intercepts every API request before it reaches the provider and runs four compression layers:
+Squeezr intercepts every API request before it reaches the provider and runs multiple compression layers:
 
 ```
 Your CLI (Claude Code / Codex / Aider / Gemini CLI / Ollama)
@@ -28,7 +28,13 @@ localhost:8080  (Squeezr proxy)
     |        Compressed once on first request, cached forever.
     |        ~13KB Claude Code system prompt → ~600 tokens. Never resent in full again.
     |
-    |-- [2] Adaptive tool result compression
+    |-- [2] Deterministic preprocessing (before AI compression)
+    |        6 noise-removal stages run on every tool result before AI sees it:
+    |        strip ANSI codes, strip progress bars, strip timestamps,
+    |        deduplicate repeated lines, minify inline JSON, collapse whitespace.
+    |        Cleaner input → better AI compression at lower cost.
+    |
+    |-- [3] Adaptive tool result compression
     |        Old bash output, file reads, grep results compressed by a cheap model.
     |        Threshold adjusts automatically based on context pressure:
     |          < 50% full  →  compress blocks > 1,500 chars
@@ -36,13 +42,15 @@ localhost:8080  (Squeezr proxy)
     |          75-90% full →  compress blocks > 400 chars
     |          > 90% full  →  compress everything > 150 chars
     |
-    |-- [3] Compression cache
+    |-- [4] Compression cache
     |        Already-compressed content cached to disk at ~/.squeezr/cache.json.
     |        Same git status appearing twice? Zero cost — served from cache.
     |
-    |-- [4] Conversation compression (opt-in)
-    |        Old user/assistant messages summarized too.
-    |        Enable in squeezr.toml: compress_conversation = true
+    |-- [5] expand() — lossless retrieval
+    |        Every compressed block is stored by ID. If the model needs the full
+    |        original, it calls squeezr_expand(id). Squeezr intercepts the tool call,
+    |        injects the original, and makes a continuation request — transparently.
+    |        The client never sees the tool call.
     |
     v
 Your provider's API (Anthropic / OpenAI / Google / Ollama)
@@ -110,9 +118,82 @@ For a typical 2-hour coding session with 40+ tool calls, Squeezr saves tens of t
 
 ---
 
+## How it differs from other compression proxies
+
+Several tools compress context windows (Tamp, Context Gateway, Headroom). Squeezr has three hard differentiators:
+
+**1. No extra API keys — ever.**
+Squeezr reuses the key from the request itself, targeting the cheapest model in that ecosystem. Other proxies bill separately or require setting up additional credentials.
+
+**2. Ollama compression.**
+Compress with a local model for free. No other proxy lets you use your own Ollama instance as the compression engine. Privacy-sensitive codebases stay entirely local.
+
+**3. Multi-provider in one proxy.**
+One proxy handles Anthropic, OpenAI, and Google APIs simultaneously. Other tools specialize in one ecosystem.
+
+---
+
+## Roadmap: what makes it genuinely unique
+
+Two features in development with no equivalent in any existing tool:
+
+### Differential Compression
+
+Today every request re-evaluates the entire message history. In a session with 50 tool results, request #51 still processes all 50 — even though 49 of them were already compressed last time.
+
+Differential compression tracks a hash of each message between requests. Only new or changed blocks go through the AI compression pipeline. In a long session, this reduces compression calls from O(N) per request to O(1–3) per request.
+
+```
+Without diff compression:  request 51 → 50 Haiku calls
+With diff compression:     request 51 → 1 Haiku call (only the new block)
+```
+
+In a 100-request session with 40 tool results: ~4,000 Haiku calls → ~200.
+
+### KV Cache Warming
+
+Claude charges 90% less for tokens already in its cache. The cache only activates when the message prefix is byte-for-byte identical between requests. The problem: compressing a tool result changes bytes at that position, breaking the cache for everything that follows it.
+
+KV cache warming fixes this by tracking which blocks haven't changed since the previous request and leaving them unmodified — even if they exceed the compression threshold. Only new blocks get compressed. The stable prefix maximizes cache hits on every request.
+
+```
+Without KV cache warming:
+  request N+1 → compressed block differs → cache miss on all subsequent tokens
+
+With KV cache warming:
+  request N+1 → unchanged blocks preserved → cache hit on entire prior history
+               → pay 10% of normal price for everything already seen
+```
+
+These two features are orthogonal: differential compression reduces Haiku API calls, KV cache warming reduces Anthropic charges on the main model. Together they compound.
+
+---
+
 ## Quick start
 
-### Option A — Installer (recommended)
+```bash
+npm install -g squeezr
+squeezr start
+```
+
+Then point your CLI at the proxy:
+
+```bash
+# Claude Code
+export ANTHROPIC_BASE_URL=http://localhost:8080        # macOS / Linux
+$env:ANTHROPIC_BASE_URL="http://localhost:8080"        # Windows PowerShell
+
+# Codex / Aider / OpenCode
+export OPENAI_BASE_URL=http://localhost:8080
+
+# Gemini CLI
+export GEMINI_API_BASE_URL=http://localhost:8080
+
+# Ollama
+export OPENAI_BASE_URL=http://localhost:8080
+```
+
+Or use the shell installer to set up the env var permanently and register Squeezr as a login service:
 
 ```bash
 # macOS / Linux
@@ -122,42 +203,11 @@ bash install.sh
 .\install.ps1
 ```
 
-The installer sets up dependencies, configures the env var in your shell profile, and registers Squeezr as a login service so it starts automatically.
-
-### Option B — Manual
-
-```bash
-# 1. Install dependencies
-pip install -r requirements.txt
-
-# 2. Start the proxy
-python main.py
-
-# 3. Point your CLI to it (in a new terminal or your shell profile)
-
-# Claude Code
-export ANTHROPIC_BASE_URL=http://localhost:8080        # macOS / Linux
-$env:ANTHROPIC_BASE_URL="http://localhost:8080"        # Windows PowerShell
-
-# Codex / Aider / OpenCode
-export OPENAI_BASE_URL=http://localhost:8080
-$env:OPENAI_BASE_URL="http://localhost:8080"
-
-# Gemini CLI
-export GEMINI_API_BASE_URL=http://localhost:8080
-$env:GEMINI_API_BASE_URL="http://localhost:8080"
-
-# Ollama (any CLI configured to use Ollama)
-export OPENAI_BASE_URL=http://localhost:8080
-
-# 4. Use your CLI normally — savings happen automatically
-```
-
 ---
 
 ## Configuration
 
-All settings live in `squeezr.toml` in the project directory. Environment variables override TOML values.
+All settings live in `squeezr.toml`. Environment variables override TOML values.
 
 ```toml
 [proxy]
@@ -168,7 +218,6 @@ threshold = 800           # min chars to compress a tool result
 keep_recent = 3           # recent tool results to leave untouched
 disabled = false
 compress_system_prompt = true    # compress the CLI's system prompt (cached)
-compress_conversation = false    # also compress old conversation messages (opt-in)
 
 [cache]
 enabled = true
@@ -229,11 +278,10 @@ Any CLI that sends requests with a dummy auth key (`ollama`, `lm-studio`, empty 
 
 ## Dry-run mode
 
-Preview what Squeezr would compress in your sessions without touching any requests:
+Preview what Squeezr would compress without touching any requests:
 
 ```bash
-SQUEEZR_DRY_RUN=1 python main.py              # macOS / Linux
-$env:SQUEEZR_DRY_RUN="1"; python main.py      # Windows PowerShell
+SQUEEZR_DRY_RUN=1 squeezr start
 ```
 
 Console output shows exactly what would be compressed:
@@ -256,37 +304,32 @@ Each compressed request logs to console:
 [squeezr/ollama] 1 block(s) compressed | -3,102 chars (~886 tokens) (79% saved)
 ```
 
-### `gain.py` — full stats dashboard
+### `squeezr gain` — full stats dashboard
 
 ```bash
-python gain.py
+squeezr gain
 ```
 
 ```
-════════════════════════════════════════════════════════════
-  Squeezr Token Savings  (live session)
-════════════════════════════════════════════════════════════
-  Total requests:    38
-  Compressions:      91
-  Chars saved:       142,830  (~40,808 tokens)
-  Savings:           73.4%
-  Efficiency meter:  █████████████████░░░░░░░ 73.4%
-
-  By Tool
-  ────────────────────────────────────────────────────────
-  #   Tool              Count    Saved    Avg%
-  ────────────────────────────────────────────────────────
-  1   Bash                 41   89.2K     81%  ████████░░
-  2   Read                 28   38.1K     74%  ███████░░░
-  3   Grep                 14   12.4K     69%  ██████░░░░
-  4   conversation          8    3.1K     61%  ██████░░░░
-  ────────────────────────────────────────────────────────
+┌─────────────────────────────────────────┐
+│          Squeezr — Token Savings         │
+├─────────────────────────────────────────┤
+│  Requests      38                        │
+│  Saved chars   142,830                   │
+│  Saved tokens  40,808                    │
+│  Savings       73.4%                     │
+├─────────────────────────────────────────┤
+│  By Tool                                 │
+│  Bash (41x): -81%                        │
+│  Read (28x): -74%                        │
+│  Grep (14x): -69%                        │
+└─────────────────────────────────────────┘
 ```
 
 Stats persist to `~/.squeezr/stats.json` across restarts.
 
 ```bash
-python gain.py --reset    # clear all saved stats
+squeezr gain --reset    # clear all saved stats
 ```
 
 Full JSON at: `http://localhost:8080/squeezr/stats`
@@ -303,24 +346,11 @@ The installer configures Squeezr to start automatically on login:
 | Linux | systemd user service (`~/.config/systemd/user/squeezr.service`) |
 | Windows | Task Scheduler (runs at login, restarts on failure) |
 
-To stop auto-start:
-
-```bash
-# macOS
-launchctl unload ~/Library/LaunchAgents/com.squeezr.plist
-
-# Linux
-systemctl --user disable squeezr && systemctl --user stop squeezr
-
-# Windows PowerShell
-Unregister-ScheduledTask -TaskName "Squeezr" -Confirm:$false
-```
-
 ---
 
 ## Requirements
 
-- Python 3.9+
+- Node.js 18+
 - An API key for whichever provider you use (Anthropic, OpenAI, Google)
 - For Ollama: Ollama running locally with at least one model pulled
 
@@ -335,6 +365,7 @@ Unregister-ScheduledTask -TaskName "Squeezr" -Confirm:$false
 | `POST /v1beta/models/{model}:generateContent` | Google — Gemini CLI |
 | `GET /squeezr/stats` | JSON session stats + cache hit rate |
 | `GET /squeezr/health` | Health check + version |
+| `GET /squeezr/expand/:id` | Retrieve original content for a compressed block |
 | `* /{path}` | All other endpoints forwarded unmodified to detected upstream |
 
 ---
