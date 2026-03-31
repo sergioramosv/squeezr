@@ -2,6 +2,23 @@
 
 All notable changes to Squeezr will be documented here.
 
+## [1.5.0] - 2026-03-31
+
+### Added
+- **`git status` compaction** — detects and compacts to `* branch [tracking] + Staged/Modified/Untracked` format (RTK parity)
+- **`git log --oneline` detection** — caps at 30 commits with `... [N more commits]` (full verbose format was already supported)
+- **`pnpm list` / `npm list` compaction** — keeps direct deps, strips nested tree with omission count
+- **`pnpm outdated` compaction** — caps at 30 packages
+- **Prisma CLI compaction** — strips ASCII box-drawing tip blocks, keeps meaningful output
+- **`gh pr checks` compaction** — caps large check tables at 25 rows
+- **Generic long-output truncation** — any unrecognised bash output > 80 lines gets last 50 lines + omission note (replaces the overly-broad docker logs detector)
+- 20 new tests covering all new patterns (159 total)
+
+### Fixed
+- `looksLikePkgList` false-positive on Prisma box-drawing output (now requires `├──` not just `└──`)
+- `looksLikeKubectl` false-positive on `gh pr checks` header (now requires specific kubectl column patterns)
+- `compactGitStatus` on clean working tree now shows "nothing to commit" message
+
 ## [1.4.0] - 2026-03-31
 
 ### Added

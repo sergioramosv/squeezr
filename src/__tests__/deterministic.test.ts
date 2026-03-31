@@ -355,18 +355,16 @@ abc123def456   nginx:latest  "/docker-e…"  2 hours ago   Up 2 hours    80/tcp 
   })
 })
 
-describe('preprocessForTool - docker logs', () => {
-  it('caps long log output to last 50 lines', () => {
+describe('preprocessForTool - long bash output (generic truncation)', () => {
+  it('truncates output > 80 lines, keeps last lines', () => {
     const logs = Array.from({ length: 100 }, (_, i) => `log line ${i}`).join('\n')
     const out = preprocessForTool(logs, 'Bash')
-    // Should mention omission
-    expect(out).toContain('earlier lines omitted')
-    // Should have last lines
+    expect(out).toContain('omitted')
     expect(out).toContain('log line 99')
   })
 
-  it('does not truncate short logs', () => {
-    const logs = Array.from({ length: 20 }, (_, i) => `log line ${i}`).join('\n')
+  it('does not truncate output <= 80 lines', () => {
+    const logs = Array.from({ length: 50 }, (_, i) => `log line ${i}`).join('\n')
     const out = preprocessForTool(logs, 'Bash')
     expect(out).toContain('log line 0')
     expect(out).not.toContain('omitted')
@@ -480,6 +478,192 @@ describe('preprocessForTool - Glob tool', () => {
     const out = preprocessForTool(small, 'Glob')
     expect(out).toContain('src/index.ts')
     expect(out).not.toContain('files total')
+  })
+})
+
+// ── git status ────────────────────────────────────────────────────────────────
+
+describe('preprocessForTool - git status', () => {
+  const status = `On branch main
+Your branch is up to date with 'origin/main'.
+
+Changes not staged for commit:
+  (use "git add <file>..." to update what will be committed)
+	modified:   src/foo.ts
+	modified:   src/bar.ts
+
+Untracked files:
+  (use "git add <file>..." to include in what will be committed)
+	new-file.ts
+
+no changes added to commit`
+
+  it('shows branch name', () => {
+    const out = preprocessForTool(status, 'Bash')
+    expect(out).toContain('* main')
+  })
+
+  it('shows modified file count and names', () => {
+    const out = preprocessForTool(status, 'Bash')
+    expect(out).toContain('~ Modified: 2 files')
+    expect(out).toContain('src/foo.ts')
+    expect(out).toContain('src/bar.ts')
+  })
+
+  it('shows untracked file count and names', () => {
+    const out = preprocessForTool(status, 'Bash')
+    expect(out).toContain('? Untracked: 1 file')
+    expect(out).toContain('new-file.ts')
+  })
+
+  it('strips "(use git add...)" hint lines', () => {
+    const out = preprocessForTool(status, 'Bash')
+    expect(out).not.toContain('use "git add')
+  })
+
+  it('shows "nothing to commit" for clean working tree', () => {
+    const clean = `On branch main\nYour branch is up to date with 'origin/main'.\n\nnothing to commit, working tree clean`
+    const out = preprocessForTool(clean, 'Bash')
+    expect(out).toContain('nothing to commit')
+  })
+
+  it('is shorter than original', () => {
+    const out = preprocessForTool(status, 'Bash')
+    expect(out.length).toBeLessThan(status.length)
+  })
+})
+
+// ── git log --oneline ─────────────────────────────────────────────────────────
+
+describe('preprocessForTool - git log --oneline', () => {
+  const oneline = Array.from({ length: 40 }, (_, i) =>
+    `a1b2c3${i.toString().padStart(1, '0')} feat: commit number ${i}`
+  ).join('\n')
+
+  it('caps --oneline output at 30 commits', () => {
+    const out = preprocessForTool(oneline, 'Bash')
+    expect(out).toContain('more commits')
+  })
+
+  it('keeps first 30 commits', () => {
+    const out = preprocessForTool(oneline, 'Bash')
+    expect(out).toContain('commit number 0')
+  })
+
+  it('does not modify short oneline log', () => {
+    const short = `a1b2c3d feat: first\nb4c5d6e fix: second\nc7d8e9f chore: third`
+    const out = preprocessForTool(short, 'Bash')
+    expect(out).toContain('feat: first')
+    expect(out).not.toContain('more commits')
+  })
+})
+
+// ── pnpm list ─────────────────────────────────────────────────────────────────
+
+describe('preprocessForTool - pnpm/npm list', () => {
+  const npmList = `my-app@1.0.0
+├── express@4.18.2
+│   ├── accepts@1.3.8
+│   │   └── mime-types@2.1.35
+│   └── body-parser@1.20.2
+├── react@18.2.0
+│   └── scheduler@0.23.0
+└── typescript@5.8.3
+    └── typescript@5.8.3 deduped`
+
+  it('keeps direct dependencies', () => {
+    const out = preprocessForTool(npmList, 'Bash')
+    expect(out).toContain('express@4.18.2')
+    expect(out).toContain('react@18.2.0')
+    expect(out).toContain('typescript@5.8.3')
+  })
+
+  it('removes nested dependencies', () => {
+    const out = preprocessForTool(npmList, 'Bash')
+    expect(out).toContain('nested packages omitted')
+    expect(out).not.toContain('accepts@1.3.8')
+    expect(out).not.toContain('scheduler@0.23.0')
+  })
+
+  it('keeps root package name', () => {
+    const out = preprocessForTool(npmList, 'Bash')
+    expect(out).toContain('my-app@1.0.0')
+  })
+
+  it('does not compact short lists', () => {
+    const short = `app@1.0.0\n└── lodash@4.17.21`
+    const out = preprocessForTool(short, 'Bash')
+    expect(out).toContain('lodash')
+    expect(out).not.toContain('omitted')
+  })
+})
+
+// ── pnpm outdated ─────────────────────────────────────────────────────────────
+
+describe('preprocessForTool - pnpm outdated', () => {
+  it('keeps output when short', () => {
+    const outdated = `Package    Current  Wanted  Latest\nreact      18.0.0   18.2.0  18.2.0\ntypescript 4.9.0    5.0.0   5.8.3`
+    const out = preprocessForTool(outdated, 'Bash')
+    expect(out).toContain('react')
+    expect(out).toContain('typescript')
+  })
+
+  it('caps long outdated list at 30 packages', () => {
+    const header = 'Package     Current  Wanted  Latest'
+    const rows = Array.from({ length: 50 }, (_, i) => `pkg-${i}  1.0.0  1.0.1  2.0.0`)
+    const out = preprocessForTool([header, ...rows].join('\n'), 'Bash')
+    expect(out).toContain('more outdated packages')
+  })
+})
+
+// ── prisma ────────────────────────────────────────────────────────────────────
+
+describe('preprocessForTool - prisma', () => {
+  const prismaOutput = `Prisma schema loaded from prisma/schema.prisma
+Environment variables loaded from .env
+
+✔ Generated Prisma Client (v5.10.2) to ./node_modules/@prisma/client in 127ms
+
+┌─────────────────────────────────────────────────────────┐
+│  Starter Prisma Tip:                                    │
+│  Understand your Prisma schema better with the          │
+│  Prisma VS Code Extension, for free!                    │
+└─────────────────────────────────────────────────────────┘`
+
+  it('keeps important output lines', () => {
+    const out = preprocessForTool(prismaOutput, 'Bash')
+    expect(out).toContain('Prisma schema loaded')
+    expect(out).toContain('Generated Prisma Client')
+  })
+
+  it('strips ASCII box decoration', () => {
+    const out = preprocessForTool(prismaOutput, 'Bash')
+    expect(out).not.toContain('┌─')
+    expect(out).not.toContain('└─')
+  })
+
+  it('strips box content', () => {
+    const out = preprocessForTool(prismaOutput, 'Bash')
+    expect(out).not.toContain('Starter Prisma Tip')
+  })
+})
+
+// ── gh pr checks ──────────────────────────────────────────────────────────────
+
+describe('preprocessForTool - gh pr checks', () => {
+  it('keeps short check tables unchanged', () => {
+    const checks = `NAME      STATUS     CONCLUSION\nbuild     completed  success\ntest      completed  failure`
+    const out = preprocessForTool(checks, 'Bash')
+    expect(out).toContain('build')
+    expect(out).toContain('success')
+    expect(out).toContain('failure')
+  })
+
+  it('caps large check tables at 25 rows', () => {
+    const header = 'NAME  STATUS  CONCLUSION'
+    const rows = Array.from({ length: 40 }, (_, i) => `check-${i}  completed  success`)
+    const out = preprocessForTool([header, ...rows].join('\n'), 'Bash')
+    expect(out).toContain('more checks')
   })
 })
 

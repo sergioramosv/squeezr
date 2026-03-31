@@ -98,6 +98,51 @@ export function preprocessRatio(original: string, processed: string): number {
   return 1 - processed.length / original.length
 }
 
+// ── Bash: git status ─────────────────────────────────────────────────────────
+
+function looksLikeGitStatus(t: string): boolean {
+  return t.startsWith('On branch ') || t.startsWith('HEAD detached at')
+}
+
+function compactGitStatus(text: string): string {
+  const lines = text.split('\n')
+  const staged: string[] = []
+  const modified: string[] = []
+  const untracked: string[] = []
+  let section = ''
+  let branch = ''
+  let trackingMsg = ''
+
+  for (const line of lines) {
+    const trimmed = line.trim()
+    if (line.startsWith('On branch ')) branch = line.replace('On branch ', '').trim()
+    else if (line.startsWith('HEAD detached at')) branch = trimmed
+    else if (trimmed.includes('ahead') || trimmed.includes('behind') || trimmed.includes('diverged')) trackingMsg = trimmed
+    else if (line.startsWith('Changes to be committed')) section = 'staged'
+    else if (line.startsWith('Changes not staged')) section = 'modified'
+    else if (line.startsWith('Untracked files:')) section = 'untracked'
+    else if (line.startsWith('nothing to commit') || line.startsWith('no changes added')) section = ''
+    else if ((line.startsWith('\t') || /^  /.test(line)) && trimmed && !trimmed.startsWith('(')) {
+      const file = trimmed.replace(/^(modified|new file|deleted|renamed|both modified|copied):\s+/, '')
+      if (section === 'staged') staged.push(file)
+      else if (section === 'modified') modified.push(file)
+      else if (section === 'untracked') untracked.push(file)
+    }
+  }
+
+  const out: string[] = []
+  if (branch) out.push(`* ${branch}${trackingMsg ? ` [${trackingMsg}]` : ''}`)
+  if (staged.length) out.push(`+ Staged: ${staged.length} file${staged.length !== 1 ? 's' : ''}\n${staged.map(f => '   ' + f).join('\n')}`)
+  if (modified.length) out.push(`~ Modified: ${modified.length} file${modified.length !== 1 ? 's' : ''}\n${modified.map(f => '   ' + f).join('\n')}`)
+  if (untracked.length) out.push(`? Untracked: ${untracked.length} file${untracked.length !== 1 ? 's' : ''}\n${untracked.map(f => '   ' + f).join('\n')}`)
+  if (!staged.length && !modified.length && !untracked.length) {
+    const cleanMsg = lines.find(l => l.includes('nothing to commit') || l.includes('working tree clean'))
+    if (cleanMsg) out.push(cleanMsg.trim())
+  }
+  if (out.length === 0) return lines.find(l => l.includes('nothing to commit') || l.includes('working tree clean')) ?? text
+  return out.join('\n')
+}
+
 // ── Bash: git ─────────────────────────────────────────────────────────────────
 
 function compactGitDiff(text: string): string {
@@ -119,19 +164,26 @@ function compactGitDiff(text: string): string {
   return out.join('\n')
 }
 
-// compact git log: one line per commit
+// compact git log: one line per commit (full format); cap --oneline format
 function compactGitLog(text: string): string {
-  const lines = text.split('\n')
-  const out: string[] = []
-  let hash = '', author = '', date = '', msg = ''
-  for (const line of lines) {
-    if (line.startsWith('commit ')) { if (hash) out.push(`${hash} ${msg} (${author}, ${date})`); hash = line.slice(7, 14); author = ''; date = ''; msg = '' }
-    else if (line.startsWith('Author:')) author = line.replace('Author:', '').trim().split('<')[0].trim()
-    else if (line.startsWith('Date:')) date = line.replace('Date:', '').trim()
-    else if (line.trim() && !author.length) { /* skip */ } else if (line.trim()) msg = msg || line.trim()
+  // Full verbose format: commit <hash>\nAuthor: ...\nDate: ...\n\n    message
+  if (text.startsWith('commit ') && text.includes('Author:') && text.includes('Date:')) {
+    const lines = text.split('\n')
+    const out: string[] = []
+    let hash = '', author = '', date = '', msg = ''
+    for (const line of lines) {
+      if (line.startsWith('commit ')) { if (hash) out.push(`${hash} ${msg} (${author}, ${date})`); hash = line.slice(7, 14); author = ''; date = ''; msg = '' }
+      else if (line.startsWith('Author:')) author = line.replace('Author:', '').trim().split('<')[0].trim()
+      else if (line.startsWith('Date:')) date = line.replace('Date:', '').trim()
+      else if (line.trim() && !author.length) { /* skip */ } else if (line.trim()) msg = msg || line.trim()
+    }
+    if (hash) out.push(`${hash} ${msg} (${author}, ${date})`)
+    return out.join('\n') || text
   }
-  if (hash) out.push(`${hash} ${msg} (${author}, ${date})`)
-  return out.join('\n') || text
+  // --oneline or other compact formats: already one line per commit, just cap at 30
+  const lines = text.split('\n').filter(l => l.trim())
+  if (lines.length > 30) return lines.slice(0, 30).join('\n') + `\n... [${lines.length - 30} more commits]`
+  return text
 }
 
 // ── Bash: cargo ───────────────────────────────────────────────────────────────
@@ -235,6 +287,61 @@ function compactNextBuild(text: string): string {
   return out.join('\n') || text
 }
 
+// ── Bash: package list / outdated ────────────────────────────────────────────
+
+function looksLikePkgList(t: string): boolean {
+  // Require ├── (not just └──) to avoid matching Prisma/other box-drawing outputs
+  return t.includes('├──') && (t.includes('@') || /\bv\d+\.\d+/.test(t))
+}
+
+function compactPkgList(text: string): string {
+  const lines = text.split('\n')
+  const direct: string[] = []
+  const nested: string[] = []
+  for (const line of lines) {
+    if (!line.trim()) continue
+    if (/^[├└]──/.test(line)) direct.push(line)       // direct dep (no leading indent)
+    else if (/^[\s│]/.test(line)) nested.push(line)   // nested dep
+    else direct.push(line)                              // root package / section header
+  }
+  if (nested.length === 0) return text  // nothing to compact
+  const result = [...direct.slice(0, 60)]
+  result.push(`... [${nested.length} nested packages omitted]`)
+  if (direct.length > 60) result.push(`... [${direct.length - 60} more direct packages]`)
+  return result.join('\n')
+}
+
+function looksLikePkgOutdated(t: string): boolean {
+  return /Current\s+Wanted\s+Latest/i.test(t)
+}
+
+function compactPkgOutdated(text: string): string {
+  const lines = text.split('\n').filter(l => l.trim())
+  if (lines.length <= 30) return text
+  return lines.slice(0, 30).join('\n') + `\n... [${lines.length - 30} more outdated packages]`
+}
+
+// ── Bash: Prisma ──────────────────────────────────────────────────────────────
+
+function looksLikePrisma(t: string): boolean {
+  return t.toLowerCase().includes('prisma') && (t.includes('┌') || t.includes('└─') || t.includes('Prisma schema'))
+}
+
+function compactPrisma(text: string): string {
+  const lines = text.split('\n')
+  const out: string[] = []
+  let inBox = false
+  for (const line of lines) {
+    const t = line.trim()
+    if (!t) continue
+    if (t.startsWith('┌') || t.startsWith('╔')) { inBox = true; continue }
+    if (t.startsWith('└') || t.startsWith('╚')) { inBox = false; continue }
+    if (inBox) continue
+    out.push(line)
+  }
+  return out.join('\n') || text
+}
+
 // ── Bash: Docker ──────────────────────────────────────────────────────────────
 
 function compactDockerPs(text: string): string {
@@ -257,13 +364,6 @@ function compactDockerImages(text: string): string {
     .join('\n')
 }
 
-function compactDockerLogs(text: string): string {
-  // Logs are already handled well by base pipeline (dedup + timestamp strip)
-  // Just cap to last 50 lines if very long
-  const lines = text.split('\n')
-  if (lines.length <= 50) return text
-  return `... [${lines.length - 50} earlier lines omitted]\n` + lines.slice(-50).join('\n')
-}
 
 // ── Bash: kubectl ─────────────────────────────────────────────────────────────
 
@@ -318,7 +418,14 @@ function compactCurlOutput(text: string): string {
 // ── Bash detection helpers ────────────────────────────────────────────────────
 
 function looksLikeGitDiff(t: string): boolean { return t.includes('diff --git') || (t.includes('--- a/') && t.includes('+++ b/')) }
-function looksLikeGitLog(t: string): boolean { return t.startsWith('commit ') && t.includes('Author:') && t.includes('Date:') }
+function looksLikeGitLog(t: string): boolean {
+  if (t.startsWith('commit ') && t.includes('Author:') && t.includes('Date:')) return true
+  // --oneline: 3+ lines each starting with a 7-12 char hex hash (not followed by another hex char)
+  const lines = t.split('\n').filter(l => l.trim())
+  if (lines.length < 3) return false
+  const hashLines = lines.filter(l => /^[a-f0-9]{7,12}[^a-f0-9]/.test(l))
+  return hashLines.length >= 3 && hashLines.length / lines.length > 0.6
+}
 function looksLikeCargoTest(t: string): boolean { return /test .+\.\.\. (ok|FAILED)/.test(t) }
 function looksLikeCargoBuild(t: string): boolean { return /error\[E\d+\]/.test(t) || (t.includes('Compiling') && (t.includes('error') || t.includes('warning'))) }
 function looksLikeVitest(t: string): boolean { return (t.includes('✓') || t.includes('✕') || t.includes('×')) && (t.includes('Test Files') || t.includes('PASS') || t.includes('FAIL')) }
@@ -329,12 +436,31 @@ function looksLikeNextBuild(t: string): boolean { return t.includes('Next.js') &
 function looksLikePkgInstall(t: string): boolean { return /added \d+ package/.test(t) || (t.includes('packages are looking for funding') && t.split('\n').length > 5) }
 function looksLikeDockerPs(t: string): boolean { return t.includes('CONTAINER ID') && t.includes('IMAGE') }
 function looksLikeDockerImages(t: string): boolean { return t.includes('REPOSITORY') && t.includes('TAG') && t.includes('IMAGE ID') }
-function looksLikeDockerLogs(t: string): boolean { return t.split('\n').length > 50 }
-function looksLikeKubectl(t: string): boolean { return /^(NAME\s+READY|NAME\s+STATUS|NAME\s+AGE)/.test(t) }
+function looksLikeKubectl(t: string): boolean {
+  // Be specific to avoid matching gh pr checks (NAME STATUS CONCLUSION) or similar
+  return /^NAME\s+READY\s+STATUS/.test(t) || /^NAME\s+STATUS\s+ROLES/.test(t) ||
+    /^NAME\s+TYPE\b/.test(t) || /^NAME\s+AGE\b/.test(t) || /^NAME\s+SHORTNAMES\b/.test(t)
+}
+function looksLikeGhPrChecks(t: string): boolean { return /\bCONCLUSION\b/.test(t) && /(success|failure|neutral|cancelled|skipped)/i.test(t) && !t.includes('WORKFLOW') }
 function looksLikeGhPr(t: string): boolean { return t.match(/^(title|state|url):?\s/im) !== null && t.includes('github.com') }
 function looksLikeGhRunList(t: string): boolean { return t.includes('STATUS') && t.includes('CONCLUSION') && t.includes('WORKFLOW') }
 function looksLikeGhIssueList(t: string): boolean { return t.includes('ISSUE') && t.includes('TITLE') && t.includes('STATE') }
 function looksLikeCurl(t: string): boolean { return t.includes('* Connected to') || (t.split('\n').filter(l => l.startsWith('>')).length > 3) }
+
+// gh pr checks: compact table of check name/status/conclusion
+function compactGhPrChecks(text: string): string {
+  const lines = text.split('\n').filter(l => l.trim())
+  if (lines.length <= 25) return text
+  return lines.slice(0, 25).join('\n') + `\n... [${lines.length - 25} more checks]`
+}
+
+// Generic fallback: long unrecognised bash output — keep last 50 lines
+function truncateLongOutput(text: string): string {
+  const lines = text.split('\n')
+  if (lines.length <= 80) return text
+  const omitted = lines.length - 50
+  return `... [${omitted} earlier lines omitted]\n` + lines.slice(-50).join('\n')
+}
 
 function extractInstallSummary(text: string): string {
   const lines = text.split('\n')
@@ -355,25 +481,29 @@ function compactFileListing(text: string): string {
 }
 
 function applyBashPatterns(text: string): string {
-  if (looksLikeGitDiff(text))     return compactGitDiff(text)
-  if (looksLikeGitLog(text))      return compactGitLog(text)
-  if (looksLikeCargoTest(text))   return extractCargoTestFailures(text)
-  if (looksLikeCargoBuild(text))  return extractCargoErrors(text)
-  if (looksLikeVitest(text))      return extractVitestFailures(text)
-  if (looksLikeTsc(text))         return compactTscErrors(text)
-  if (looksLikeEslint(text))      return compactEslint(text)
-  if (looksLikePrettier(text))    return compactPrettier(text)
-  if (looksLikeNextBuild(text))   return compactNextBuild(text)
-  if (looksLikePkgInstall(text))  return extractInstallSummary(text)
-  if (looksLikeDockerPs(text))    return compactDockerPs(text)
-  if (looksLikeDockerImages(text))return compactDockerImages(text)
-  if (looksLikeDockerLogs(text))  return compactDockerLogs(text)
-  if (looksLikeKubectl(text))     return compactKubectlGet(text)
-  if (looksLikeGhPr(text))        return compactGhPr(text)
-  if (looksLikeGhRunList(text))   return compactGhRunList(text)
-  if (looksLikeGhIssueList(text)) return compactGhIssueList(text)
-  if (looksLikeCurl(text))        return compactCurlOutput(text)
-  return text
+  if (looksLikeGitDiff(text))       return compactGitDiff(text)
+  if (looksLikeGitLog(text))        return compactGitLog(text)
+  if (looksLikeGitStatus(text))     return compactGitStatus(text)
+  if (looksLikeCargoTest(text))     return extractCargoTestFailures(text)
+  if (looksLikeCargoBuild(text))    return extractCargoErrors(text)
+  if (looksLikeVitest(text))        return extractVitestFailures(text)
+  if (looksLikeTsc(text))           return compactTscErrors(text)
+  if (looksLikeEslint(text))        return compactEslint(text)
+  if (looksLikePrettier(text))      return compactPrettier(text)
+  if (looksLikeNextBuild(text))     return compactNextBuild(text)
+  if (looksLikePkgInstall(text))    return extractInstallSummary(text)
+  if (looksLikePkgList(text))       return compactPkgList(text)
+  if (looksLikePkgOutdated(text))   return compactPkgOutdated(text)
+  if (looksLikeDockerPs(text))      return compactDockerPs(text)
+  if (looksLikeDockerImages(text))  return compactDockerImages(text)
+  if (looksLikeKubectl(text))       return compactKubectlGet(text)
+  if (looksLikePrisma(text))        return compactPrisma(text)
+  if (looksLikeGhPrChecks(text))   return compactGhPrChecks(text)
+  if (looksLikeGhPr(text))          return compactGhPr(text)
+  if (looksLikeGhRunList(text))     return compactGhRunList(text)
+  if (looksLikeGhIssueList(text))   return compactGhIssueList(text)
+  if (looksLikeCurl(text))          return compactCurlOutput(text)
+  return truncateLongOutput(text)
 }
 
 // ── Grep tool ─────────────────────────────────────────────────────────────────
