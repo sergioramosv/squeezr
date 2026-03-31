@@ -340,6 +340,96 @@ async def compress_openai_messages(messages: list, openai_key: str, config) -> t
     }
 
 
+# ── Ollama / local LLMs ───────────────────────────────────────────────────────
+
+async def compress_local_messages(messages: list, config) -> tuple:
+    """
+    Compresses old tool messages using a local Ollama model.
+    Uses the OpenAI-compatible endpoint that Ollama exposes at /v1/chat/completions.
+    Model is fully configurable in squeezr.toml [local] compression_model.
+    """
+    if config.disabled:
+        return messages, {"compressed": 0, "saved_chars": 0, "by_tool": [], "dry_run": False}
+
+    cache = get_cache(config)
+    pressure = estimate_context_pressure(messages)
+    threshold = config.threshold_for_pressure(pressure)
+
+    # Reuse OpenAI tool result extraction — Ollama uses the same format
+    tool_results = get_openai_tool_results(messages)
+    candidates = tool_results[: -config.keep_recent] if len(tool_results) > config.keep_recent else []
+    to_compress = [(i, text, tool) for i, text, tool in candidates if len(text) >= threshold]
+
+    if not to_compress:
+        return messages, {"compressed": 0, "saved_chars": 0, "by_tool": [], "dry_run": False}
+
+    if config.dry_run:
+        potential = sum(len(t) for _, t, _ in to_compress)
+        print(
+            f"[squeezr dry-run/ollama] Would compress {len(to_compress)} block(s) "
+            f"| potential -{potential:,} chars | model={config.local_compression_model}"
+        )
+        return messages, {"compressed": 0, "saved_chars": 0, "by_tool": [], "dry_run": True}
+
+    messages = copy.deepcopy(messages)
+
+    # Ollama exposes an OpenAI-compatible endpoint — just point the client at it
+    from openai import AsyncOpenAI
+    ollama_client = AsyncOpenAI(
+        api_key="ollama",
+        base_url=f"{config.local_upstream_url.rstrip('/')}/v1",
+    )
+
+    async def compress_one(text: str) -> str:
+        if config.cache_enabled:
+            cached = cache.get(text)
+            if cached:
+                return cached
+        response = await ollama_client.chat.completions.create(
+            model=config.local_compression_model,
+            max_tokens=300,
+            messages=[{"role": "user", "content": f"{COMPRESSION_PROMPT}\n\n---\n{text[:4000]}"}],
+        )
+        result = response.choices[0].message.content
+        if config.cache_enabled:
+            cache.set(text, result)
+        return result
+
+    compressed_texts = await asyncio.gather(
+        *[compress_one(text) for _, text, _ in to_compress],
+        return_exceptions=True,
+    )
+
+    total_original = 0
+    total_compressed_size = 0
+    success_count = 0
+    by_tool = []
+
+    for (i, original, tool_name), result in zip(to_compress, compressed_texts):
+        if isinstance(result, Exception):
+            print(f"[squeezr/ollama] Compression failed ({tool_name}): {result}")
+            continue
+        ratio = round((1 - len(result) / max(len(original), 1)) * 100)
+        messages[i]["content"] = f"[squeezr -{ratio}%] {result}"
+        saved = len(original) - len(result)
+        total_original += len(original)
+        total_compressed_size += len(result)
+        success_count += 1
+        by_tool.append({"tool": tool_name, "saved_chars": saved, "original_chars": len(original)})
+
+    if pressure >= 0.50:
+        print(f"[squeezr/ollama] Context pressure: {pressure:.0%} \u2192 threshold={threshold} chars")
+
+    return messages, {
+        "compressed": success_count,
+        "saved_chars": total_original - total_compressed_size,
+        "original_chars": total_original,
+        "compressed_chars": total_compressed_size,
+        "by_tool": by_tool,
+        "dry_run": False,
+    }
+
+
 # ── Google Gemini CLI format ───────────────────────────────────────────────────
 
 def get_gemini_tool_results(contents: list) -> list:

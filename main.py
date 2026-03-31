@@ -7,7 +7,7 @@ import uvicorn
 from fastapi import FastAPI, Request, Response
 from fastapi.responses import StreamingResponse
 
-from compressor import compress_messages, compress_openai_messages, compress_gemini_contents, get_cache
+from compressor import compress_messages, compress_openai_messages, compress_gemini_contents, compress_local_messages, get_cache
 from config import Config
 from stats import Stats, print_banner
 from system_prompt import maybe_compress_system_prompt
@@ -93,13 +93,18 @@ async def proxy_messages(request: Request):
         return Response(content=resp.content, status_code=resp.status_code, headers=resp_headers)
 
 
-# ── OpenAI / Codex ────────────────────────────────────────────────────────────
+# ── OpenAI / Codex / Ollama ───────────────────────────────────────────────────
 
 @app.post("/v1/chat/completions")
 async def proxy_chat_completions(request: Request):
     body = await request.json()
     headers = dict(request.headers)
     openai_key = extract_openai_key(headers)
+
+    # Local Ollama request — different compression + upstream
+    if config.is_local_key(openai_key):
+        return await _handle_local(body, headers, request)
+
 
     messages = body.get("messages", [])
 
@@ -142,6 +147,33 @@ async def _stream(url: str, body: dict, headers: dict, params: dict | None = Non
         async with client.stream("POST", url, json=body, headers=headers, params=params or {}) as resp:
             async for chunk in resp.aiter_bytes():
                 yield chunk
+
+
+# ── Local Ollama handler ──────────────────────────────────────────────────────
+
+async def _handle_local(body: dict, headers: dict, request: Request) -> Response:
+    messages = body.get("messages", [])
+    original_chars = estimate_chars(messages)
+
+    compressed_messages, savings = await compress_local_messages(messages, config)
+    body["messages"] = compressed_messages
+
+    stats.record(original_chars, estimate_chars(compressed_messages), savings)
+
+    upstream = f"{config.local_upstream_url.rstrip('/')}/v1/chat/completions"
+    fwd_headers = forward_headers(headers)
+
+    if body.get("stream", False):
+        return StreamingResponse(
+            _stream(upstream, body, fwd_headers),
+            media_type="text/event-stream",
+            headers={"cache-control": "no-cache", "x-accel-buffering": "no"},
+        )
+
+    async with httpx.AsyncClient(timeout=300) as client:
+        resp = await client.post(upstream, json=body, headers=fwd_headers)
+        resp_headers = {k: v for k, v in resp.headers.items() if k.lower() not in SKIP_RESPONSE_HEADERS}
+        return Response(content=resp.content, status_code=resp.status_code, headers=resp_headers)
 
 
 # ── Google Gemini CLI ─────────────────────────────────────────────────────────
@@ -226,7 +258,7 @@ async def get_stats():
 
 @app.get("/squeezr/health")
 async def health():
-    return {"status": "ok", "version": "0.5.0"}
+    return {"status": "ok", "version": "0.6.0"}
 
 
 if __name__ == "__main__":

@@ -52,6 +52,25 @@ class Config:
         self.adaptive_high = int(adaptive_cfg.get("high_threshold", 400))
         self.adaptive_critical = int(adaptive_cfg.get("critical_threshold", 150))
 
+        # Local / Ollama
+        local_cfg = t.get("local", {})
+        self.local_enabled = local_cfg.get("enabled", True)
+        self.local_upstream_url = os.environ.get(
+            "SQUEEZR_LOCAL_UPSTREAM", local_cfg.get("upstream_url", "http://localhost:11434")
+        )
+        self.local_compression_model = os.environ.get(
+            "SQUEEZR_LOCAL_MODEL", local_cfg.get("compression_model", "qwen2.5-coder:1.5b")
+        )
+        raw_dummy = local_cfg.get("dummy_keys", ["ollama", "lm-studio", "sk-no-key-required", "local", "none", ""])
+        self.local_dummy_keys = {k.lower() for k in raw_dummy}
+
+    def is_local_key(self, key: str) -> bool:
+        """Returns True if the auth key looks like a local/dummy key."""
+        if not self.local_enabled:
+            return False
+        k = key.strip().lower()
+        return k in self.local_dummy_keys or (k and not k.startswith("sk-") and not k.startswith("aiza"))
+
     def threshold_for_pressure(self, pressure: float) -> int:
         """Returns compression threshold based on context pressure (0.0-1.0)."""
         if not self.adaptive_enabled:

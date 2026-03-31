@@ -2,6 +2,20 @@
 
 All notable changes to Squeezr will be documented here.
 
+## [0.6.0] - 2026-03-31
+
+### Added
+- **Ollama / local LLM support** — requests with dummy keys (`ollama`, `lm-studio`, etc.) are detected as local and routed to Ollama
+- **Configurable compression model** — set any model you have installed via `squeezr.toml [local] compression_model` or `SQUEEZR_LOCAL_MODEL` env var
+- **`[local]` config section** in `squeezr.toml` with `upstream_url`, `compression_model`, and `dummy_keys`
+- `config.is_local_key()` detects local requests from auth key
+- `compress_local_messages()` uses Ollama's OpenAI-compatible `/v1` endpoint for compression
+- `SQUEEZR_LOCAL_UPSTREAM` and `SQUEEZR_LOCAL_MODEL` env var overrides
+
+### Changed
+- `/v1/chat/completions` now checks for local key before routing to OpenAI
+- Version bumped to 0.6.0
+
 ## [0.5.0] - 2026-03-31
 
 ### Added

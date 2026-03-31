@@ -19,3 +19,16 @@ low_threshold = 1500     # < 50% context used
 mid_threshold = 800      # 50-75%
 high_threshold = 400     # 75-90%
 critical_threshold = 150 # > 90% — compress everything possible
+
+[local]
+enabled = true
+upstream_url = "http://localhost:11434"   # your Ollama URL
+# Model used to compress tool results — must be pulled in your Ollama.
+# Any model works. Recommended small models:
+#   qwen2.5-coder:1.5b  (best for code, ~1GB RAM)
+#   qwen2.5:1.5b        (good general, ~1GB RAM)
+#   llama3.2:1b         (good English, ~800MB RAM)
+#   qwen2.5:3b          (better quality, ~2GB RAM)
+compression_model = "qwen2.5-coder:1.5b"
+# Keys that indicate a local/dummy request (not a real cloud key)
+dummy_keys = ["ollama", "lm-studio", "sk-no-key-required", "local", "none", ""]
