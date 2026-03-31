@@ -1,0 +1,21 @@
+[proxy]
+port = 8080
+
+[compression]
+threshold = 800          # min chars to compress a tool result
+keep_recent = 3          # how many recent tool results to leave untouched
+disabled = false
+compress_system_prompt = true   # compress system prompt after first request
+compress_conversation = false   # also compress old user/assistant messages (aggressive)
+
+[cache]
+enabled = true
+max_entries = 1000       # LRU cap for cached compressions
+
+[adaptive]
+enabled = true
+# Thresholds adjust based on context pressure (% of model context used)
+low_threshold = 1500     # < 50% context used
+mid_threshold = 800      # 50-75%
+high_threshold = 400     # 75-90%
+critical_threshold = 150 # > 90% — compress everything possible

@@ -1,0 +1,62 @@
+import hashlib
+import json
+from pathlib import Path
+from anthropic import AsyncAnthropic
+
+CACHE_FILE = Path.home() / ".squeezr" / "sysprompt_cache.json"
+MIN_LENGTH = 2000  # don't bother compressing short system prompts
+
+COMPRESSION_PROMPT = (
+    "Compress this AI assistant system prompt to under 600 tokens. "
+    "Keep: tool names, behavioral rules, key constraints, critical instructions. "
+    "Remove: verbose examples, repetitive explanations, formatting guides, long documentation. "
+    "Output only the compressed prompt, preserving its original format."
+)
+
+
+def _key(prompt: str) -> str:
+    return hashlib.md5(prompt.encode("utf-8")).hexdigest()
+
+
+def _load_cache() -> dict:
+    try:
+        if CACHE_FILE.exists():
+            return json.loads(CACHE_FILE.read_text(encoding="utf-8"))
+    except Exception:
+        pass
+    return {}
+
+
+def _save_cache(cache: dict):
+    try:
+        CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
+        CACHE_FILE.write_text(json.dumps(cache), encoding="utf-8")
+    except Exception:
+        pass
+
+
+async def maybe_compress_system_prompt(prompt: str | None, api_key: str) -> str | None:
+    if not prompt or len(prompt) < MIN_LENGTH:
+        return prompt
+
+    cache = _load_cache()
+    k = _key(prompt)
+
+    if k in cache:
+        return cache[k]
+
+    try:
+        client = AsyncAnthropic(api_key=api_key)
+        response = await client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=700,
+            messages=[{"role": "user", "content": f"{COMPRESSION_PROMPT}\n\n---\n{prompt[:10000]}"}],
+        )
+        compressed = response.content[0].text
+        ratio = round((1 - len(compressed) / len(prompt)) * 100)
+        print(f"[squeezr] System prompt compressed: -{ratio}% ({len(prompt):,} \u2192 {len(compressed):,} chars) [cached]")
+        cache[k] = compressed
+        _save_cache(cache)
+        return compressed
+    except Exception:
+        return prompt

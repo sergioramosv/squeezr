@@ -1,3 +1,4 @@
+import json
 import os
 from contextlib import asynccontextmanager
 
@@ -6,9 +7,10 @@ import uvicorn
 from fastapi import FastAPI, Request, Response
 from fastapi.responses import StreamingResponse
 
-from compressor import compress_messages
+from compressor import compress_messages, get_cache
 from config import Config
 from stats import Stats, print_banner
+from system_prompt import maybe_compress_system_prompt
 
 config = Config()
 stats = Stats()
@@ -23,7 +25,6 @@ def forward_headers(headers: dict) -> dict:
 
 
 def estimate_chars(messages: list) -> int:
-    import json
     return len(json.dumps(messages))
 
 
@@ -42,6 +43,11 @@ async def proxy_messages(request: Request):
     headers = dict(request.headers)
     api_key = headers.get("x-api-key", os.environ.get("ANTHROPIC_API_KEY", ""))
 
+    # 1. Compress system prompt (cached after first time)
+    if config.compress_system_prompt and not config.dry_run:
+        body["system"] = await maybe_compress_system_prompt(body.get("system"), api_key)
+
+    # 2. Compress old tool results (and optionally conversation messages)
     messages = body.get("messages", [])
     original_chars = estimate_chars(messages)
 
@@ -74,10 +80,8 @@ async def _stream(body: dict, headers: dict):
 
 @app.api_route("/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH"])
 async def catch_all(request: Request, path: str):
-    """Forward any other Anthropic endpoint without modification."""
     body = await request.body()
     headers = forward_headers(dict(request.headers))
-
     async with httpx.AsyncClient(timeout=60) as client:
         resp = await client.request(
             method=request.method,
@@ -92,12 +96,15 @@ async def catch_all(request: Request, path: str):
 
 @app.get("/squeezr/stats")
 async def get_stats():
-    return stats.summary()
+    s = stats.summary()
+    s["cache"] = get_cache(config).stats()
+    s["dry_run"] = config.dry_run
+    return s
 
 
 @app.get("/squeezr/health")
 async def health():
-    return {"status": "ok", "version": "0.1.0"}
+    return {"status": "ok", "version": "0.3.0"}
 
 
 if __name__ == "__main__":
