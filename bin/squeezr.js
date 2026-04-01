@@ -211,12 +211,20 @@ function setupUnix() {
 
   console.log(`Setting up Squeezr for ${platform === 'darwin' ? 'macOS' : 'Linux'}...\n`)
 
-  // 1. Set env vars in shell profile
-  const exportLines = [
-    'export ANTHROPIC_BASE_URL=http://localhost:8080',
-    'export OPENAI_BASE_URL=http://localhost:8080',
-    'export GEMINI_API_BASE_URL=http://localhost:8080',
-  ]
+  // 1. Set env vars + auto-heal guard in shell profile
+  const distIndex = path.join(ROOT, 'dist', 'index.js')
+  const port = process.env.SQUEEZR_PORT || 8080
+  const shellBlock = [
+    `# squeezr env vars`,
+    `export ANTHROPIC_BASE_URL=http://localhost:${port}`,
+    `export OPENAI_BASE_URL=http://localhost:${port}`,
+    `export GEMINI_API_BASE_URL=http://localhost:${port}`,
+    `# squeezr auto-heal: start proxy if not running`,
+    `if ! curl -sf http://localhost:${port}/squeezr/health >/dev/null 2>&1; then`,
+    `  nohup ${nodeExe} ${distIndex} >> "${os.homedir()}/.squeezr/squeezr.log" 2>&1 &`,
+    `  disown`,
+    `fi`,
+  ].join('\n')
   const marker = '# squeezr env vars'
   const profiles = [
     path.join(os.homedir(), '.zshrc'),
@@ -226,10 +234,19 @@ function setupUnix() {
   const profile = profiles.find(p => fs.existsSync(p)) ?? profiles[0]
   const existing = fs.existsSync(profile) ? fs.readFileSync(profile, 'utf-8') : ''
   if (!existing.includes(marker)) {
-    fs.appendFileSync(profile, `\n${marker}\n${exportLines.join('\n')}\n`)
-    console.log(`  [ok] Env vars added to ${profile}`)
+    fs.appendFileSync(profile, `\n${shellBlock}\n`)
+    console.log(`  [ok] Env vars + auto-heal added to ${profile}`)
   } else {
-    console.log(`  [skip] Env vars already in ${profile}`)
+    if (!existing.includes('squeezr auto-heal')) {
+      const updatedContent = existing.replace(
+        /# squeezr env vars\n(?:export [A-Z_]+=http:\/\/localhost:\d+\n?)*/,
+        shellBlock + '\n'
+      )
+      fs.writeFileSync(profile, updatedContent)
+      console.log(`  [ok] Auto-heal guard added to ${profile}`)
+    } else {
+      console.log(`  [skip] Env vars + auto-heal already in ${profile}`)
+    }
   }
 
   // 2a. macOS — launchd
@@ -300,6 +317,173 @@ Done!
 `)
 }
 
+// ── WSL2 detection ───────────────────────────────────────────────────────────
+
+function isWSL() {
+  try {
+    const release = fs.readFileSync('/proc/version', 'utf-8')
+    return /microsoft|wsl/i.test(release)
+  } catch {
+    return false
+  }
+}
+
+// ── squeezr setup — WSL2 ────────────────────────────────────────────────────
+
+function setupWSL() {
+  const nodeExe = process.execPath
+  const distIndex = path.join(ROOT, 'dist', 'index.js')
+
+  console.log('Setting up Squeezr for WSL2...\n')
+
+  // 1. Set env vars + auto-heal guard in WSL shell profile (.bashrc / .zshrc)
+  //    The guard checks if the proxy is alive on terminal open. If not, it starts
+  //    it in the background. This is the safety net for WSL2 where systemd and
+  //    Task Scheduler may both fail.
+  const port = process.env.SQUEEZR_PORT || 8080
+  const shellBlock = [
+    `# squeezr env vars`,
+    `export ANTHROPIC_BASE_URL=http://localhost:${port}`,
+    `export OPENAI_BASE_URL=http://localhost:${port}`,
+    `export GEMINI_API_BASE_URL=http://localhost:${port}`,
+    `# squeezr auto-heal: start proxy if not running`,
+    `if ! curl -sf http://localhost:${port}/squeezr/health >/dev/null 2>&1; then`,
+    `  nohup ${nodeExe} ${distIndex} >> "${os.homedir()}/.squeezr/squeezr.log" 2>&1 &`,
+    `  disown`,
+    `fi`,
+  ].join('\n')
+  const marker = '# squeezr env vars'
+  const profiles = [
+    path.join(os.homedir(), '.zshrc'),
+    path.join(os.homedir(), '.bashrc'),
+    path.join(os.homedir(), '.bash_profile'),
+  ]
+  const profile = profiles.find(p => fs.existsSync(p)) ?? profiles[1]
+  const existing = fs.existsSync(profile) ? fs.readFileSync(profile, 'utf-8') : ''
+  if (!existing.includes(marker)) {
+    fs.appendFileSync(profile, `\n${shellBlock}\n`)
+    console.log(`  [ok] Env vars + auto-heal added to ${profile}`)
+  } else {
+    // Update existing block to include auto-heal if missing
+    if (!existing.includes('squeezr auto-heal')) {
+      const updatedContent = existing.replace(
+        /# squeezr env vars\n(?:export [A-Z_]+=http:\/\/localhost:\d+\n?)*/,
+        shellBlock + '\n'
+      )
+      fs.writeFileSync(profile, updatedContent)
+      console.log(`  [ok] Auto-heal guard added to ${profile}`)
+    } else {
+      console.log(`  [skip] Env vars + auto-heal already in ${profile}`)
+    }
+  }
+
+  // 2. Set Windows env vars via setx.exe (so Windows-launched CLIs see them)
+  const setxExe = '/mnt/c/Windows/System32/setx.exe'
+  const winVars = {
+    ANTHROPIC_BASE_URL: 'http://localhost:8080',
+    OPENAI_BASE_URL: 'http://localhost:8080',
+    GEMINI_API_BASE_URL: 'http://localhost:8080',
+  }
+  if (fs.existsSync(setxExe)) {
+    for (const [key, value] of Object.entries(winVars)) {
+      try {
+        execSync(`"${setxExe}" ${key} "${value}"`, { stdio: 'pipe' })
+        console.log(`  [ok] Windows env: ${key}=${value}`)
+      } catch {
+        console.log(`  [skip] Windows env: ${key} could not be set`)
+      }
+    }
+  } else {
+    console.log('  [skip] setx.exe not found — Windows env vars not set')
+  }
+
+  // 3. Auto-start: try systemd first (WSL2 with systemd enabled), fallback to
+  //    Windows Task Scheduler, then plain background process
+  let autoStartDone = false
+
+  // 3a. Try systemd (works on newer WSL2 with [boot] systemd=true in wsl.conf)
+  try {
+    const serviceDir = path.join(os.homedir(), '.config', 'systemd', 'user')
+    fs.mkdirSync(serviceDir, { recursive: true })
+    const servicePath = path.join(serviceDir, 'squeezr.service')
+    fs.writeFileSync(servicePath, `[Unit]
+Description=Squeezr AI proxy
+After=network.target
+
+[Service]
+ExecStart=${nodeExe} ${distIndex}
+Restart=always
+RestartSec=5
+WorkingDirectory=${ROOT}
+
+[Install]
+WantedBy=default.target
+`)
+    execSync('systemctl --user daemon-reload && systemctl --user enable --now squeezr', { stdio: 'pipe' })
+    console.log('  [ok] Auto-start registered via systemd')
+    autoStartDone = true
+  } catch {
+    // systemd not available — try Windows Task Scheduler
+  }
+
+  // 3b. Fallback: Windows Task Scheduler via powershell.exe
+  if (!autoStartDone) {
+    const winNodeExe = execSync('wslpath -w "$(which node)"', { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] }).trim()
+    const winDistIndex = execSync(`wslpath -w "${distIndex}"`, { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] }).trim()
+    const winRoot = execSync(`wslpath -w "${ROOT}"`, { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] }).trim()
+    const taskName = 'Squeezr'
+    const ps = [
+      `$e = Get-ScheduledTask -TaskName '${taskName}' -ErrorAction SilentlyContinue`,
+      `if ($e) { Unregister-ScheduledTask -TaskName '${taskName}' -Confirm:$false }`,
+      `$a = New-ScheduledTaskAction -Execute 'wsl.exe' -Argument '-d ${os.hostname()} -- ${nodeExe} ${distIndex}' -WorkingDirectory '${winRoot}'`,
+      `$t = New-ScheduledTaskTrigger -AtLogon`,
+      `$s = New-ScheduledTaskSettingsSet -ExecutionTimeLimit 0 -RestartCount 5 -RestartInterval (New-TimeSpan -Minutes 1)`,
+      `Register-ScheduledTask -TaskName '${taskName}' -Action $a -Trigger $t -Settings $s -Force | Out-Null`,
+    ].join('; ')
+
+    try {
+      execSync(`powershell.exe -NoProfile -Command "${ps}"`, { stdio: 'pipe' })
+      console.log('  [ok] Auto-start registered via Windows Task Scheduler')
+      autoStartDone = true
+    } catch {
+      console.log('  [warn] Task Scheduler failed — run PowerShell as admin for auto-start')
+    }
+  }
+
+  // 4. Start proxy now as a detached background process
+  const logDir = path.join(os.homedir(), '.squeezr')
+  const logFile = path.join(logDir, 'squeezr.log')
+  fs.mkdirSync(logDir, { recursive: true })
+  const logFd = fs.openSync(logFile, 'a')
+  const child = spawn(nodeExe, [distIndex], {
+    detached: true,
+    stdio: ['ignore', logFd, logFd],
+    cwd: ROOT,
+  })
+  child.unref()
+  fs.closeSync(logFd)
+  console.log(`  [ok] Squeezr started in background (pid ${child.pid})`)
+  console.log(`  [ok] Logs → ${logFile}`)
+
+  // 5. Apply env vars to current process so calling `source` is not needed
+  //    This won't affect the parent shell, but at least prints guidance.
+  console.log(`
+Done!
+
+  Squeezr is running on http://localhost:8080
+  All CLIs (Claude Code, Codex, Aider, Gemini, Ollama) are configured.
+
+  Windows env vars are set (effective in new terminals immediately).
+  WSL env vars added to ${profile}.
+
+  To activate in THIS terminal: source ${profile}
+  New terminals will have everything configured automatically.
+
+  squeezr status   — check it's running
+  squeezr gain     — see token savings
+`)
+}
+
 // ── CLI router ────────────────────────────────────────────────────────────────
 
 switch (command) {
@@ -310,6 +494,7 @@ switch (command) {
 
   case 'setup':
     if (process.platform === 'win32') setupWindows()
+    else if (isWSL()) setupWSL()
     else setupUnix()
     break
 

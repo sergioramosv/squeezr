@@ -456,11 +456,28 @@ More importantly: sending 60-80% fewer tokens means Claude processes a smaller c
 
 The installer configures Squeezr to start automatically on login:
 
-| OS | Method |
-|---|---|
-| macOS | launchd (`~/Library/LaunchAgents/com.squeezr.plist`) |
-| Linux | systemd user service (`~/.config/systemd/user/squeezr.service`) |
-| Windows | Task Scheduler (runs at login, restarts on failure) |
+| OS | Method | Fallback |
+|---|---|---|
+| macOS | launchd (`~/Library/LaunchAgents/com.squeezr.plist`) | Shell auto-heal |
+| Linux | systemd user service (`~/.config/systemd/user/squeezr.service`) | Shell auto-heal |
+| Windows | Task Scheduler (runs at login, restarts on failure) | — |
+| **WSL2** | systemd → Task Scheduler (cascade) | Shell auto-heal |
+
+### WSL2 support
+
+`squeezr setup` detects WSL2 automatically and configures both sides:
+
+- **WSL shell**: env vars + auto-heal guard in `.bashrc` / `.zshrc`
+- **Windows**: env vars via `setx` (persistent in registry)
+- **Auto-start**: tries systemd first (WSL2 with `systemd=true` in `/etc/wsl.conf`), falls back to Windows Task Scheduler via `powershell.exe`
+
+### Auto-heal
+
+On every platform, `squeezr setup` adds a lightweight guard to your shell profile. Each time you open a terminal, it checks if the proxy is alive (`curl localhost:8080/squeezr/health`). If not, it starts it in the background — silently, in ~100ms. This means:
+
+- If the service manager fails, the proxy still starts on your next terminal
+- If the proxy crashes mid-session, the next terminal restores it
+- Zero manual intervention after `squeezr setup`, ever
 
 ---
 

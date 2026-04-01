@@ -2,6 +2,12 @@
 
 All notable changes to Squeezr will be documented here.
 
+## [1.11.0] - 2026-04-01
+
+### Added
+- **WSL2 support** — `squeezr setup` now detects WSL2 automatically. Configures both the WSL shell profile (`.bashrc`/`.zshrc`) and Windows environment (`setx`). Auto-start cascades: systemd → Windows Task Scheduler → shell auto-heal.
+- **Auto-heal guard** — on all Unix platforms (macOS, Linux, WSL2), `squeezr setup` adds a shell profile snippet that checks if the proxy is alive on every terminal open and starts it in the background if not. Zero manual intervention after setup, ever.
+
 ## [1.10.1] - 2026-04-01
 
 ### Added
