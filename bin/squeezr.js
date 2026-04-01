@@ -47,6 +47,46 @@ function runNode(script, extraArgs = []) {
   child.on('exit', code => process.exit(code ?? 0))
 }
 
+async function startDaemon() {
+  const distIndex = path.join(ROOT, 'dist', 'index.js')
+  if (!fs.existsSync(distIndex)) {
+    console.error(`Error: ${distIndex} not found. Run 'npm run build' first.`)
+    process.exit(1)
+  }
+
+  // Check if already running
+  const port = process.env.SQUEEZR_PORT || 8080
+  const running = await new Promise(resolve => {
+    const req = http.get(`http://localhost:${port}/squeezr/health`, res => {
+      resolve(res.statusCode === 200)
+      res.destroy()
+    })
+    req.on('error', () => resolve(false))
+    req.setTimeout(2000, () => { req.destroy(); resolve(false) })
+  })
+  if (running) {
+    console.log(`Squeezr is already running on port ${port}`)
+    return
+  }
+
+  // Launch detached background process
+  const logDir = path.join(os.homedir(), '.squeezr')
+  const logFile = path.join(logDir, 'squeezr.log')
+  fs.mkdirSync(logDir, { recursive: true })
+  const logFd = fs.openSync(logFile, 'a')
+  const child = spawn(process.execPath, [distIndex], {
+    detached: true,
+    stdio: ['ignore', logFd, logFd],
+    windowsHide: true,
+    cwd: ROOT,
+    env: { ...process.env, SQUEEZR_DAEMON: '1' },
+  })
+  child.unref()
+  fs.closeSync(logFd)
+  console.log(`Squeezr started in background (pid ${child.pid})`)
+  console.log(`Logs → ${logFile}`)
+}
+
 function showLogs() {
   const logFile = path.join(os.homedir(), '.squeezr', 'squeezr.log')
   if (!fs.existsSync(logFile)) {
@@ -489,7 +529,7 @@ Done!
 switch (command) {
   case undefined:
   case 'start':
-    runNode('index.js')
+    startDaemon()
     break
 
   case 'setup':

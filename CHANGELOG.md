@@ -2,6 +2,11 @@
 
 All notable changes to Squeezr will be documented here.
 
+## [1.11.1] - 2026-04-01
+
+### Fixed
+- **Daemon resilience** — `squeezr start` now survives Ctrl+C and terminal close. The daemon ignores `SIGINT` and `SIGHUP`; only `squeezr stop` (which sends `SIGTERM`) can stop it. Dev mode (`npm run dev`) still responds to Ctrl+C as before.
+
 ## [1.11.0] - 2026-04-01
 
 ### Added
