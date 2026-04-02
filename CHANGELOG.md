@@ -2,6 +2,13 @@
 
 All notable changes to Squeezr will be documented here.
 
+## [1.13.1] - 2026-04-03
+
+### Fixed
+- **`squeezr stop` on WSL2** — `lsof -ti :PORT` returns multiple PIDs (listening process + connected clients); now uses `-sTCP:LISTEN` flag to get only the listening process, with fallback to `fuser`. Stops reliably on first try.
+- **`squeezr setup` on Unix** — detects existing shell profiles missing `HTTPS_PROXY`/`SSL_CERT_FILE` (MITM proxy vars from older installs) and rewrites the block to include them.
+- **`squeezr setup` on WSL2** — same fix as Unix: old profiles without MITM vars now get updated automatically.
+
 ## [1.13.0] - 2026-04-02
 
 ### Added
