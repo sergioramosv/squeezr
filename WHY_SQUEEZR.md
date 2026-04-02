@@ -148,13 +148,13 @@ squeezr start
 export ANTHROPIC_BASE_URL=http://localhost:8080
 
 # Codex / Aider / OpenCode
-export OPENAI_BASE_URL=http://localhost:8080
+export openai_base_url=http://localhost:8080
 
 # Gemini CLI
 export GEMINI_API_BASE_URL=http://localhost:8080
 
 # Ollama
-export OPENAI_BASE_URL=http://localhost:8080
+export openai_base_url=http://localhost:8080
 ```
 
 ### 4. Use your CLI normally

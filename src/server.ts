@@ -296,7 +296,8 @@ app.get('/squeezr/expand/:id', (c) => {
 app.all('*', async (c) => {
   const upstream = detectUpstream(c.req.raw.headers)
   const url = new URL(c.req.url)
-  const targetUrl = `${upstream}${url.pathname}${url.search}`
+  const targetPath = url.pathname === '/responses' ? '/v1/responses' : url.pathname
+  const targetUrl = `${upstream}${targetPath}${url.search}`
   const body = await c.req.arrayBuffer()
   const fwdHeaders = forwardHeaders(c.req.raw.headers)
 

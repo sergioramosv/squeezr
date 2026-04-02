@@ -236,10 +236,10 @@ Ambos tienen un pipeline base de limpieza. Comparacion:
 | Gemini CLI | Si | Si | RTK: hook shell. Squeezr: `GEMINI_API_BASE_URL` |
 | Windsurf | Si | No | RTK: hook shell |
 | Cline | Si | No | RTK: hook shell |
-| Aider | No | Si | Squeezr: `OPENAI_BASE_URL` |
-| Codex CLI | No | Si | Squeezr: `OPENAI_BASE_URL` |
-| OpenCode | No | Si | Squeezr: `OPENAI_BASE_URL` |
-| Ollama local | No | Si | Squeezr: `OPENAI_BASE_URL` |
+| Aider | No | Si | Squeezr: `openai_base_url` |
+| Codex CLI | No | Si | Squeezr: `openai_base_url` |
+| OpenCode | No | Si | Squeezr: `openai_base_url` |
+| Ollama local | No | Si | Squeezr: `openai_base_url` |
 
 **RTK:** 6 integraciones via hooks de shell.
 **Squeezr:** 5 integraciones via redireccion de URL base (mas universal para cualquier herramienta que use HTTP API).

@@ -16,7 +16,7 @@ All notable changes to Squeezr will be documented here.
 ## [1.10.1] - 2026-04-01
 
 ### Added
-- **`squeezr setup`** — one-command setup on any OS. Sets `ANTHROPIC_BASE_URL`, `OPENAI_BASE_URL`, `GEMINI_API_BASE_URL` permanently and registers Squeezr as a login service (Task Scheduler on Windows, launchd on macOS, systemd on Linux). After running `squeezr setup` once and restarting the terminal, everything works automatically.
+- **`squeezr setup`** — one-command setup on any OS. Sets `ANTHROPIC_BASE_URL`, `openai_base_url`, `GEMINI_API_BASE_URL` permanently and registers Squeezr as a login service (Task Scheduler on Windows, launchd on macOS, systemd on Linux). After running `squeezr setup` once and restarting the terminal, everything works automatically.
 
 ## [1.10.0] - 2026-04-01
 

@@ -177,12 +177,12 @@ Squeezr auto-detects which provider each request targets from the auth headers. 
 | CLI | Set this env var | Compresses with | Extra keys needed |
 |---|---|---|---|
 | **Claude Code** | `ANTHROPIC_BASE_URL=http://localhost:8080` | Claude Haiku | None |
-| **Codex CLI** | `OPENAI_BASE_URL=http://localhost:8080` | GPT-4o-mini | None |
-| **Aider** (OpenAI backend) | `OPENAI_BASE_URL=http://localhost:8080` | GPT-4o-mini | None |
+| **Codex CLI** | `openai_base_url=http://localhost:8080` | GPT-4o-mini | None |
+| **Aider** (OpenAI backend) | `openai_base_url=http://localhost:8080` | GPT-4o-mini | None |
 | **Aider** (Anthropic backend) | `ANTHROPIC_BASE_URL=http://localhost:8080` | Claude Haiku | None |
-| **OpenCode** | `OPENAI_BASE_URL=http://localhost:8080` | GPT-4o-mini | None |
+| **OpenCode** | `openai_base_url=http://localhost:8080` | GPT-4o-mini | None |
 | **Gemini CLI** | `GEMINI_API_BASE_URL=http://localhost:8080` | Gemini Flash 8B | None |
-| **Ollama** (any CLI) | `OPENAI_BASE_URL=http://localhost:8080` | Local model (configurable) | None |
+| **Ollama** (any CLI) | `openai_base_url=http://localhost:8080` | Local model (configurable) | None |
 
 Squeezr extracts the API key from the request itself and reuses it for compression. Zero extra setup.
 
@@ -203,13 +203,13 @@ export ANTHROPIC_BASE_URL=http://localhost:8080        # macOS / Linux
 $env:ANTHROPIC_BASE_URL="http://localhost:8080"        # Windows PowerShell
 
 # Codex / Aider / OpenCode
-export OPENAI_BASE_URL=http://localhost:8080
+export openai_base_url=http://localhost:8080
 
 # Gemini CLI
 export GEMINI_API_BASE_URL=http://localhost:8080
 
 # Ollama
-export OPENAI_BASE_URL=http://localhost:8080
+export openai_base_url=http://localhost:8080
 ```
 
 Or use the shell installer to set up the env var permanently and register Squeezr as a login service:

@@ -181,7 +181,7 @@ function setupWindows() {
   // 1. Set env vars permanently via setx (user scope, no admin needed)
   const vars = {
     ANTHROPIC_BASE_URL: 'http://localhost:8080',
-    OPENAI_BASE_URL: 'http://localhost:8080',
+    openai_base_url: 'http://localhost:8080',
     GEMINI_API_BASE_URL: 'http://localhost:8080',
   }
   for (const [key, value] of Object.entries(vars)) {
@@ -257,7 +257,7 @@ function setupUnix() {
   const shellBlock = [
     `# squeezr env vars`,
     `export ANTHROPIC_BASE_URL=http://localhost:${port}`,
-    `export OPENAI_BASE_URL=http://localhost:${port}`,
+    `export openai_base_url=http://localhost:${port}`,
     `export GEMINI_API_BASE_URL=http://localhost:${port}`,
     `# squeezr auto-heal: start proxy if not running`,
     `if ! curl -sf http://localhost:${port}/squeezr/health >/dev/null 2>&1; then`,
@@ -384,7 +384,7 @@ function setupWSL() {
   const shellBlock = [
     `# squeezr env vars`,
     `export ANTHROPIC_BASE_URL=http://localhost:${port}`,
-    `export OPENAI_BASE_URL=http://localhost:${port}`,
+    `export openai_base_url=http://localhost:${port}`,
     `export GEMINI_API_BASE_URL=http://localhost:${port}`,
     `# squeezr auto-heal: start proxy if not running`,
     `if ! curl -sf http://localhost:${port}/squeezr/health >/dev/null 2>&1; then`,
@@ -421,7 +421,7 @@ function setupWSL() {
   const setxExe = '/mnt/c/Windows/System32/setx.exe'
   const winVars = {
     ANTHROPIC_BASE_URL: 'http://localhost:8080',
-    OPENAI_BASE_URL: 'http://localhost:8080',
+    openai_base_url: 'http://localhost:8080',
     GEMINI_API_BASE_URL: 'http://localhost:8080',
   }
   if (fs.existsSync(setxExe)) {
