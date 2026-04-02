@@ -272,6 +272,7 @@ function setupUnix() {
     `export ANTHROPIC_BASE_URL=http://localhost:${port}`,
     `export openai_base_url=http://localhost:${port}`,
     `export GEMINI_API_BASE_URL=http://localhost:${port}`,
+    `# squeezr MITM proxy for Codex (TLS interception)`,
     `export HTTPS_PROXY=http://localhost:${mitmPort}`,
     `export SSL_CERT_FILE=${bundlePath}`,
     `# squeezr auto-heal: start proxy if not running`,
@@ -292,13 +293,14 @@ function setupUnix() {
     fs.appendFileSync(profile, `\n${shellBlock}\n`)
     console.log(`  [ok] Env vars + auto-heal added to ${profile}`)
   } else {
-    if (!existing.includes('squeezr auto-heal')) {
+    if (!existing.includes('SSL_CERT_FILE') || !existing.includes('squeezr MITM')) {
+      // Re-write block to include MITM vars
       const updatedContent = existing.replace(
-        /# squeezr env vars\n(?:export [A-Z_]+=http:\/\/localhost:\d+\n?)*/,
+        /# squeezr env vars[\s\S]*?fi\n/,
         shellBlock + '\n'
       )
       fs.writeFileSync(profile, updatedContent)
-      console.log(`  [ok] Auto-heal guard added to ${profile}`)
+      console.log(`  [ok] Shell profile updated with MITM proxy vars`)
     } else {
       console.log(`  [skip] Env vars + auto-heal already in ${profile}`)
     }
