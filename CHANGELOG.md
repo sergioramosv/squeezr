@@ -2,6 +2,11 @@
 
 All notable changes to Squeezr will be documented here.
 
+## [1.16.5] - 2026-04-03
+### Fixed
+- **Env vars now written to `~/.profile`** — fixes Claude Code 502 errors caused by env vars in `.bashrc` being skipped by the `case $-` interactive-shell guard. Login shells (and WSL default terminals) load `.profile` before `.bashrc`'s guard, so `ANTHROPIC_BASE_URL` is always available.
+- **`squeezr uninstall` cleans `.profile`** too.
+
 ## [1.16.4] - 2026-04-03
 ### Added
 - **`squeezr update`** — one command to kill all old processes (brute force on both ports), install latest from npm, and start the new version. Fixes 502 errors caused by stale processes surviving updates.

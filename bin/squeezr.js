@@ -445,6 +445,16 @@ async function uninstall() {
         }
       } catch {}
     }
+    // Also clean .profile
+    const profilePath = path.join(os.homedir(), '.profile')
+    try {
+      const content = fs.readFileSync(profilePath, 'utf-8')
+      if (content.includes('# squeezr env vars')) {
+        const cleaned = content.replace(/\n?# squeezr env vars[^\n]*(\nexport [^\n]*)*/g, '')
+        fs.writeFileSync(profilePath, cleaned)
+        console.log(`  [ok] Cleaned ${profilePath}`)
+      }
+    } catch {}
   }
 
   // 3. Remove CA from certificate stores
@@ -673,6 +683,33 @@ function setupUnix() {
     `fi`,
   ].join('\n')
   const marker = '# squeezr env vars'
+
+  // Env-only block (no auto-heal) for .profile — loaded by login shells
+  // before .bashrc's "case $-" interactive guard
+  const envOnlyBlock = [
+    `# squeezr env vars`,
+    `export ANTHROPIC_BASE_URL=http://localhost:${port}`,
+    `export openai_base_url=http://localhost:${port}`,
+    `export GEMINI_API_BASE_URL=http://localhost:${port}`,
+    `export HTTPS_PROXY=http://localhost:${mitmPort}`,
+    `export SSL_CERT_FILE=${bundlePath}`,
+  ].join('\n')
+
+  // Write env vars to ~/.profile (login shell — always loaded)
+  const profilePath = path.join(os.homedir(), '.profile')
+  try {
+    const profileContent = fs.existsSync(profilePath) ? fs.readFileSync(profilePath, 'utf-8') : ''
+    if (!profileContent.includes(marker)) {
+      fs.appendFileSync(profilePath, `\n${envOnlyBlock}\n`)
+      console.log(`  [ok] Env vars added to ${profilePath}`)
+    } else {
+      const updated = profileContent.replace(/# squeezr env vars[\s\S]*?(?=\n(?!export )|\n*$)/, envOnlyBlock)
+      fs.writeFileSync(profilePath, updated)
+      console.log(`  [ok] Env vars updated in ${profilePath}`)
+    }
+  } catch {}
+
+  // Write full block (env + auto-heal) to interactive shell profile
   const profiles = [
     path.join(os.homedir(), '.zshrc'),
     path.join(os.homedir(), '.bashrc'),
@@ -684,17 +721,12 @@ function setupUnix() {
     fs.appendFileSync(profile, `\n${shellBlock}\n`)
     console.log(`  [ok] Env vars + auto-heal added to ${profile}`)
   } else {
-    if (!existing.includes('SSL_CERT_FILE') || !existing.includes('squeezr MITM')) {
-      // Re-write block to include MITM vars
-      const updatedContent = existing.replace(
-        /# squeezr env vars[\s\S]*?fi\n/,
-        shellBlock + '\n'
-      )
-      fs.writeFileSync(profile, updatedContent)
-      console.log(`  [ok] Shell profile updated with MITM proxy vars`)
-    } else {
-      console.log(`  [skip] Env vars + auto-heal already in ${profile}`)
-    }
+    const updatedContent = existing.replace(
+      /# squeezr env vars[\s\S]*?fi\n?/,
+      shellBlock + '\n'
+    )
+    fs.writeFileSync(profile, updatedContent)
+    console.log(`  [ok] Env vars + auto-heal updated in ${profile}`)
   }
 
   // 2a. macOS — launchd
@@ -805,6 +837,31 @@ function setupWSL() {
     `fi`,
   ].join('\n')
   const marker = '# squeezr env vars'
+
+  // Env-only block for .profile (loaded before .bashrc's interactive guard)
+  const envOnlyBlock = [
+    `# squeezr env vars`,
+    `export ANTHROPIC_BASE_URL=http://localhost:${port}`,
+    `export openai_base_url=http://localhost:${port}`,
+    `export GEMINI_API_BASE_URL=http://localhost:${port}`,
+    `export HTTPS_PROXY=http://localhost:${mitmPort}`,
+    `export SSL_CERT_FILE=${bundlePath}`,
+  ].join('\n')
+
+  const profilePath = path.join(os.homedir(), '.profile')
+  try {
+    const profileContent = fs.existsSync(profilePath) ? fs.readFileSync(profilePath, 'utf-8') : ''
+    if (!profileContent.includes(marker)) {
+      fs.appendFileSync(profilePath, `\n${envOnlyBlock}\n`)
+      console.log(`  [ok] Env vars added to ${profilePath}`)
+    } else {
+      const updated = profileContent.replace(/# squeezr env vars[\s\S]*?(?=\n(?!export )|\n*$)/, envOnlyBlock)
+      fs.writeFileSync(profilePath, updated)
+      console.log(`  [ok] Env vars updated in ${profilePath}`)
+    }
+  } catch {}
+
+  // Full block (env + auto-heal) in interactive shell profile
   const profiles = [
     path.join(os.homedir(), '.zshrc'),
     path.join(os.homedir(), '.bashrc'),
@@ -816,17 +873,12 @@ function setupWSL() {
     fs.appendFileSync(profile, `\n${shellBlock}\n`)
     console.log(`  [ok] Env vars + auto-heal added to ${profile}`)
   } else {
-    // Update existing block if missing MITM proxy vars
-    if (!existing.includes('SSL_CERT_FILE') || !existing.includes('HTTPS_PROXY')) {
-      const updatedContent = existing.replace(
-        /# squeezr env vars[\s\S]*?fi\n/,
-        shellBlock + '\n'
-      )
-      fs.writeFileSync(profile, updatedContent)
-      console.log(`  [ok] Shell profile updated with MITM proxy vars`)
-    } else {
-      console.log(`  [skip] Env vars already in ${profile}`)
-    }
+    const updatedContent = existing.replace(
+      /# squeezr env vars[\s\S]*?fi\n?/,
+      shellBlock + '\n'
+    )
+    fs.writeFileSync(profile, updatedContent)
+    console.log(`  [ok] Env vars + auto-heal updated in ${profile}`)
   }
 
   // 2. Set Windows env vars via setx.exe (so Windows-launched CLIs see them)
