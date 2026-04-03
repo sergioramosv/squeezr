@@ -16,6 +16,55 @@ const pkg = require(path.join(ROOT, 'package.json'))
 const args = process.argv.slice(2)
 const command = args[0]
 
+// ── update check (non-blocking) ───────────────────────────────────────────────
+
+const UPDATE_CHECK_FILE = path.join(os.homedir(), '.squeezr', 'update-check.json')
+const UPDATE_CHECK_INTERVAL = 4 * 60 * 60 * 1000 // 4 hours
+
+// Fire and forget — runs in background, never blocks CLI
+const updateCheckPromise = (async () => {
+  try {
+    // Read cached check
+    let cached = null
+    try { cached = JSON.parse(fs.readFileSync(UPDATE_CHECK_FILE, 'utf-8')) } catch {}
+    if (cached && Date.now() - cached.checkedAt < UPDATE_CHECK_INTERVAL) {
+      return cached.latest !== pkg.version ? cached.latest : null
+    }
+    // Fetch latest from npm (with timeout)
+    const { get } = await import('https')
+    const latest = await new Promise((resolve, reject) => {
+      const req = get('https://registry.npmjs.org/squeezr-ai/latest', { timeout: 3000 }, res => {
+        let data = ''
+        res.on('data', chunk => { data += chunk })
+        res.on('end', () => {
+          try { resolve(JSON.parse(data).version) } catch { resolve(null) }
+        })
+      })
+      req.on('error', () => resolve(null))
+      req.setTimeout(3000, () => { req.destroy(); resolve(null) })
+    })
+    if (!latest) return null
+    // Cache result
+    const dir = path.dirname(UPDATE_CHECK_FILE)
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
+    fs.writeFileSync(UPDATE_CHECK_FILE, JSON.stringify({ latest, checkedAt: Date.now() }))
+    return latest !== pkg.version ? latest : null
+  } catch { return null }
+})()
+
+async function showUpdateBanner() {
+  try {
+    const latest = await Promise.race([updateCheckPromise, new Promise(r => setTimeout(() => r(null), 500))])
+    if (latest) {
+      console.log('')
+      console.log(`  ╭─────────────────────────────────────────────────────────╮`)
+      console.log(`  │  Update available: v${pkg.version} → v${latest}${' '.repeat(Math.max(0, 30 - pkg.version.length - latest.length))}│`)
+      console.log(`  │  Run: npm install -g squeezr-ai                        │`)
+      console.log(`  ╰─────────────────────────────────────────────────────────╯`)
+    }
+  } catch {}
+}
+
 function getPortFromToml() {
   try {
     const toml = fs.readFileSync(path.join(ROOT, 'squeezr.toml'), 'utf-8')
@@ -947,3 +996,5 @@ switch (command) {
     console.log(HELP)
     process.exit(1)
 }
+
+await showUpdateBanner()

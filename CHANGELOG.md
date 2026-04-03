@@ -2,6 +2,10 @@
 
 All notable changes to Squeezr will be documented here.
 
+## [1.16.3] - 2026-04-03
+### Added
+- **Update notifications** — Squeezr checks npm for new versions every 4 hours (non-blocking, cached in `~/.squeezr/update-check.json`). Shows a banner after any command if a newer version is available.
+
 ## [1.16.2] - 2026-04-03
 ### Fixed
 - **`squeezr ports` now applies changes immediately** — auto-stops and restarts the proxy after changing ports, updates shell profiles (Unix) and Windows registry (WSL) automatically. No more manual export/restart needed.
