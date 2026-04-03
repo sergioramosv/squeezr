@@ -2,6 +2,36 @@
 
 All notable changes to Squeezr will be documented here.
 
+## [1.14.13] - 2026-04-03
+### Fixed
+- **`squeezr stop` kills zombies** — now kills all processes on both port 8080 (HTTP proxy) and 8081 (MITM proxy) with `kill -9`. No more stale processes surviving a version update.
+- **`squeezr status` shows both proxies** — output now lists both the HTTP proxy (Claude/Aider/Gemini) and MITM proxy (Codex) with their ports.
+
+## [1.14.12] - 2026-04-03
+### Fixed
+- **Node 18 compatibility** — replaced `import.meta.dirname` (Node 22+) with `fileURLToPath(import.meta.url)` in config loader. Fixes crash on WSL/Linux with Node 18.
+
+## [1.14.11] - 2026-04-03
+### Changed
+- Reverted Node 18 compat — set engines to `>=22`. (Reverted in 1.14.12)
+
+## [1.14.10] - 2026-04-03
+### Fixed
+- **Version desync** — `version.ts` was hardcoded and never updated by `npm version`. Now reads version from `package.json` at runtime.
+
+## [1.14.9] - 2026-04-03
+### Fixed
+- Same as 1.14.10 — initial fix for version desync.
+
+## [1.14.8] - 2026-04-03
+### Fixed
+- **npm/git ECONNREFUSED** — the MITM proxy was TLS-terminating ALL CONNECT requests (npm, git, curl, etc.), causing failures when Squeezr was the system `HTTPS_PROXY`. Now only `chatgpt.com` gets TLS-terminated; all other domains get a transparent TCP tunnel. Removes `NO_PROXY` from setup since it's no longer needed.
+
+## [1.14.7] - 2026-04-03
+### Fixed
+- **Codex CA trust on Windows** — Codex is a Rust binary that uses the Windows Certificate Store, not `NODE_EXTRA_CA_CERTS`. Setup now imports the MITM CA via `certutil -addstore -user Root` (no admin required) with machine-level fallback.
+- **Docs rewrite** — README.md and CODEX.md fully rewritten with accurate architecture, per-platform CA trust, and configuration reference.
+
 ## [1.14.6] - 2026-04-03
 ### Fixed
 - **Claude 502** — `forwardHeaders()` was passing the `Upgrade` header to undici's `fetch`, which throws `InvalidArgumentError: invalid upgrade header`. Added `upgrade` to `SKIP_REQ_HEADERS`. Root cause confirmed from production logs.
