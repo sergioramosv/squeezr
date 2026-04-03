@@ -172,6 +172,7 @@ Squeezr uses cheap/free models for AI compression (the deterministic layer is pu
 ```bash
 squeezr setup      # configure env vars, auto-start, CA trust
 squeezr start      # start the proxy (auto-restarts if version mismatch after update)
+squeezr update     # kill old processes, install latest from npm, restart
 squeezr stop       # stop the proxy
 squeezr status     # check if proxy is running
 squeezr logs       # show last 50 log lines

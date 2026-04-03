@@ -59,7 +59,7 @@ async function showUpdateBanner() {
       console.log('')
       console.log(`  ╭─────────────────────────────────────────────────────────╮`)
       console.log(`  │  Update available: v${pkg.version} → v${latest}${' '.repeat(Math.max(0, 30 - pkg.version.length - latest.length))}│`)
-      console.log(`  │  Run: npm install -g squeezr-ai                        │`)
+      console.log(`  │  Run: squeezr update                                   │`)
       console.log(`  ╰─────────────────────────────────────────────────────────╯`)
     }
   } catch {}
@@ -104,6 +104,7 @@ Usage:
   squeezr status           Check if proxy is running
   squeezr config           Print config file path and current settings
   squeezr ports            Change HTTP and MITM proxy ports
+  squeezr update           Kill old processes, install latest from npm, restart
   squeezr uninstall        Remove Squeezr completely (env vars, CA, auto-start, logs)
   squeezr version          Print version
   squeezr help             Show this help
@@ -949,6 +950,44 @@ switch (command) {
     else setupUnix()
     break
 
+  case 'update':
+    await (async () => {
+      console.log('Stopping Squeezr...')
+      stopProxy()
+      // Also kill anything on the ports by brute force
+      const uPort = getPort()
+      const uMitmPort = getMitmPort(uPort)
+      if (process.platform === 'win32') {
+        try { execSync(`for /f "tokens=5" %a in ('netstat -ano ^| findstr ":${uPort} " ^| findstr LISTENING') do taskkill /F /PID %a`, { stdio: 'pipe', shell: 'cmd.exe' }) } catch {}
+        try { execSync(`for /f "tokens=5" %a in ('netstat -ano ^| findstr ":${uMitmPort} " ^| findstr LISTENING') do taskkill /F /PID %a`, { stdio: 'pipe', shell: 'cmd.exe' }) } catch {}
+      } else {
+        try { execSync(`kill -9 $(lsof -ti:${uPort}) 2>/dev/null`, { stdio: 'pipe' }) } catch {}
+        try { execSync(`kill -9 $(lsof -ti:${uMitmPort}) 2>/dev/null`, { stdio: 'pipe' }) } catch {}
+      }
+      await new Promise(r => setTimeout(r, 1000))
+
+      console.log('Installing latest version...')
+      try {
+        const npmCmd = process.platform === 'win32' ? 'npm' : 'HTTPS_PROXY= npm'
+        execSync(`${npmCmd} install -g squeezr-ai@latest`, { stdio: 'inherit' })
+      } catch (e) {
+        // On Unix, might need sudo
+        try {
+          execSync('sudo HTTPS_PROXY= npm install -g squeezr-ai@latest', { stdio: 'inherit' })
+        } catch {
+          console.error('npm install failed. Try manually: npm install -g squeezr-ai')
+          process.exit(1)
+        }
+      }
+
+      console.log('\nStarting Squeezr...')
+      // Re-exec the new binary so we run the updated code
+      const squeezrBin = process.argv[1]
+      try {
+        execSync(`node "${squeezrBin}" start`, { stdio: 'inherit' })
+      } catch {}
+    })()
+    break
   case 'stop':
     stopProxy()
     break

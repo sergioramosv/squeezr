@@ -2,6 +2,11 @@
 
 All notable changes to Squeezr will be documented here.
 
+## [1.16.4] - 2026-04-03
+### Added
+- **`squeezr update`** — one command to kill all old processes (brute force on both ports), install latest from npm, and start the new version. Fixes 502 errors caused by stale processes surviving updates.
+- Update notification banner now suggests `squeezr update` instead of `npm install -g`.
+
 ## [1.16.3] - 2026-04-03
 ### Added
 - **Update notifications** — Squeezr checks npm for new versions every 4 hours (non-blocking, cached in `~/.squeezr/update-check.json`). Shows a banner after any command if a newer version is available.
