@@ -15,7 +15,7 @@ const CA_DIR       = join(homedir(), '.squeezr', 'mitm-ca')
 const CA_KEY_PATH  = join(CA_DIR, 'ca.key')
 const CA_CERT_PATH = join(CA_DIR, 'ca.crt')
 export const BUNDLE_PATH = join(CA_DIR, 'bundle.crt')
-export const MITM_PORT   = (config.port ?? 8080) + 1
+export const MITM_PORT   = config.mitmPort
 
 // ── CA generation ─────────────────────────────────────────────────────────────
 

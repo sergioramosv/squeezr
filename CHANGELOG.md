@@ -2,6 +2,11 @@
 
 All notable changes to Squeezr will be documented here.
 
+## [1.15.0] - 2026-04-03
+### Added
+- **`squeezr ports` command** — interactive prompt to change HTTP proxy and MITM proxy ports. Updates `squeezr.toml` and env vars.
+- **`mitmPort` config field** — MITM proxy port is now independently configurable via `mitm_port` in `squeezr.toml` or `SQUEEZR_MITM_PORT` env var. Defaults to `port + 1`.
+
 ## [1.14.14] - 2026-04-03
 ### Fixed
 - **`start` and `already running` messages show both proxies** — output now lists HTTP proxy (:8080) and MITM proxy (:8081) with their purpose, matching `status` output.

@@ -6,7 +6,7 @@ import { parse } from 'smol-toml'
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
 interface TomlConfig {
-  proxy?: { port?: number }
+  proxy?: { port?: number; mitm_port?: number }
   compression?: {
     threshold?: number
     keep_recent?: number
@@ -70,6 +70,7 @@ function env(key: string, fallback: string): string {
 
 export class Config {
   readonly port: number
+  readonly mitmPort: number
   readonly threshold: number
   readonly keepRecent: number
   readonly disabled: boolean
@@ -99,6 +100,7 @@ export class Config {
     const lo = t.local ?? {}
 
     this.port = parseInt(env('SQUEEZR_PORT', String(p.port ?? 8080)))
+    this.mitmPort = parseInt(env('SQUEEZR_MITM_PORT', String(p.mitm_port ?? this.port + 1)))
     this.threshold = parseInt(env('SQUEEZR_THRESHOLD', String(c.threshold ?? 800)))
     this.keepRecent = parseInt(env('SQUEEZR_KEEP_RECENT', String(c.keep_recent ?? 3)))
     this.disabled = env('SQUEEZR_DISABLED', String(c.disabled ?? false)) === '1' || env('SQUEEZR_DISABLED', '') === 'true'
