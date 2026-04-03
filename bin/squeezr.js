@@ -177,6 +177,16 @@ async function startDaemon() {
   console.log(`  HTTP proxy (Claude/Aider/Gemini): http://localhost:${port}`)
   console.log(`  MITM proxy (Codex):               http://localhost:${mitmPort}`)
   console.log(`  Logs: ${logFile}`)
+
+  // Restore HTTPS_PROXY in Windows registry now that the proxy is alive
+  if (process.platform === 'win32') {
+    try { execSync(`setx HTTPS_PROXY "http://localhost:${mitmPort}"`, { stdio: 'pipe' }) } catch {}
+  } else if (isWSL()) {
+    try {
+      const setxExe = '/mnt/c/Windows/System32/setx.exe'
+      if (fs.existsSync(setxExe)) execSync(`"${setxExe}" HTTPS_PROXY "http://localhost:${mitmPort}"`, { stdio: 'pipe' })
+    } catch {}
+  }
 }
 
 function showLogs() {
@@ -232,6 +242,16 @@ function stopProxy() {
       }
     } catch {}
   }
+  // Clear HTTPS_PROXY so npm and other tools don't try to use the dead proxy
+  if (process.platform === 'win32') {
+    try { execSync('setx HTTPS_PROXY ""', { stdio: 'pipe' }) } catch {}
+  } else if (isWSL()) {
+    try {
+      const setxExe = '/mnt/c/Windows/System32/setx.exe'
+      if (fs.existsSync(setxExe)) execSync(`"${setxExe}" HTTPS_PROXY ""`, { stdio: 'pipe' })
+    } catch {}
+  }
+
   if (killed) {
     console.log(`Squeezr stopped`)
     console.log(`  HTTP proxy (Claude/Aider/Gemini): http://localhost:${port}`)
@@ -1086,7 +1106,14 @@ switch (command) {
       console.log(`  MITM proxy (Codex):               http://localhost:${startMitmPort}`)
       console.log(`  Logs: ${logFile}`)
 
-      if (isWSL()) {
+      // Restore HTTPS_PROXY now that the proxy is alive
+      if (process.platform === 'win32') {
+        try { execSync(`setx HTTPS_PROXY "http://localhost:${startMitmPort}"`, { stdio: 'pipe' }) } catch {}
+      } else if (isWSL()) {
+        try {
+          const setxExe = '/mnt/c/Windows/System32/setx.exe'
+          if (fs.existsSync(setxExe)) execSync(`"${setxExe}" HTTPS_PROXY "http://localhost:${startMitmPort}"`, { stdio: 'pipe' })
+        } catch {}
         console.log('\n  ⚠️  IMPORTANT: Close this terminal and open a new one so the')
         console.log('     environment variables take effect. Otherwise tools like')
         console.log('     Claude Code may fail with 502 errors.\n')

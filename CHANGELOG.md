@@ -2,6 +2,10 @@
 
 All notable changes to Squeezr will be documented here.
 
+## [1.16.11] - 2026-04-03
+### Fixed
+- **`squeezr stop` clears `HTTPS_PROXY` from Windows registry** — prevents `ECONNREFUSED` errors when running `npm install` or other tools after stopping the proxy. `squeezr start` and `squeezr update` restore it automatically once the proxy is alive again.
+
 ## [1.16.10] - 2026-04-03
 ### Fixed
 - **`squeezr update` SyntaxError** — duplicate `uPort` variable declaration in the update command caused a crash on v1.16.9. Renamed to avoid conflict.
