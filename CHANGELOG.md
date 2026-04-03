@@ -2,6 +2,10 @@
 
 All notable changes to Squeezr will be documented here.
 
+## [1.16.17] - 2026-04-03
+### Fixed
+- **Node.js v24 compatibility** — strip `Expect` header from forwarded requests. Node 24's undici rejects this header with `UND_ERR_NOT_SUPPORTED`, causing 500 errors on all proxied requests.
+
 ## [1.16.16] - 2026-04-03
 ### Added
 - **Bash/Zsh shell wrapper for WSL, Linux, and macOS** — same auto-refresh behavior as the PowerShell wrapper. After `squeezr start/setup/update`, env vars are applied to the current session automatically. Shows one-time banner to reopen terminal on first install. `squeezr uninstall` cleans it up.
