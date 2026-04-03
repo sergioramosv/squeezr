@@ -175,20 +175,22 @@ function installShellWrapper() {
     const psProfileDir = path.dirname(psProfilePath)
     if (!fs.existsSync(psProfileDir)) fs.mkdirSync(psProfileDir, { recursive: true })
     const psMarker = '# squeezr wrapper'
-    const psFunction = `${psMarker}
-function squeezr {
-  & squeezr.cmd @args
-  if ($args[0] -match '^(start|setup|update)$') {
-    @('ANTHROPIC_BASE_URL','GEMINI_API_BASE_URL','HTTPS_PROXY','NODE_EXTRA_CA_CERTS') | ForEach-Object {
-      $v = [Environment]::GetEnvironmentVariable($_, 'User')
-      if ($v) { [Environment]::SetEnvironmentVariable($_, $v, 'Process') }
-    }
-  }
-  if ($args[0] -eq 'stop') {
-    [Environment]::SetEnvironmentVariable('HTTPS_PROXY', $null, 'Process')
-  }
-}
-# end squeezr wrapper`
+    const psFunction = [
+      psMarker,
+      'function squeezr {',
+      '  & squeezr.cmd @args',
+      "  if ($args[0] -match '^(start|setup|update)$') {",
+      "    @('ANTHROPIC_BASE_URL','GEMINI_API_BASE_URL','HTTPS_PROXY','NODE_EXTRA_CA_CERTS') | ForEach-Object {",
+      "      $v = [Environment]::GetEnvironmentVariable($_, 'User')",
+      "      if ($v) { [Environment]::SetEnvironmentVariable($_, $v, 'Process') }",
+      '    }',
+      '  }',
+      "  if ($args[0] -eq 'stop') {",
+      "    [Environment]::SetEnvironmentVariable('HTTPS_PROXY', $null, 'Process')",
+      '  }',
+      '}',
+      '# end squeezr wrapper',
+    ].join('\n')
     const existing = fs.existsSync(psProfilePath) ? fs.readFileSync(psProfilePath, 'utf-8') : ''
     if (!existing.includes(psMarker)) {
       fs.appendFileSync(psProfilePath, `\n${psFunction}\n`)
