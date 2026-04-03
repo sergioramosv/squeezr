@@ -2,7 +2,7 @@
 
 All notable changes to Squeezr will be documented here.
 
-## [1.13.2] - 2026-04-03
+## [1.14.0] - 2026-04-03
 ### Fixed
 - **`squeezr setup` on Windows** — auto-start now uses NSSM when available, registering Squeezr as a proper Windows service with automatic restart on crash. Falls back to Task Scheduler if NSSM is not installed or admin privileges are missing. Eliminates `ConnectionRefused` errors caused by the proxy crashing mid-session without recovery.
 - **NSSM service config** — stdout/stderr logs to `~/.squeezr/service-stdout.log` / `service-stderr.log` with 24h rotation and 3s restart delay.
