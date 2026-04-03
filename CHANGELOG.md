@@ -2,6 +2,10 @@
 
 All notable changes to Squeezr will be documented here.
 
+## [1.16.15] - 2026-04-03
+### Improved
+- **One-time setup banner** — when the PowerShell wrapper is installed for the first time, shows a clear boxed message asking the user to reopen the terminal once. Only appears on first install, not on subsequent updates.
+
 ## [1.16.14] - 2026-04-03
 ### Improved
 - **`squeezr update` also installs the PowerShell wrapper** — no need to run `squeezr setup` first. The wrapper is installed/updated automatically on both `setup` and `update`.

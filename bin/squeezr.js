@@ -138,6 +138,12 @@ function squeezr {
     if (!existing.includes(psMarker)) {
       fs.appendFileSync(psProfilePath, `\n${psFunction}\n`)
       console.log(`  [ok] PowerShell wrapper added to ${psProfilePath}`)
+      console.log('')
+      console.log('  ╔═══════════════════════════════════════════════════════════════╗')
+      console.log('  ║  ONE-TIME SETUP: Close this terminal and open a new one.     ║')
+      console.log('  ║  This loads the wrapper that auto-refreshes env vars.        ║')
+      console.log('  ║  After that, you will NEVER need to do this again.           ║')
+      console.log('  ╚═══════════════════════════════════════════════════════════════╝')
     } else {
       const updated = existing.replace(/# squeezr wrapper[\s\S]*?# end squeezr wrapper/, psFunction)
       fs.writeFileSync(psProfilePath, updated)
