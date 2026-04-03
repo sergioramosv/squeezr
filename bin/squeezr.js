@@ -96,7 +96,7 @@ function getPort() {
 function printEnvRefreshHint(port, mitmPort) {
   const bundlePath = path.join(os.homedir(), '.squeezr', 'mitm-ca', 'bundle.crt')
   if (process.platform === 'win32') {
-    const cmd = `$env:ANTHROPIC_BASE_URL="http://localhost:${port}"; $env:GEMINI_API_BASE_URL="http://localhost:${port}"; $env:HTTPS_PROXY="http://localhost:${mitmPort}"`
+    const cmd = `$env:ANTHROPIC_BASE_URL="http://localhost:${port}"; $env:GEMINI_API_BASE_URL="http://localhost:${port}"`
     try { execSync(`powershell -NoProfile -Command "Set-Clipboard '${cmd.replace(/'/g, "''")}';"`, { stdio: 'pipe' }) } catch {}
     console.log(`\n  Run this to activate in the current terminal (already copied to clipboard):\n`)
     console.log(`  ${cmd}\n`)
@@ -180,13 +180,10 @@ function installPowerShellWrapper() {
       'function squeezr {',
       '  & squeezr.cmd @args',
       "  if ($args[0] -match '^(start|setup|update)$') {",
-      "    @('ANTHROPIC_BASE_URL','GEMINI_API_BASE_URL','HTTPS_PROXY','NODE_EXTRA_CA_CERTS') | ForEach-Object {",
+      "    @('ANTHROPIC_BASE_URL','GEMINI_API_BASE_URL','NODE_EXTRA_CA_CERTS') | ForEach-Object {",
       "      $v = [Environment]::GetEnvironmentVariable($_, 'User')",
       "      if ($v) { [Environment]::SetEnvironmentVariable($_, $v, 'Process') }",
       '    }',
-      '  }',
-      "  if ($args[0] -eq 'stop') {",
-      "    [Environment]::SetEnvironmentVariable('HTTPS_PROXY', $null, 'Process')",
       '  }',
       '}',
       '# end squeezr wrapper',
@@ -300,15 +297,6 @@ async function startDaemon() {
   console.log(`  MITM proxy (Codex):               http://localhost:${mitmPort}`)
   console.log(`  Logs: ${logFile}`)
 
-  // Restore HTTPS_PROXY in Windows registry now that the proxy is alive
-  if (process.platform === 'win32') {
-    try { execSync(`setx HTTPS_PROXY "http://localhost:${mitmPort}"`, { stdio: 'pipe' }) } catch {}
-  } else if (isWSL()) {
-    try {
-      const setxExe = '/mnt/c/Windows/System32/setx.exe'
-      if (fs.existsSync(setxExe)) execSync(`"${setxExe}" HTTPS_PROXY "http://localhost:${mitmPort}"`, { stdio: 'pipe' })
-    } catch {}
-  }
   printEnvRefreshHint(port, mitmPort)
 }
 
@@ -487,7 +475,6 @@ async function configurePorts() {
     try { execSync(`setx SQUEEZR_MITM_PORT "${finalMitm}"`, { stdio: 'pipe' }) } catch {}
     try { execSync(`setx ANTHROPIC_BASE_URL "http://localhost:${finalPort}"`, { stdio: 'pipe' }) } catch {}
     try { execSync(`setx GEMINI_API_BASE_URL "http://localhost:${finalPort}"`, { stdio: 'pipe' }) } catch {}
-    try { execSync(`setx HTTPS_PROXY "http://localhost:${finalMitm}"`, { stdio: 'pipe' }) } catch {}
     console.log('Environment variables updated. Restart your terminal for changes to take effect.')
   } else {
     // Update shell profiles directly
@@ -697,11 +684,13 @@ function setupWindows() {
     // openai_base_url NOT set — Codex uses WebSocket and must go via HTTPS_PROXY/MITM,
     // not through the HTTP proxy. Setting it breaks Codex's ws:// connections.
     GEMINI_API_BASE_URL: `http://localhost:${port}`,
-    HTTPS_PROXY: `http://localhost:${mitmPort}`,
+    // HTTPS_PROXY intentionally NOT set globally — it routes ALL HTTPS traffic through
+    // the MITM proxy which breaks Claude Code, npm, and other tools. Only Codex needs it.
+    // Users who need Codex MITM can set it per-session: $env:HTTPS_PROXY="http://localhost:8081"
     NODE_EXTRA_CA_CERTS: caPath,
-    // NO_PROXY not needed — the MITM proxy only intercepts chatgpt.com,
-    // all other domains get a transparent TCP tunnel (no TLS termination).
   }
+  // Clean up HTTPS_PROXY from registry if set by older versions
+  try { execSync('reg delete "HKCU\\Environment" /v HTTPS_PROXY /f', { stdio: 'pipe' }) } catch {}
   for (const [key, value] of Object.entries(vars)) {
     try {
       execSync(`setx ${key} "${value}"`, { stdio: 'pipe' })
@@ -1251,15 +1240,6 @@ switch (command) {
       console.log(`  MITM proxy (Codex):               http://localhost:${startMitmPort}`)
       console.log(`  Logs: ${logFile}`)
 
-      // Restore HTTPS_PROXY now that the proxy is alive
-      if (process.platform === 'win32') {
-        try { execSync(`setx HTTPS_PROXY "http://localhost:${startMitmPort}"`, { stdio: 'pipe' }) } catch {}
-      } else if (isWSL()) {
-        try {
-          const setxExe = '/mnt/c/Windows/System32/setx.exe'
-          if (fs.existsSync(setxExe)) execSync(`"${setxExe}" HTTPS_PROXY "http://localhost:${startMitmPort}"`, { stdio: 'pipe' })
-        } catch {}
-      }
       // Ensure PowerShell wrapper is installed (so env vars refresh automatically)
       installShellWrapper()
       printEnvRefreshHint(startPort, startMitmPort)

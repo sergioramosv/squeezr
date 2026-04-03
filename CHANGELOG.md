@@ -2,6 +2,10 @@
 
 All notable changes to Squeezr will be documented here.
 
+## [1.16.21] - 2026-04-03
+### Fixed
+- **Stop setting `HTTPS_PROXY` globally on Windows** — routing all HTTPS traffic through the MITM proxy broke Claude Code (502), npm (ECONNREFUSED), and other tools. `HTTPS_PROXY` is now only needed for Codex and should be set per-session. Setup cleans up the registry entry left by older versions.
+
 ## [1.16.20] - 2026-04-03
 ### Fixed
 - **Duplicate `installShellWrapper` declaration crash** — second function was not renamed to `installPowerShellWrapper`, and the dispatcher called itself recursively instead of the PS wrapper.
