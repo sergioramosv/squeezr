@@ -2,6 +2,10 @@
 
 All notable changes to Squeezr will be documented here.
 
+## [1.14.2] - 2026-04-03
+### Fixed
+- **`squeezr setup` on Windows** — set `NODE_EXTRA_CA_CERTS` pointing to the MITM CA. Node.js (Codex CLI) does not use the Windows Certificate Store, so `certutil` alone was insufficient — the Codex process would reject the MITM certificate. `NODE_EXTRA_CA_CERTS` adds the CA to Node.js's trusted roots without replacing the default bundle.
+
 ## [1.14.1] - 2026-04-03
 ### Fixed
 - **`squeezr setup` on Windows** — now sets `HTTPS_PROXY=http://localhost:8081` via `setx` so Codex MITM interception is configured automatically.

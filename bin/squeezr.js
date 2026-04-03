@@ -192,11 +192,14 @@ function setupWindows() {
   // 1. Set env vars permanently via setx (user scope, no admin needed)
   const port = process.env.SQUEEZR_PORT || 8080
   const mitmPort = Number(port) + 1
+  const caPath = path.join(os.homedir(), '.squeezr', 'mitm-ca', 'ca.crt')
   const vars = {
     ANTHROPIC_BASE_URL: `http://localhost:${port}`,
     openai_base_url: `http://localhost:${port}`,
     GEMINI_API_BASE_URL: `http://localhost:${port}`,
     HTTPS_PROXY: `http://localhost:${mitmPort}`,
+    // Node.js does NOT use the Windows Certificate Store — this makes Codex (Node.js) trust the MITM CA
+    NODE_EXTRA_CA_CERTS: caPath,
   }
   for (const [key, value] of Object.entries(vars)) {
     try {
@@ -280,9 +283,9 @@ function setupWindows() {
   console.log(`  [ok] Squeezr started in background (pid ${child.pid})`)
   console.log(`  [ok] Logs → ${logFile}`)
 
-  // 4. Trust MITM CA in Windows Certificate Store so Codex TLS interception works
+  // 4. Trust MITM CA in Windows Certificate Store (for native apps like browsers)
+  //    Node.js apps (Codex) use NODE_EXTRA_CA_CERTS set above instead.
   //    The CA is generated on first proxy start — wait briefly for it to appear
-  const caPath = path.join(logDir, 'mitm-ca', 'ca.crt')
   const waitForCa = (retries = 10, interval = 500) => new Promise(resolve => {
     const check = (n) => {
       if (fs.existsSync(caPath)) return resolve(true)
