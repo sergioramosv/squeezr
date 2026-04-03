@@ -108,11 +108,68 @@ function printEnvRefreshHint(port, mitmPort) {
 }
 
 /**
- * Install/update the PowerShell wrapper function in $PROFILE so that
- * env vars are auto-refreshed after squeezr start/setup/update.
+ * Install/update shell wrapper functions so env vars are auto-refreshed
+ * after squeezr start/setup/update (child processes can't modify parent env).
  */
-function installPowerShellWrapper() {
-  if (process.platform !== 'win32') return
+function installShellWrapper() {
+  if (process.platform === 'win32') return installShellWrapper()
+  if (isWSL() || process.platform === 'linux' || process.platform === 'darwin') return installBashWrapper()
+}
+
+function installBashWrapper() {
+  const port = getPort()
+  const mitmPort = getMitmPort(port)
+  const bundlePath = path.join(os.homedir(), '.squeezr', 'mitm-ca', 'bundle.crt')
+  const marker = '# squeezr shell wrapper'
+  const endMarker = '# end squeezr shell wrapper'
+  const wrapper = `${marker}
+squeezr() {
+  command squeezr "$@"
+  case "$1" in
+    start|setup|update)
+      export ANTHROPIC_BASE_URL=http://localhost:${port}
+      export GEMINI_API_BASE_URL=http://localhost:${port}
+      export HTTPS_PROXY=http://localhost:${mitmPort}
+      export SSL_CERT_FILE=${bundlePath}
+      ;;
+    stop)
+      unset HTTPS_PROXY
+      ;;
+  esac
+}
+${endMarker}`
+
+  const profiles = [
+    path.join(os.homedir(), '.bashrc'),
+    path.join(os.homedir(), '.zshrc'),
+  ]
+  let installed = false
+  for (const p of profiles) {
+    if (!fs.existsSync(p)) continue
+    try {
+      const content = fs.readFileSync(p, 'utf-8')
+      if (!content.includes(marker)) {
+        fs.appendFileSync(p, `\n${wrapper}\n`)
+        console.log(`  [ok] Shell wrapper added to ${p}`)
+        installed = true
+      } else {
+        const updated = content.replace(new RegExp(`${marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[\\s\\S]*?${endMarker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`), wrapper)
+        fs.writeFileSync(p, updated)
+        console.log(`  [ok] Shell wrapper updated in ${p}`)
+      }
+    } catch {}
+  }
+  if (installed) {
+    console.log('')
+    console.log('  ╔═══════════════════════════════════════════════════════════════╗')
+    console.log('  ║  ONE-TIME SETUP: Close this terminal and open a new one.     ║')
+    console.log('  ║  This loads the wrapper that auto-refreshes env vars.        ║')
+    console.log('  ║  After that, you will NEVER need to do this again.           ║')
+    console.log('  ╚═══════════════════════════════════════════════════════════════╝')
+  }
+}
+
+function installShellWrapper() {
   try {
     const psProfilePath = execSync('powershell -NoProfile -Command "[Environment]::GetFolderPath(\'MyDocuments\') + \'\\WindowsPowerShell\\Microsoft.PowerShell_profile.ps1\'"', { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] }).trim()
     const psProfileDir = path.dirname(psProfilePath)
@@ -578,7 +635,7 @@ async function uninstall() {
   const tomlPath = path.join(ROOT, 'squeezr.toml')
   try { fs.unlinkSync(tomlPath) } catch {}
 
-  // 7. Remove PowerShell wrapper function from profile
+  // 7. Remove shell wrapper functions from profiles
   if (process.platform === 'win32') {
     try {
       const psProfilePath = execSync('powershell -NoProfile -Command "[Environment]::GetFolderPath(\'MyDocuments\') + \'\\WindowsPowerShell\\Microsoft.PowerShell_profile.ps1\'"', { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] }).trim()
@@ -589,6 +646,17 @@ async function uninstall() {
           fs.writeFileSync(psProfilePath, cleaned)
           console.log(`  [ok] Removed PowerShell wrapper from ${psProfilePath}`)
         }
+      }
+    } catch {}
+  }
+  // Remove bash/zsh wrapper
+  for (const p of [path.join(os.homedir(), '.bashrc'), path.join(os.homedir(), '.zshrc')]) {
+    try {
+      const content = fs.readFileSync(p, 'utf-8')
+      if (content.includes('# squeezr shell wrapper')) {
+        const cleaned = content.replace(/\n?# squeezr shell wrapper[\s\S]*?# end squeezr shell wrapper\n?/g, '')
+        fs.writeFileSync(p, cleaned)
+        console.log(`  [ok] Removed shell wrapper from ${p}`)
       }
     } catch {}
   }
@@ -644,7 +712,7 @@ function setupWindows() {
   }
 
   // 1b. Install PowerShell wrapper so env vars auto-refresh after start/setup/update
-  installPowerShellWrapper()
+  installShellWrapper()
 
   // 2. Auto-start: try NSSM (Windows service, survives crashes) → fallback to Task Scheduler
   const logDir = path.join(os.homedir(), '.squeezr')
@@ -1193,7 +1261,7 @@ switch (command) {
         } catch {}
       }
       // Ensure PowerShell wrapper is installed (so env vars refresh automatically)
-      installPowerShellWrapper()
+      installShellWrapper()
       printEnvRefreshHint(startPort, startMitmPort)
     })()
     break

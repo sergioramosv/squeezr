@@ -2,6 +2,10 @@
 
 All notable changes to Squeezr will be documented here.
 
+## [1.16.16] - 2026-04-03
+### Added
+- **Bash/Zsh shell wrapper for WSL, Linux, and macOS** — same auto-refresh behavior as the PowerShell wrapper. After `squeezr start/setup/update`, env vars are applied to the current session automatically. Shows one-time banner to reopen terminal on first install. `squeezr uninstall` cleans it up.
+
 ## [1.16.15] - 2026-04-03
 ### Improved
 - **One-time setup banner** — when the PowerShell wrapper is installed for the first time, shows a clear boxed message asking the user to reopen the terminal once. Only appears on first install, not on subsequent updates.
