@@ -164,14 +164,17 @@ function stopProxy() {
           } else {
             execSync(`kill -9 ${pid}`, { stdio: 'pipe' })
           }
-          console.log(`Squeezr stopped (pid ${pid} on port ${p})`)
           killed = true
         } catch {}
       }
     } catch {}
   }
-  if (!killed) {
-    console.log(`Squeezr is not running on port ${port}`)
+  if (killed) {
+    console.log(`Squeezr stopped`)
+    console.log(`  HTTP proxy (Claude/Aider/Gemini): http://localhost:${port}`)
+    console.log(`  MITM proxy (Codex):               http://localhost:${mitmPort}`)
+  } else {
+    console.log(`Squeezr is not running`)
   }
 }
 

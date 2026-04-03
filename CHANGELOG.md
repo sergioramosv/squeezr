@@ -2,6 +2,10 @@
 
 All notable changes to Squeezr will be documented here.
 
+## [1.16.1] - 2026-04-03
+### Fixed
+- **`squeezr stop` shows both ports** — output now matches `start` and `status` format, showing both HTTP and MITM proxy ports. Uses configured ports from `squeezr.toml` / env vars.
+
 ## [1.16.0] - 2026-04-03
 ### Added
 - **`squeezr uninstall`** — completely removes Squeezr: stops proxy, removes env vars (Windows registry / shell profiles), removes CA from certificate store, removes auto-start (NSSM/Task Scheduler/launchd/systemd), deletes `~/.squeezr` and config.
