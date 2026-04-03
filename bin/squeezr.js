@@ -190,10 +190,13 @@ function setupWindows() {
   console.log('Setting up Squeezr for Windows...\n')
 
   // 1. Set env vars permanently via setx (user scope, no admin needed)
+  const port = process.env.SQUEEZR_PORT || 8080
+  const mitmPort = Number(port) + 1
   const vars = {
-    ANTHROPIC_BASE_URL: 'http://localhost:8080',
-    openai_base_url: 'http://localhost:8080',
-    GEMINI_API_BASE_URL: 'http://localhost:8080',
+    ANTHROPIC_BASE_URL: `http://localhost:${port}`,
+    openai_base_url: `http://localhost:${port}`,
+    GEMINI_API_BASE_URL: `http://localhost:${port}`,
+    HTTPS_PROXY: `http://localhost:${mitmPort}`,
   }
   for (const [key, value] of Object.entries(vars)) {
     try {
@@ -277,18 +280,49 @@ function setupWindows() {
   console.log(`  [ok] Squeezr started in background (pid ${child.pid})`)
   console.log(`  [ok] Logs → ${logFile}`)
 
-  console.log(`
+  // 4. Trust MITM CA in Windows Certificate Store so Codex TLS interception works
+  //    The CA is generated on first proxy start — wait briefly for it to appear
+  const caPath = path.join(logDir, 'mitm-ca', 'ca.crt')
+  const waitForCa = (retries = 10, interval = 500) => new Promise(resolve => {
+    const check = (n) => {
+      if (fs.existsSync(caPath)) return resolve(true)
+      if (n <= 0) return resolve(false)
+      setTimeout(() => check(n - 1), interval)
+    }
+    check(retries)
+  })
+
+  waitForCa().then(found => {
+    if (!found) {
+      console.log(`  [warn] MITM CA not found yet — run 'squeezr setup' again after first start`)
+      printDone()
+      return
+    }
+    try {
+      execSync(`certutil -addstore -f Root "${caPath}"`, { stdio: 'pipe' })
+      console.log(`  [ok] MITM CA trusted in Windows Certificate Store (Codex TLS interception ready)`)
+    } catch {
+      console.log(`  [warn] Could not trust MITM CA — run as Administrator or trust manually:`)
+      console.log(`         certutil -addstore -f Root "${caPath}"`)
+    }
+    printDone()
+  })
+
+  function printDone() {
+    console.log(`
 Done!
 
-  Squeezr is running on http://localhost:8080
+  Squeezr is running on http://localhost:${port}
+  MITM proxy on http://localhost:${mitmPort} (Codex TLS interception)
   All CLIs (Claude Code, Codex, Aider, Gemini, Ollama) are configured.
 
-  Restart your terminal and Claude Code once for the env vars to take effect.
+  Restart your terminal once for the env vars to take effect.
   After that, everything is automatic — Squeezr starts silently on every login.
 
   squeezr status   — check it's running
   squeezr gain     — see token savings
 `)
+  }
 }
 
 function setupUnix() {

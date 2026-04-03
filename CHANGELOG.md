@@ -2,6 +2,11 @@
 
 All notable changes to Squeezr will be documented here.
 
+## [1.14.1] - 2026-04-03
+### Fixed
+- **`squeezr setup` on Windows** — now sets `HTTPS_PROXY=http://localhost:8081` via `setx` so Codex MITM interception is configured automatically.
+- **MITM CA trust on Windows** — after starting the proxy, setup waits for the CA cert to be generated and runs `certutil -addstore Root` to trust it in the Windows Certificate Store. Falls back with a manual command if admin is required.
+
 ## [1.14.0] - 2026-04-03
 ### Fixed
 - **`squeezr setup` on Windows** — auto-start now uses NSSM when available, registering Squeezr as a proper Windows service with automatic restart on crash. Falls back to Task Scheduler if NSSM is not installed or admin privileges are missing. Eliminates `ConnectionRefused` errors caused by the proxy crashing mid-session without recovery.
