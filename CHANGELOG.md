@@ -2,6 +2,11 @@
 
 All notable changes to Squeezr will be documented here.
 
+## [1.16.2] - 2026-04-03
+### Fixed
+- **`squeezr ports` now applies changes immediately** — auto-stops and restarts the proxy after changing ports, updates shell profiles (Unix) and Windows registry (WSL) automatically. No more manual export/restart needed.
+- **Port config reads from `squeezr.toml`** — all commands now read the HTTP port from toml as fallback when env var isn't set. Prevents port mismatch after `squeezr ports` in a fresh terminal.
+
 ## [1.16.1] - 2026-04-03
 ### Fixed
 - **`squeezr stop` shows both ports** — output now matches `start` and `status` format, showing both HTTP and MITM proxy ports. Uses configured ports from `squeezr.toml` / env vars.

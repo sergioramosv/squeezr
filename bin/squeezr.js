@@ -16,6 +16,15 @@ const pkg = require(path.join(ROOT, 'package.json'))
 const args = process.argv.slice(2)
 const command = args[0]
 
+function getPortFromToml() {
+  try {
+    const toml = fs.readFileSync(path.join(ROOT, 'squeezr.toml'), 'utf-8')
+    const m = toml.match(/^port\s*=\s*(\d+)/m)
+    if (m) return parseInt(m[1])
+  } catch {}
+  return null
+}
+
 function getMitmPort(port) {
   const envMitm = process.env.SQUEEZR_MITM_PORT
   if (envMitm) return parseInt(envMitm)
@@ -25,6 +34,10 @@ function getMitmPort(port) {
     if (m) return parseInt(m[1])
   } catch {}
   return Number(port) + 1
+}
+
+function getPort() {
+  return process.env.SQUEEZR_PORT || getPortFromToml() || 8080
 }
 
 const HELP = `
@@ -68,7 +81,7 @@ async function startDaemon() {
   }
 
   // Check if already running — and if the version matches
-  const port = process.env.SQUEEZR_PORT || 8080
+  const port = getPort()
   const runningVersion = await new Promise(resolve => {
     const req = http.get(`http://localhost:${port}/squeezr/health`, res => {
       let data = ''
@@ -134,7 +147,7 @@ function showLogs() {
 }
 
 function stopProxy() {
-  const port = process.env.SQUEEZR_PORT || 8080
+  const port = getPort()
   const mitmPort = getMitmPort(port)
   const ports = [port, mitmPort]
   let killed = false
@@ -179,7 +192,7 @@ function stopProxy() {
 }
 
 async function checkStatus() {
-  const port = process.env.SQUEEZR_PORT || 8080
+  const port = getPort()
   const mitmPort = getMitmPort(port)
   return new Promise(resolve => {
     const req = http.get(`http://localhost:${port}/squeezr/health`, res => {
@@ -284,15 +297,59 @@ async function configurePorts() {
     try { execSync(`setx HTTPS_PROXY "http://localhost:${finalMitm}"`, { stdio: 'pipe' }) } catch {}
     console.log('Environment variables updated. Restart your terminal for changes to take effect.')
   } else {
-    console.log(`\nUpdate your shell profile:`)
-    console.log(`  export SQUEEZR_PORT=${finalPort}`)
-    console.log(`  export SQUEEZR_MITM_PORT=${finalMitm}`)
-    console.log(`  export ANTHROPIC_BASE_URL=http://localhost:${finalPort}`)
-    console.log(`  export HTTPS_PROXY=http://localhost:${finalMitm}`)
+    // Update shell profiles directly
+    const profiles = [
+      path.join(os.homedir(), '.zshrc'),
+      path.join(os.homedir(), '.bashrc'),
+      path.join(os.homedir(), '.bash_profile'),
+    ]
+    const envBlock = [
+      `export SQUEEZR_PORT=${finalPort}`,
+      `export SQUEEZR_MITM_PORT=${finalMitm}`,
+      `export ANTHROPIC_BASE_URL=http://localhost:${finalPort}`,
+      `export GEMINI_API_BASE_URL=http://localhost:${finalPort}`,
+      `export HTTPS_PROXY=http://localhost:${finalMitm}`,
+    ].join('\n')
+    for (const p of profiles) {
+      try {
+        let content = fs.readFileSync(p, 'utf-8')
+        if (content.includes('# squeezr env vars')) {
+          // Replace existing block (from marker to the closing fi)
+          content = content.replace(
+            /# squeezr env vars[\s\S]*?fi/,
+            `# squeezr env vars\n${envBlock}\n# squeezr auto-heal\nif ! curl -sf http://localhost:${finalPort}/squeezr/health > /dev/null 2>&1; then squeezr start > /dev/null 2>&1; fi`
+          )
+          fs.writeFileSync(p, content)
+          console.log(`  [ok] Updated ${p}`)
+        }
+      } catch {}
+    }
+    // Also update env for WSL setx if on WSL
+    try {
+      const procVersion = fs.readFileSync('/proc/version', 'utf-8')
+      if (/microsoft|wsl/i.test(procVersion)) {
+        const setx = '/mnt/c/Windows/System32/setx.exe'
+        try { execSync(`"${setx}" SQUEEZR_PORT "${finalPort}"`, { stdio: 'pipe' }) } catch {}
+        try { execSync(`"${setx}" SQUEEZR_MITM_PORT "${finalMitm}"`, { stdio: 'pipe' }) } catch {}
+        try { execSync(`"${setx}" ANTHROPIC_BASE_URL "http://localhost:${finalPort}"`, { stdio: 'pipe' }) } catch {}
+        try { execSync(`"${setx}" GEMINI_API_BASE_URL "http://localhost:${finalPort}"`, { stdio: 'pipe' }) } catch {}
+        try { execSync(`"${setx}" HTTPS_PROXY "http://localhost:${finalMitm}"`, { stdio: 'pipe' }) } catch {}
+      }
+    } catch {}
   }
 
-  console.log(`\nRestart squeezr for changes to take effect:`)
-  console.log(`  squeezr stop && squeezr start`)
+  // Apply to current process so stop/start works immediately
+  process.env.SQUEEZR_PORT = String(finalPort)
+  process.env.SQUEEZR_MITM_PORT = String(finalMitm)
+  process.env.ANTHROPIC_BASE_URL = `http://localhost:${finalPort}`
+  process.env.HTTPS_PROXY = `http://localhost:${finalMitm}`
+
+  // Auto stop + start
+  console.log('')
+  stopProxy()
+  await new Promise(r => setTimeout(r, 1500))
+  await startDaemon()
+  console.log(`\nOpen a new terminal for env vars to apply to other tools.`)
 }
 
 // ── squeezr uninstall ─────────────────────────────────────────────────────────
@@ -393,7 +450,7 @@ function setupWindows() {
   console.log('Setting up Squeezr for Windows...\n')
 
   // 1. Set env vars permanently via setx (user scope, no admin needed)
-  const port = process.env.SQUEEZR_PORT || 8080
+  const port = getPort()
   const mitmPort = getMitmPort(port)
   const caPath = path.join(os.homedir(), '.squeezr', 'mitm-ca', 'ca.crt')
   const vars = {
@@ -548,7 +605,7 @@ function setupUnix() {
 
   // 1. Set env vars + auto-heal guard in shell profile
   const distIndex = path.join(ROOT, 'dist', 'index.js')
-  const port = process.env.SQUEEZR_PORT || 8080
+  const port = getPort()
   const mitmPort = getMitmPort(port)
   const bundlePath = path.join(os.homedir(), '.squeezr', 'mitm-ca', 'bundle.crt')
   const shellBlock = [
@@ -681,7 +738,7 @@ function setupWSL() {
   //    The guard checks if the proxy is alive on terminal open. If not, it starts
   //    it in the background. This is the safety net for WSL2 where systemd and
   //    Task Scheduler may both fail.
-  const port = process.env.SQUEEZR_PORT || 8080
+  const port = getPort()
   const mitmPort = getMitmPort(port)
   const bundlePath = path.join(os.homedir(), '.squeezr', 'mitm-ca', 'bundle.crt')
   const shellBlock = [
