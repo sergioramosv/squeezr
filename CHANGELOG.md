@@ -2,6 +2,10 @@
 
 All notable changes to Squeezr will be documented here.
 
+## [1.16.10] - 2026-04-03
+### Fixed
+- **`squeezr update` SyntaxError** — duplicate `uPort` variable declaration in the update command caused a crash on v1.16.9. Renamed to avoid conflict.
+
 ## [1.16.9] - 2026-04-03
 ### Fixed
 - **`squeezr update` starts the new version directly** — no longer re-execs the old binary via `which squeezr` (which in WSL resolves to the Windows npm path, not the updated Linux one). Now resolves `npm root -g` to find the freshly installed package and spawns the daemon from its `dist/index.js`. Eliminates the stale "Update available" banner after updates.

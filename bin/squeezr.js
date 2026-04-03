@@ -1067,8 +1067,8 @@ switch (command) {
       // Start the daemon directly from the new dist/index.js (no re-exec of old binary)
       console.log('Starting Squeezr...')
       const newDistIndex = path.join(newRoot, 'dist', 'index.js')
-      const uPort = getPort()
-      const uMitmPort2 = getMitmPort(uPort)
+      const startPort = getPort()
+      const startMitmPort = getMitmPort(startPort)
       const logDir = path.join(os.homedir(), '.squeezr')
       const logFile = path.join(logDir, 'squeezr.log')
       fs.mkdirSync(logDir, { recursive: true })
@@ -1082,8 +1082,8 @@ switch (command) {
       child.unref()
       fs.closeSync(logFd)
       console.log(`Squeezr started (pid ${child.pid})`)
-      console.log(`  HTTP proxy (Claude/Aider/Gemini): http://localhost:${uPort}`)
-      console.log(`  MITM proxy (Codex):               http://localhost:${uMitmPort2}`)
+      console.log(`  HTTP proxy (Claude/Aider/Gemini): http://localhost:${startPort}`)
+      console.log(`  MITM proxy (Codex):               http://localhost:${startMitmPort}`)
       console.log(`  Logs: ${logFile}`)
 
       if (isWSL()) {
