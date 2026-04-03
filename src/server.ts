@@ -28,7 +28,7 @@ const ANTHROPIC_API = 'https://api.anthropic.com'
 const OPENAI_API = 'https://api.openai.com'
 const GOOGLE_API = 'https://generativelanguage.googleapis.com'
 
-const SKIP_REQ_HEADERS = new Set(['host', 'content-length', 'transfer-encoding', 'connection'])
+const SKIP_REQ_HEADERS = new Set(['host', 'content-length', 'transfer-encoding', 'connection', 'upgrade'])
 
 function readCodexToken(): string | null {
   try {

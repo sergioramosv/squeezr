@@ -2,6 +2,10 @@
 
 All notable changes to Squeezr will be documented here.
 
+## [1.14.6] - 2026-04-03
+### Fixed
+- **Claude 502** — `forwardHeaders()` was passing the `Upgrade` header to undici's `fetch`, which throws `InvalidArgumentError: invalid upgrade header`. Added `upgrade` to `SKIP_REQ_HEADERS`. Root cause confirmed from production logs.
+
 ## [1.14.5] - 2026-04-03
 ### Fixed
 - **Codex auth.openai.com blocked** — `HTTPS_PROXY` was intercepting ALL HTTPS traffic including OpenAI auth endpoints. Added `NO_PROXY` excluding `auth.openai.com`, `api.openai.com`, `api.anthropic.com` and others so only `chatgpt.com` WebSocket traffic goes through the MITM.
