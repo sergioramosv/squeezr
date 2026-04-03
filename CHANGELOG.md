@@ -2,6 +2,10 @@
 
 All notable changes to Squeezr will be documented here.
 
+## [1.16.7] - 2026-04-03
+### Improved
+- **WSL terminal warning after `setup` and `update`** — prints a clear `⚠️ IMPORTANT` message reminding users to close and reopen the terminal so environment variables take effect. Prevents 502 errors from stale sessions.
+
 ## [1.16.6] - 2026-04-03
 ### Fixed
 - **`squeezr uninstall` now runs `npm uninstall -g`** automatically — full removal in one command, no manual step needed.

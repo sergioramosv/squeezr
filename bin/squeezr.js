@@ -991,7 +991,10 @@ Done!
   WSL env vars added to ${profile}.
 
   To activate in THIS terminal: source ${profile}
-  New terminals will have everything configured automatically.
+
+  ⚠️  IMPORTANT: Close this terminal and open a new one so the
+     environment variables take effect. Otherwise tools like
+     Claude Code may fail with 502 errors.
 
   squeezr status   — check it's running
   squeezr gain     — see token savings
@@ -1050,6 +1053,12 @@ switch (command) {
       try {
         execSync(`node "${squeezrBin}" start`, { stdio: 'inherit' })
       } catch {}
+
+      if (isWSL()) {
+        console.log('\n  ⚠️  IMPORTANT: Close this terminal and open a new one so the')
+        console.log('     environment variables take effect. Otherwise tools like')
+        console.log('     Claude Code may fail with 502 errors.\n')
+      }
     })()
     break
   case 'stop':

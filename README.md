@@ -23,6 +23,8 @@ squeezr setup   # configures env vars, auto-start, and CA trust
 squeezr start
 ```
 
+> **WSL users:** After `squeezr setup` or `squeezr update`, close the terminal and open a new one so the environment variables take effect.
+
 `squeezr setup` handles everything automatically:
 - Sets `ANTHROPIC_BASE_URL`, `GEMINI_API_BASE_URL`, `HTTPS_PROXY`, `NODE_EXTRA_CA_CERTS`
 - Registers auto-start (launchd on macOS, systemd on Linux, Task Scheduler/NSSM on Windows)
