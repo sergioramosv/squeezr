@@ -2,6 +2,12 @@
 
 All notable changes to Squeezr will be documented here.
 
+## [1.16.6] - 2026-04-03
+### Fixed
+- **`squeezr uninstall` now runs `npm uninstall -g`** automatically — full removal in one command, no manual step needed.
+- **`update` and `uninstall` clear `HTTPS_PROXY` before npm commands** — prevents ECONNREFUSED when npm tries to go through the dead proxy.
+- **Update banner no longer shows stale/inverted versions** — cache is cleared after `squeezr update`.
+
 ## [1.16.5] - 2026-04-03
 ### Fixed
 - **Env vars now written to `~/.profile`** — fixes Claude Code 502 errors caused by env vars in `.bashrc` being skipped by the `case $-` interactive-shell guard. Login shells (and WSL default terminals) load `.profile` before `.bashrc`'s guard, so `ANTHROPIC_BASE_URL` is always available.

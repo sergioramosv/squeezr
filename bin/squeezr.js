@@ -492,12 +492,22 @@ async function uninstall() {
   const tomlPath = path.join(ROOT, 'squeezr.toml')
   try { fs.unlinkSync(tomlPath) } catch {}
 
-  console.log(`
-Done! Squeezr has been completely removed.
+  // 7. npm uninstall -g (clear HTTPS_PROXY first so npm doesn't hit dead proxy)
+  console.log('  [..] Uninstalling npm package...')
+  const cleanEnv = { ...process.env, HTTPS_PROXY: '', https_proxy: '', HTTP_PROXY: '', http_proxy: '' }
+  try {
+    execSync('npm uninstall -g squeezr-ai', { stdio: 'inherit', env: cleanEnv })
+    console.log('  [ok] npm package removed')
+  } catch {
+    try {
+      execSync('sudo npm uninstall -g squeezr-ai', { stdio: 'inherit', env: cleanEnv })
+      console.log('  [ok] npm package removed')
+    } catch {
+      console.log('  [warn] Could not uninstall npm package. Run manually: npm uninstall -g squeezr-ai')
+    }
+  }
 
-To finish, run:
-  npm uninstall -g squeezr-ai
-`)
+  console.log('\nDone! Squeezr has been completely removed.\n')
 }
 
 // ── squeezr setup ─────────────────────────────────────────────────────────────
@@ -1019,18 +1029,20 @@ switch (command) {
       await new Promise(r => setTimeout(r, 1000))
 
       console.log('Installing latest version...')
+      const cleanEnv = { ...process.env, HTTPS_PROXY: '', https_proxy: '', HTTP_PROXY: '', http_proxy: '' }
       try {
-        const npmCmd = process.platform === 'win32' ? 'npm' : 'HTTPS_PROXY= npm'
-        execSync(`${npmCmd} install -g squeezr-ai@latest`, { stdio: 'inherit' })
-      } catch (e) {
-        // On Unix, might need sudo
+        execSync('npm install -g squeezr-ai@latest', { stdio: 'inherit', env: cleanEnv })
+      } catch {
         try {
-          execSync('sudo HTTPS_PROXY= npm install -g squeezr-ai@latest', { stdio: 'inherit' })
+          execSync('sudo npm install -g squeezr-ai@latest', { stdio: 'inherit', env: cleanEnv })
         } catch {
-          console.error('npm install failed. Try manually: npm install -g squeezr-ai')
+          console.error('npm install failed. Try manually: HTTPS_PROXY= npm install -g squeezr-ai')
           process.exit(1)
         }
       }
+
+      // Clear update check cache so it doesn't show stale banner
+      try { fs.unlinkSync(UPDATE_CHECK_FILE) } catch {}
 
       console.log('\nStarting Squeezr...')
       // Re-exec the new binary so we run the updated code
