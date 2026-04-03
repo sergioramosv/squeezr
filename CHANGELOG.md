@@ -2,6 +2,10 @@
 
 All notable changes to Squeezr will be documented here.
 
+## [1.16.18] - 2026-04-03
+### Fixed
+- **PowerShell wrapper crash** — was passing `squeezr.cmd` (a batch file) to `node`, causing `SyntaxError`. Now calls `squeezr.cmd` directly via `&`.
+
 ## [1.16.17] - 2026-04-03
 ### Fixed
 - **Node.js v24 compatibility** — strip `Expect` header from forwarded requests. Node 24's undici rejects this header with `UND_ERR_NOT_SUPPORTED`, causing 500 errors on all proxied requests.

@@ -177,9 +177,7 @@ function installShellWrapper() {
     const psMarker = '# squeezr wrapper'
     const psFunction = `${psMarker}
 function squeezr {
-  $bin = (Get-Command squeezr.cmd -ErrorAction SilentlyContinue).Source
-  if (-not $bin) { $bin = (Get-Command squeezr -ErrorAction SilentlyContinue).Source }
-  & node $bin @args
+  & squeezr.cmd @args
   if ($args[0] -match '^(start|setup|update)$') {
     @('ANTHROPIC_BASE_URL','GEMINI_API_BASE_URL','HTTPS_PROXY','NODE_EXTRA_CA_CERTS') | ForEach-Object {
       $v = [Environment]::GetEnvironmentVariable($_, 'User')
