@@ -89,6 +89,24 @@ function getPort() {
   return process.env.SQUEEZR_PORT || getPortFromToml() || 8080
 }
 
+/**
+ * Print a PowerShell/bash one-liner to refresh env vars in the current session.
+ * Copies it to the clipboard on Windows so the user can just Ctrl+V, Enter.
+ */
+function printEnvRefreshHint(port, mitmPort) {
+  const bundlePath = path.join(os.homedir(), '.squeezr', 'mitm-ca', 'bundle.crt')
+  if (process.platform === 'win32') {
+    const cmd = `$env:ANTHROPIC_BASE_URL="http://localhost:${port}"; $env:GEMINI_API_BASE_URL="http://localhost:${port}"; $env:HTTPS_PROXY="http://localhost:${mitmPort}"`
+    try { execSync(`powershell -NoProfile -Command "Set-Clipboard '${cmd.replace(/'/g, "''")}';"`, { stdio: 'pipe' }) } catch {}
+    console.log(`\n  Run this to activate in the current terminal (already copied to clipboard):\n`)
+    console.log(`  ${cmd}\n`)
+  } else if (isWSL()) {
+    const cmd = `export ANTHROPIC_BASE_URL=http://localhost:${port} GEMINI_API_BASE_URL=http://localhost:${port} HTTPS_PROXY=http://localhost:${mitmPort} SSL_CERT_FILE=${bundlePath}`
+    console.log(`\n  Run this to activate in the current terminal:\n`)
+    console.log(`  ${cmd}\n`)
+  }
+}
+
 const HELP = `
 Squeezr v${pkg.version} — AI context compressor for Claude Code, Codex, Aider, Gemini CLI and Ollama
 
@@ -187,6 +205,7 @@ async function startDaemon() {
       if (fs.existsSync(setxExe)) execSync(`"${setxExe}" HTTPS_PROXY "http://localhost:${mitmPort}"`, { stdio: 'pipe' })
     } catch {}
   }
+  printEnvRefreshHint(port, mitmPort)
 }
 
 function showLogs() {
@@ -677,12 +696,10 @@ Done!
   MITM proxy on http://localhost:${mitmPort} (Codex TLS interception)
   All CLIs (Claude Code, Codex, Aider, Gemini, Ollama) are configured.
 
-  Restart your terminal once for the env vars to take effect.
-  After that, everything is automatic — Squeezr starts silently on every login.
-
   squeezr status   — check it's running
   squeezr gain     — see token savings
 `)
+    printEnvRefreshHint(port, mitmPort)
   }
 }
 
@@ -999,26 +1016,21 @@ WantedBy=default.target
   console.log(`  [ok] Squeezr started in background (pid ${child.pid})`)
   console.log(`  [ok] Logs → ${logFile}`)
 
-  // 5. Apply env vars to current process so calling `source` is not needed
-  //    This won't affect the parent shell, but at least prints guidance.
+  const setupPort = getPort()
+  const setupMitmPort = getMitmPort(setupPort)
   console.log(`
 Done!
 
-  Squeezr is running on http://localhost:8080
+  Squeezr is running on http://localhost:${setupPort}
   All CLIs (Claude Code, Codex, Aider, Gemini, Ollama) are configured.
 
   Windows env vars are set (effective in new terminals immediately).
   WSL env vars added to ${profile}.
 
-  To activate in THIS terminal: source ${profile}
-
-  ⚠️  IMPORTANT: Close this terminal and open a new one so the
-     environment variables take effect. Otherwise tools like
-     Claude Code may fail with 502 errors.
-
   squeezr status   — check it's running
   squeezr gain     — see token savings
 `)
+  printEnvRefreshHint(setupPort, setupMitmPort)
 }
 
 // ── CLI router ────────────────────────────────────────────────────────────────
@@ -1114,10 +1126,8 @@ switch (command) {
           const setxExe = '/mnt/c/Windows/System32/setx.exe'
           if (fs.existsSync(setxExe)) execSync(`"${setxExe}" HTTPS_PROXY "http://localhost:${startMitmPort}"`, { stdio: 'pipe' })
         } catch {}
-        console.log('\n  ⚠️  IMPORTANT: Close this terminal and open a new one so the')
-        console.log('     environment variables take effect. Otherwise tools like')
-        console.log('     Claude Code may fail with 502 errors.\n')
       }
+      printEnvRefreshHint(startPort, startMitmPort)
     })()
     break
   case 'stop':

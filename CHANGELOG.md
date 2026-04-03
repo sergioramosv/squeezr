@@ -2,6 +2,10 @@
 
 All notable changes to Squeezr will be documented here.
 
+## [1.16.12] - 2026-04-03
+### Improved
+- **`setup`, `start`, and `update` print a one-liner to activate env vars in the current terminal** — on Windows PowerShell it's copied to the clipboard automatically. No need to close and reopen the terminal anymore.
+
 ## [1.16.11] - 2026-04-03
 ### Fixed
 - **`squeezr stop` clears `HTTPS_PROXY` from Windows registry** — prevents `ECONNREFUSED` errors when running `npm install` or other tools after stopping the proxy. `squeezr start` and `squeezr update` restore it automatically once the proxy is alive again.
