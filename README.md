@@ -98,7 +98,8 @@ Codex uses WebSocket over TLS to `chatgpt.com` with OAuth authentication — it 
 
 ```toml
 [proxy]
-port = 8080
+port = 8080           # HTTP proxy (Claude, Aider, Gemini)
+mitm_port = 8081      # MITM proxy (Codex) — defaults to port + 1
 
 [compression]
 threshold = 800          # min chars to trigger compression
@@ -133,7 +134,8 @@ Project-level config is deep-merged over global config. Useful for per-repo tuni
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `SQUEEZR_PORT` | `8080` | Proxy port (MITM port = this + 1) |
+| `SQUEEZR_PORT` | `8080` | HTTP proxy port (Claude, Aider, Gemini) |
+| `SQUEEZR_MITM_PORT` | `8081` | MITM proxy port (Codex) — defaults to SQUEEZR_PORT + 1 |
 | `SQUEEZR_THRESHOLD` | `800` | Min chars to compress |
 | `SQUEEZR_KEEP_RECENT` | `3` | Recent results to skip |
 | `SQUEEZR_DISABLED` | `false` | Disable all compression |
@@ -172,6 +174,7 @@ squeezr stop       # stop the proxy
 squeezr status     # check if proxy is running
 squeezr logs       # show last 50 log lines
 squeezr config     # print current config
+squeezr ports      # change HTTP and MITM proxy ports
 squeezr gain       # estimate token savings for a directory
 squeezr discover   # detect which AI CLIs are installed
 squeezr version    # print version
