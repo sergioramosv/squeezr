@@ -258,6 +258,18 @@ function handleConnect(req: http.IncomingMessage, clientSocket: net.Socket, _hea
   const [hostname, portStr] = (req.url ?? '').split(':')
   const port = parseInt(portStr) || 443
 
+  // Only MITM chatgpt.com — everything else gets a transparent TCP tunnel
+  if (hostname !== 'chatgpt.com') {
+    const upstream = net.connect(port, hostname, () => {
+      clientSocket.write('HTTP/1.1 200 Connection Established\r\n\r\n')
+      upstream.pipe(clientSocket)
+      clientSocket.pipe(upstream)
+    })
+    upstream.on('error', () => { try { clientSocket.destroy() } catch {} })
+    clientSocket.on('error', () => { try { upstream.destroy() } catch {} })
+    return
+  }
+
   clientSocket.write('HTTP/1.1 200 Connection Established\r\n\r\n')
 
   const { key, cert } = getCert(hostname)

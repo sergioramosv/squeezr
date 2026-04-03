@@ -200,10 +200,8 @@ function setupWindows() {
     GEMINI_API_BASE_URL: `http://localhost:${port}`,
     HTTPS_PROXY: `http://localhost:${mitmPort}`,
     NODE_EXTRA_CA_CERTS: caPath,
-    // SSL_CERT_FILE not set — Rust/native apps use Windows Certificate Store instead
-    // (CA is imported in step 4 below via certutil)
-    // Bypass MITM for auth and API domains — only chatgpt.com needs interception
-    NO_PROXY: 'auth.openai.com,login.openai.com,api.openai.com,api.anthropic.com,generativelanguage.googleapis.com',
+    // NO_PROXY not needed — the MITM proxy only intercepts chatgpt.com,
+    // all other domains get a transparent TCP tunnel (no TLS termination).
   }
   for (const [key, value] of Object.entries(vars)) {
     try {
