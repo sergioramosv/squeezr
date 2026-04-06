@@ -2,6 +2,18 @@
 
 All notable changes to Squeezr will be documented here.
 
+## [1.17.9] - 2026-04-06
+### Added
+- **LIMITS dashboard page** — 5th sidebar page showing real-time rate limit gauges and token consumption per CLI.
+- **Anthropic rate limits (live)** — `anthropic-ratelimit-*` headers extracted from every Anthropic response. Shows tokens/min remaining, requests/min remaining, input/output token sub-limits, and countdown to reset. Badge turns green on first data.
+- **OpenAI rate limits (live)** — `x-ratelimit-*` headers extracted from every OpenAI response. Shows tokens/min and requests/min remaining with reset countdowns.
+- **OpenAI billing** — `GET /v1/dashboard/billing/subscription` + `credit_grants` polled every 5 min using the API key seen in requests. Shows credit balance and hard limit in USD.
+- **Gemini quota tracking** — Google does not expose quota headers on success; Squeezr records them when a 429 error occurs. Shows last known limit and 429 error count.
+- **Token usage counters** — Input + output tokens accumulated from response bodies and SSE stream events (`message_start`, `message_delta` for Anthropic; final usage chunk for OpenAI). Shown per-CLI: session total and today total with automatic midnight rollover.
+- **Personal monthly budget bar** — User enters a monthly token budget in the LIMITS page; Squeezr renders a progress bar with color-coded fill (green → yellow → red). Persisted in localStorage.
+- **Reset countdown timer** — 1-second interval updates "resets in Xs" counters on rate limit gauges while the LIMITS page is visible.
+- **`GET /squeezr/limits`** — New REST endpoint returning the full limits snapshot (rate limits + usage + billing).
+
 ## [1.17.8] - 2026-04-06
 ### Added
 - **Dashboard sidebar navigation** — 4-page SPA: Overview, Projects, History, Settings. Replaces the single-page layout.

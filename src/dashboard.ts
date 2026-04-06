@@ -162,6 +162,36 @@ tr:last-child td{border-bottom:none}
 .config-key{color:var(--muted)}
 .config-val{font-family:monospace;color:var(--text)}
 
+/* ── Limits page ── */
+.limits-cli-section{background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:14px 16px;margin-bottom:14px}
+.limits-cli-header{display:flex;align-items:center;gap:8px;margin-bottom:12px}
+.limits-cli-name{font-size:13px;font-weight:600;color:var(--text)}
+.limits-cli-badge{font-size:10px;padding:1px 7px;border-radius:10px;border:1px solid;margin-left:2px}
+.limits-cli-badge.live{border-color:rgba(63,185,80,.4);color:var(--green);background:rgba(63,185,80,.1)}
+.limits-cli-badge.error{border-color:rgba(248,81,73,.4);color:var(--red);background:rgba(248,81,73,.1)}
+.limits-cli-badge.warn{border-color:rgba(210,153,34,.4);color:var(--yellow);background:rgba(210,153,34,.1)}
+.limits-cli-badge.none{border-color:var(--border);color:var(--muted);background:transparent}
+.limits-gauge-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px;margin-bottom:10px}
+.limits-gauge{background:var(--bg3);border:1px solid var(--border);border-radius:6px;padding:10px 12px}
+.limits-gauge-label{font-size:11px;color:var(--muted);margin-bottom:6px;display:flex;justify-content:space-between}
+.limits-gauge-bar{height:6px;background:var(--bg4);border-radius:3px;overflow:hidden;margin-bottom:5px}
+.limits-gauge-fill{height:100%;border-radius:3px;transition:width .5s,background .5s}
+.limits-gauge-bottom{display:flex;justify-content:space-between;font-size:11px}
+.limits-gauge-remaining{color:var(--text);font-weight:500}
+.limits-gauge-reset{color:var(--muted)}
+.limits-usage-row{display:flex;gap:16px;flex-wrap:wrap;padding-top:8px;border-top:1px solid var(--border);margin-top:4px}
+.limits-usage-item{font-size:12px;color:var(--muted)}
+.limits-usage-item span{color:var(--text);font-weight:500}
+.limits-no-data{padding:16px;text-align:center;color:var(--muted);font-size:12px}
+.limits-billing-row{display:flex;gap:10px;flex-wrap:wrap;padding:8px 0 2px}
+.limits-credit-card{flex:1;min-width:120px;background:var(--bg3);border:1px solid var(--border);border-radius:6px;padding:10px 12px}
+.limits-credit-label{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px}
+.limits-credit-val{font-size:20px;font-weight:600;color:var(--green)}
+.limits-budget-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:6px}
+.limits-budget-input{background:var(--bg3);border:1px solid var(--border);border-radius:5px;padding:5px 10px;color:var(--text);font-size:12px;width:140px;outline:none}
+.limits-budget-input:focus{border-color:var(--blue)}
+.limits-budget-label{font-size:12px;color:var(--muted)}
+
 /* ── Footer bar ── */
 #footer{padding:7px 20px;border-top:1px solid var(--border);background:var(--bg2);font-size:11px;color:var(--muted);display:flex;gap:16px;flex-shrink:0}
 #footer a{color:var(--muted)}#footer a:hover{color:var(--blue)}
@@ -196,6 +226,15 @@ tr:last-child td{border-bottom:none}
         <path d="M8 16A8 8 0 108 0a8 8 0 000 16zm7-8A7 7 0 111 8a7 7 0 0114 0z"/>
       </svg>
       <span class="nav-label">History</span>
+    </div>
+    <div class="nav-item" data-page="limits">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <line x1="18" y1="20" x2="18" y2="10"/>
+        <line x1="12" y1="20" x2="12" y2="4"/>
+        <line x1="6" y1="20" x2="6" y2="14"/>
+        <line x1="2" y1="20" x2="22" y2="20"/>
+      </svg>
+      <span class="nav-label">Limits</span>
     </div>
     <div class="nav-item" data-page="settings">
       <svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor">
@@ -345,6 +384,200 @@ tr:last-child td{border-bottom:none}
           <div id="hist-sessions-list"><div class="empty-msg">Select a project on the left to view sessions.</div></div>
         </div>
       </div>
+    </div>
+
+    <!-- ─── Limits ───────────────────────────────────────────────────────── -->
+    <div class="page" id="page-limits">
+
+      <!-- Anthropic -->
+      <div class="limits-cli-section" id="lim-anthropic">
+        <div class="limits-cli-header">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" style="color:var(--orange)">
+            <path d="M13.83 2.34a2.09 2.09 0 0 0-3.66 0L1.13 18.9A2.09 2.09 0 0 0 2.96 22h18.08a2.09 2.09 0 0 0 1.83-3.1L13.83 2.34ZM12 8a1 1 0 0 1 1 1v5a1 1 0 0 1-2 0V9a1 1 0 0 1 1-1Zm0 10a1 1 0 1 1 0-2 1 1 0 0 1 0 2Z"/>
+          </svg>
+          <span class="limits-cli-name">Anthropic · Claude Code</span>
+          <span class="limits-cli-badge none" id="ant-badge">no data yet</span>
+        </div>
+        <div class="limits-gauge-grid">
+          <div class="limits-gauge">
+            <div class="limits-gauge-label">
+              <span>Tokens / minute</span>
+              <span id="ant-tok-pct" style="color:var(--muted)">—</span>
+            </div>
+            <div class="limits-gauge-bar"><div class="limits-gauge-fill" id="ant-tok-fill" style="width:0%"></div></div>
+            <div class="limits-gauge-bottom">
+              <span class="limits-gauge-remaining" id="ant-tok-rem">—</span>
+              <span class="limits-gauge-reset" id="ant-tok-reset"></span>
+            </div>
+          </div>
+          <div class="limits-gauge">
+            <div class="limits-gauge-label">
+              <span>Requests / minute</span>
+              <span id="ant-req-pct" style="color:var(--muted)">—</span>
+            </div>
+            <div class="limits-gauge-bar"><div class="limits-gauge-fill" id="ant-req-fill" style="width:0%"></div></div>
+            <div class="limits-gauge-bottom">
+              <span class="limits-gauge-remaining" id="ant-req-rem">—</span>
+              <span class="limits-gauge-reset" id="ant-req-reset"></span>
+            </div>
+          </div>
+          <div class="limits-gauge">
+            <div class="limits-gauge-label">
+              <span>Input tokens / minute</span>
+              <span id="ant-inp-pct" style="color:var(--muted)">—</span>
+            </div>
+            <div class="limits-gauge-bar"><div class="limits-gauge-fill" id="ant-inp-fill" style="width:0%"></div></div>
+            <div class="limits-gauge-bottom">
+              <span class="limits-gauge-remaining" id="ant-inp-rem">—</span>
+              <span class="limits-gauge-reset" id="ant-inp-reset"></span>
+            </div>
+          </div>
+          <div class="limits-gauge">
+            <div class="limits-gauge-label">
+              <span>Output tokens / minute</span>
+              <span id="ant-out-pct" style="color:var(--muted)">—</span>
+            </div>
+            <div class="limits-gauge-bar"><div class="limits-gauge-fill" id="ant-out-fill" style="width:0%"></div></div>
+            <div class="limits-gauge-bottom">
+              <span class="limits-gauge-remaining" id="ant-out-rem">—</span>
+              <span class="limits-gauge-reset" id="ant-out-reset"></span>
+            </div>
+          </div>
+        </div>
+        <div class="limits-usage-row">
+          <div class="limits-usage-item">Session input: <span id="ant-u-inp-s">—</span></div>
+          <div class="limits-usage-item">Session output: <span id="ant-u-out-s">—</span></div>
+          <div class="limits-usage-item">Today input: <span id="ant-u-inp-d">—</span></div>
+          <div class="limits-usage-item">Today output: <span id="ant-u-out-d">—</span></div>
+          <div class="limits-usage-item" style="margin-left:auto">
+            <a href="https://console.anthropic.com/settings/usage" target="_blank" style="color:var(--muted);font-size:11px">View billing ↗</a>
+          </div>
+        </div>
+      </div>
+
+      <!-- OpenAI -->
+      <div class="limits-cli-section" id="lim-openai">
+        <div class="limits-cli-header">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" style="color:var(--text)">
+            <path d="M22.28 9.27a6.17 6.17 0 0 0-.53-5.06 6.24 6.24 0 0 0-6.7-2.99A6.23 6.23 0 0 0 10.36 0a6.24 6.24 0 0 0-5.95 4.32 6.23 6.23 0 0 0-4.16 3.02 6.24 6.24 0 0 0 .77 7.32 6.17 6.17 0 0 0 .53 5.06 6.24 6.24 0 0 0 6.7 2.99A6.23 6.23 0 0 0 13.64 24a6.25 6.25 0 0 0 5.96-4.33 6.23 6.23 0 0 0 4.15-3.02 6.24 6.24 0 0 0-.77-7.31l.3-.07ZM13.64 22.5a4.63 4.63 0 0 1-2.97-1.08l.15-.08 4.93-2.85a.82.82 0 0 0 .41-.71v-6.96l2.08 1.2a.08.08 0 0 1 .04.06v5.76a4.65 4.65 0 0 1-4.64 4.66Zm-9.95-4.27a4.63 4.63 0 0 1-.55-3.12l.14.09 4.93 2.85a.82.82 0 0 0 .82 0l6.02-3.47v2.4a.08.08 0 0 1-.03.06L10.06 20a4.65 4.65 0 0 1-6.37-1.77Zm-1.28-10.8a4.63 4.63 0 0 1 2.42-2.04v5.88a.82.82 0 0 0 .41.71l6.01 3.47-2.08 1.2a.08.08 0 0 1-.08 0L4.22 13.7a4.65 4.65 0 0 1-.81-6.27Zm17.09 3.99-6.02-3.48L15.56 7a.08.08 0 0 1 .08 0l4.87 2.81a4.64 4.64 0 0 1-.72 8.38v-5.88a.82.82 0 0 0-.39-.69Zm2.07-3.14-.14-.09-4.92-2.87a.82.82 0 0 0-.83 0L9.67 9.79V7.4a.08.08 0 0 1 .03-.06L14.6 4.5a4.64 4.64 0 0 1 6.9 4.81l.07-.03Zm-13.03 4.28-2.08-1.2a.08.08 0 0 1-.04-.06V5.5a4.64 4.64 0 0 1 7.62-3.56l-.15.08L7.9 4.87a.82.82 0 0 0-.41.71l-.01 6.98Zm1.13-2.43 2.68-1.55 2.68 1.55v3.1l-2.68 1.54-2.68-1.54v-3.1Z"/>
+          </svg>
+          <span class="limits-cli-name">OpenAI · Codex</span>
+          <span class="limits-cli-badge none" id="oai-badge">no data yet</span>
+        </div>
+        <div class="limits-gauge-grid">
+          <div class="limits-gauge">
+            <div class="limits-gauge-label">
+              <span>Tokens / minute</span>
+              <span id="oai-tok-pct" style="color:var(--muted)">—</span>
+            </div>
+            <div class="limits-gauge-bar"><div class="limits-gauge-fill" id="oai-tok-fill" style="width:0%"></div></div>
+            <div class="limits-gauge-bottom">
+              <span class="limits-gauge-remaining" id="oai-tok-rem">—</span>
+              <span class="limits-gauge-reset" id="oai-tok-reset"></span>
+            </div>
+          </div>
+          <div class="limits-gauge">
+            <div class="limits-gauge-label">
+              <span>Requests / minute</span>
+              <span id="oai-req-pct" style="color:var(--muted)">—</span>
+            </div>
+            <div class="limits-gauge-bar"><div class="limits-gauge-fill" id="oai-req-fill" style="width:0%"></div></div>
+            <div class="limits-gauge-bottom">
+              <span class="limits-gauge-remaining" id="oai-req-rem">—</span>
+              <span class="limits-gauge-reset" id="oai-req-reset"></span>
+            </div>
+          </div>
+        </div>
+        <div class="limits-billing-row" id="oai-billing-row" style="display:none">
+          <div class="limits-credit-card">
+            <div class="limits-credit-label">Credits remaining</div>
+            <div class="limits-credit-val" id="oai-credits">—</div>
+          </div>
+          <div class="limits-credit-card">
+            <div class="limits-credit-label">Hard limit</div>
+            <div class="limits-credit-val" style="color:var(--yellow)" id="oai-hard-lim">—</div>
+          </div>
+        </div>
+        <div class="limits-usage-row">
+          <div class="limits-usage-item">Session input: <span id="oai-u-inp-s">—</span></div>
+          <div class="limits-usage-item">Session output: <span id="oai-u-out-s">—</span></div>
+          <div class="limits-usage-item">Today input: <span id="oai-u-inp-d">—</span></div>
+          <div class="limits-usage-item">Today output: <span id="oai-u-out-d">—</span></div>
+          <div class="limits-usage-item" style="margin-left:auto">
+            <a href="https://platform.openai.com/usage" target="_blank" style="color:var(--muted);font-size:11px">View billing ↗</a>
+          </div>
+        </div>
+      </div>
+
+      <!-- Gemini -->
+      <div class="limits-cli-section" id="lim-gemini">
+        <div class="limits-cli-header">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" style="color:var(--blue)">
+            <path d="M12 0C5.37 0 0 5.37 0 12s5.37 12 12 12 12-5.37 12-12S18.63 0 12 0zm0 22C6.49 22 2 17.51 2 12S6.49 2 12 2s10 4.49 10 10-4.49 10-10 10zm-1-14h2v7h-2zm0 9h2v2h-2z"/>
+          </svg>
+          <span class="limits-cli-name">Google · Gemini CLI</span>
+          <span class="limits-cli-badge warn" id="gem-badge">only on 429 errors</span>
+        </div>
+        <div id="gem-nodata" class="limits-no-data">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="margin-bottom:6px;display:block;margin-inline:auto;opacity:.4">
+            <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+          </svg>
+          Google does not expose quota headers on successful responses.<br>
+          Data appears here only after a 429 rate-limit error.<br>
+          <a href="https://aistudio.google.com/app/usage" target="_blank" style="margin-top:8px;display:inline-block">View quotas in AI Studio ↗</a>
+        </div>
+        <div id="gem-data" style="display:none">
+          <div class="limits-gauge-grid">
+            <div class="limits-gauge">
+              <div class="limits-gauge-label"><span>Last known token limit</span></div>
+              <div class="limits-gauge-bottom">
+                <span class="limits-gauge-remaining" id="gem-tok-lim">—</span>
+                <span class="limits-gauge-reset" id="gem-errors">0 errors</span>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="limits-usage-row">
+          <div class="limits-usage-item">Session input: <span id="gem-u-inp-s">—</span></div>
+          <div class="limits-usage-item">Session output: <span id="gem-u-out-s">—</span></div>
+          <div class="limits-usage-item">Today input: <span id="gem-u-inp-d">—</span></div>
+          <div class="limits-usage-item">Today output: <span id="gem-u-out-d">—</span></div>
+          <div class="limits-usage-item" style="margin-left:auto">
+            <a href="https://aistudio.google.com/app/usage" target="_blank" style="color:var(--muted);font-size:11px">View quotas ↗</a>
+          </div>
+        </div>
+      </div>
+
+      <!-- Personal budget -->
+      <div class="limits-cli-section" style="margin-bottom:0">
+        <div class="limits-cli-header">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+            <circle cx="12" cy="12" r="10"/>
+            <path d="M12 8v4l3 3"/>
+          </svg>
+          <span class="limits-cli-name">Personal monthly budget</span>
+          <span class="limits-cli-badge none">optional</span>
+        </div>
+        <div class="limits-budget-row">
+          <input class="limits-budget-input" id="budget-input" type="number" placeholder="e.g. 5000000" min="0">
+          <span class="limits-budget-label">tokens / month</span>
+          <button class="mode-btn" id="budget-save" style="padding:4px 12px;font-size:11px">Save</button>
+        </div>
+        <div id="budget-bar-wrap" style="margin-top:10px;display:none">
+          <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-bottom:5px">
+            <span>Tokens used this month through Squeezr</span>
+            <span id="budget-pct-label">0%</span>
+          </div>
+          <div class="limits-gauge-bar" style="height:10px">
+            <div class="limits-gauge-fill" id="budget-bar" style="width:0%"></div>
+          </div>
+          <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-top:4px">
+            <span id="budget-used-label">0 used</span>
+            <span id="budget-limit-label">of —</span>
+          </div>
+        </div>
+      </div>
+
     </div>
 
     <!-- ─── Settings ─────────────────────────────────────────────────────── -->
@@ -731,8 +964,176 @@ function renderHistSessions() {
   list.innerHTML = html
 }
 
+// ── Limits page ─────────────────────────────────────────────────────────────
+let limitsCountdownTimer = null
+
+function fmtTokens(n) {
+  if (!n && n !== 0) return '—'
+  if (n >= 1e6) return (n / 1e6).toFixed(2) + 'M'
+  if (n >= 1e3) return (n / 1e3).toFixed(1) + 'K'
+  return String(n)
+}
+
+function gaugeColor(pct) {
+  if (pct >= 90) return 'var(--red)'
+  if (pct >= 70) return 'var(--yellow)'
+  if (pct >= 40) return 'var(--orange)'
+  return 'var(--green)'
+}
+
+function fillGauge(fillId, pctId, remId, resetId, remaining, limit, resetEpoch) {
+  if (!limit) {
+    document.getElementById(fillId).style.width = '0%'
+    document.getElementById(pctId).textContent = '—'
+    document.getElementById(remId).textContent = '—'
+    if (resetId) document.getElementById(resetId).textContent = ''
+    return
+  }
+  const used = limit - remaining
+  const pct = Math.max(0, Math.min(100, Math.round((used / limit) * 100)))
+  const fill = document.getElementById(fillId)
+  fill.style.width = pct + '%'
+  fill.style.background = gaugeColor(pct)
+  document.getElementById(pctId).textContent = pct + '% used'
+  document.getElementById(pctId).style.color = gaugeColor(pct)
+  document.getElementById(remId).textContent = fmtTokens(remaining) + ' remaining'
+  if (resetId && resetEpoch) {
+    const secs = Math.max(0, Math.round((resetEpoch - Date.now()) / 1000))
+    document.getElementById(resetId).textContent = secs > 0 ? 'resets in ' + secs + 's' : 'resetting…'
+  }
+}
+
+function renderLimits(d) {
+  if (!d) return
+  const { anthropic, openai, gemini } = d
+
+  // ── Anthropic ──
+  const arl = anthropic?.rl
+  if (arl?.hasData) {
+    document.getElementById('ant-badge').className = 'limits-cli-badge live'
+    document.getElementById('ant-badge').textContent = 'live'
+    fillGauge('ant-tok-fill','ant-tok-pct','ant-tok-rem','ant-tok-reset', arl.tokensRemaining, arl.tokensLimit, arl.tokensResetEpoch)
+    fillGauge('ant-req-fill','ant-req-pct','ant-req-rem','ant-req-reset', arl.requestsRemaining, arl.requestsLimit, arl.requestsResetEpoch)
+    fillGauge('ant-inp-fill','ant-inp-pct','ant-inp-rem','ant-inp-reset', arl.inputTokensRemaining, arl.inputTokensLimit, arl.tokensResetEpoch)
+    fillGauge('ant-out-fill','ant-out-pct','ant-out-rem','ant-out-reset', arl.outputTokensRemaining, arl.outputTokensLimit, arl.tokensResetEpoch)
+  }
+  const au = anthropic?.usage
+  if (au) {
+    document.getElementById('ant-u-inp-s').textContent = fmtTokens(au.inputSession)
+    document.getElementById('ant-u-out-s').textContent = fmtTokens(au.outputSession)
+    document.getElementById('ant-u-inp-d').textContent = fmtTokens(au.inputToday)
+    document.getElementById('ant-u-out-d').textContent = fmtTokens(au.outputToday)
+  }
+
+  // ── OpenAI ──
+  const orl = openai?.rl
+  if (orl?.hasData) {
+    document.getElementById('oai-badge').className = 'limits-cli-badge live'
+    document.getElementById('oai-badge').textContent = 'live'
+    fillGauge('oai-tok-fill','oai-tok-pct','oai-tok-rem','oai-tok-reset', orl.tokensRemaining, orl.tokensLimit, orl.tokensResetEpoch)
+    fillGauge('oai-req-fill','oai-req-pct','oai-req-rem','oai-req-reset', orl.requestsRemaining, orl.requestsLimit, orl.requestsResetEpoch)
+  }
+  const ob = openai?.billing
+  if (ob?.hardLimitUsd > 0) {
+    document.getElementById('oai-billing-row').style.display = 'flex'
+    document.getElementById('oai-credits').textContent = '$' + (ob.creditBalanceUsd || 0).toFixed(2)
+    document.getElementById('oai-hard-lim').textContent = '$' + ob.hardLimitUsd.toFixed(2)
+  }
+  const ou = openai?.usage
+  if (ou) {
+    document.getElementById('oai-u-inp-s').textContent = fmtTokens(ou.inputSession)
+    document.getElementById('oai-u-out-s').textContent = fmtTokens(ou.outputSession)
+    document.getElementById('oai-u-inp-d').textContent = fmtTokens(ou.inputToday)
+    document.getElementById('oai-u-out-d').textContent = fmtTokens(ou.outputToday)
+  }
+
+  // ── Gemini ──
+  const ge = gemini?.errors
+  if (ge?.hasData) {
+    document.getElementById('gem-nodata').style.display = 'none'
+    document.getElementById('gem-data').style.display = 'block'
+    document.getElementById('gem-tok-lim').textContent = fmtTokens(gemini.rl?.tokensLimit)
+    document.getElementById('gem-errors').textContent = ge.errorCount429 + ' rate-limit errors'
+    document.getElementById('gem-badge').className = 'limits-cli-badge error'
+    document.getElementById('gem-badge').textContent = ge.errorCount429 + ' 429 errors'
+  }
+  const gu = gemini?.usage
+  if (gu) {
+    document.getElementById('gem-u-inp-s').textContent = fmtTokens(gu.inputSession)
+    document.getElementById('gem-u-out-s').textContent = fmtTokens(gu.outputSession)
+    document.getElementById('gem-u-inp-d').textContent = fmtTokens(gu.inputToday)
+    document.getElementById('gem-u-out-d').textContent = fmtTokens(gu.outputToday)
+  }
+
+  // ── Budget ──
+  updateBudgetBar(au, ou, gu)
+}
+
+// Countdown ticker — updates reset countdowns every second without SSE
+function startLimitsCountdown(limitsData) {
+  if (limitsCountdownTimer) clearInterval(limitsCountdownTimer)
+  limitsCountdownTimer = setInterval(() => {
+    const updateReset = (id, resetEpoch) => {
+      if (!resetEpoch) return
+      const el = document.getElementById(id)
+      if (!el) return
+      const secs = Math.max(0, Math.round((resetEpoch - Date.now()) / 1000))
+      el.textContent = secs > 0 ? 'resets in ' + secs + 's' : 'resetting…'
+    }
+    const d = limitsData
+    if (d?.anthropic?.rl?.hasData) {
+      updateReset('ant-tok-reset', d.anthropic.rl.tokensResetEpoch)
+      updateReset('ant-req-reset', d.anthropic.rl.requestsResetEpoch)
+      updateReset('ant-inp-reset', d.anthropic.rl.tokensResetEpoch)
+      updateReset('ant-out-reset', d.anthropic.rl.tokensResetEpoch)
+    }
+    if (d?.openai?.rl?.hasData) {
+      updateReset('oai-tok-reset', d.openai.rl.tokensResetEpoch)
+      updateReset('oai-req-reset', d.openai.rl.requestsResetEpoch)
+    }
+  }, 1000)
+}
+
+// ── Budget logic ─────────────────────────────────────────────────────────────
+let monthlyBudget = parseInt(localStorage.getItem('squeezr_budget') || '0')
+
+function updateBudgetBar(au, ou, gu) {
+  const budget = monthlyBudget
+  const budgetInput = document.getElementById('budget-input')
+  if (budgetInput && !budgetInput.value) budgetInput.value = budget || ''
+
+  const wrap = document.getElementById('budget-bar-wrap')
+  if (!budget) { wrap.style.display = 'none'; return }
+  wrap.style.display = 'block'
+
+  const totalToday = ((au?.inputToday || 0) + (au?.outputToday || 0) +
+                      (ou?.inputToday || 0) + (ou?.outputToday || 0) +
+                      (gu?.inputToday || 0) + (gu?.outputToday || 0))
+  const pct = Math.min(100, Math.round((totalToday / budget) * 100))
+  const fill = document.getElementById('budget-bar')
+  fill.style.width = pct + '%'
+  fill.style.background = gaugeColor(pct)
+  document.getElementById('budget-pct-label').textContent = pct + '%'
+  document.getElementById('budget-pct-label').style.color = gaugeColor(pct)
+  document.getElementById('budget-used-label').textContent = fmtTokens(totalToday) + ' used today'
+  document.getElementById('budget-limit-label').textContent = 'of ' + fmtTokens(budget) + ' / month'
+}
+
+document.getElementById('budget-save').addEventListener('click', () => {
+  const val = parseInt(document.getElementById('budget-input').value || '0')
+  monthlyBudget = val
+  localStorage.setItem('squeezr_budget', String(val))
+  document.getElementById('budget-save').textContent = '✓ Saved'
+  setTimeout(() => document.getElementById('budget-save').textContent = 'Save', 2000)
+  updateBudgetBar(null, null, null)
+})
+
+// Restore budget from localStorage on load
+const savedBudget = localStorage.getItem('squeezr_budget')
+if (savedBudget) document.getElementById('budget-input').value = savedBudget
+
 // ── Navigation ────────────────────────────────────────────────────────────────
-const pageTitles = { overview: 'Overview', projects: 'Projects', history: 'History', settings: 'Settings' }
+const pageTitles = { overview: 'Overview', projects: 'Projects', history: 'History', limits: 'Limits', settings: 'Settings' }
 
 document.querySelectorAll('.nav-item').forEach(item => {
   item.addEventListener('click', () => {
@@ -744,6 +1145,16 @@ document.querySelectorAll('.nav-item').forEach(item => {
     document.getElementById('page-title').textContent = pageTitles[page] || page
     if (page === 'projects') loadProjects()
     if (page === 'history') loadHistory()
+    if (page === 'limits') {
+      if (lastLimitsData) {
+        renderLimits(lastLimitsData)
+        startLimitsCountdown(lastLimitsData)
+      }
+    }
+    if (page !== 'limits' && limitsCountdownTimer) {
+      clearInterval(limitsCountdownTimer)
+      limitsCountdownTimer = null
+    }
   })
 })
 
@@ -768,12 +1179,24 @@ const dot = document.getElementById('status-dot')
 const statusText = document.getElementById('status-text')
 const connPill = document.getElementById('conn-pill')
 const connStatus = document.getElementById('conn-status')
+let lastLimitsData = null
 
 function connect() {
   const es = new EventSource('/squeezr/events')
   es.onmessage = e => {
     try {
-      renderOverview(JSON.parse(e.data))
+      const d = JSON.parse(e.data)
+      renderOverview(d)
+      if (d.limits) {
+        lastLimitsData = d.limits
+        // Only render limits page if it's currently visible
+        const limPage = document.getElementById('page-limits')
+        if (limPage && limPage.classList.contains('active')) {
+          renderLimits(d.limits)
+          if (!limitsCountdownTimer) startLimitsCountdown(d.limits)
+          else { /* update the data reference for the countdown */ lastLimitsData = d.limits }
+        }
+      }
     } catch(err) { console.error(err) }
   }
   es.onopen = () => {

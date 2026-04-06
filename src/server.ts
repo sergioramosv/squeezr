@@ -31,6 +31,18 @@ import {
   getProjectAggregates,
   getAllSessionsForHistory,
 } from './history.js'
+import {
+  updateAnthropicFromHeaders,
+  updateOpenAIFromHeaders,
+  updateGeminiFrom429,
+  addAnthropicUsage,
+  addOpenAIUsage,
+  addGeminiUsage,
+  makeSseUsageParser,
+  maybeRefreshOpenAIBilling,
+  storeKey,
+  limitsSnapshot,
+} from './limits.js'
 
 // ── Project name extraction ────────────────────────────────────────────────────
 // Reads the CWD from Claude Code's system prompt (injected as <cwd>…</cwd> or
@@ -195,16 +207,22 @@ app.post('/v1/messages', async (c) => {
   stats.recordWithProject(project, originalChars, estimateChars(compressedMsgs), savings)
   recordRequest(project, savings.savedChars, savings.compressed, savings.byTool)
 
+  storeKey('anthropic', apiKey)
   const fwdHeaders = forwardHeaders(c.req.raw.headers)
 
   if (body.stream) {
     const upstream = await proxyStream(`${ANTHROPIC_API}/v1/messages`, body, fwdHeaders)
+    // Extract rate limit headers immediately (available before body starts)
+    updateAnthropicFromHeaders(upstream.headers)
     return stream(c, async (s) => {
       const reader = upstream.body!.getReader()
+      const decoder = new TextDecoder()
+      const sseParser = makeSseUsageParser('anthropic', (inp, out) => addAnthropicUsage(inp, out))
       while (true) {
         const { done, value } = await reader.read()
         if (done) break
         await s.write(value)
+        sseParser(decoder.decode(value, { stream: true }))
       }
     })
   }
@@ -215,7 +233,13 @@ app.post('/v1/messages', async (c) => {
     body: JSON.stringify(body),
   })
 
+  // Extract rate limits and token usage from non-streaming response
+  updateAnthropicFromHeaders(resp.headers)
   const respBody = await resp.json() as Record<string, unknown>
+  if (respBody.usage) {
+    const u = respBody.usage as { input_tokens?: number; output_tokens?: number }
+    addAnthropicUsage(u.input_tokens ?? 0, u.output_tokens ?? 0)
+  }
 
   // Handle expand() call if model requested one
   const expandCall = handleAnthropicExpandCall(respBody)
@@ -279,16 +303,25 @@ app.post('/v1/chat/completions', async (c) => {
   stats.recordWithProject(oaiProject, originalChars, estimateChars(compressedMsgs), savings)
   recordRequest(oaiProject, savings.savedChars, savings.compressed, savings.byTool)
 
+  if (!isLocal) storeKey('openai', openAIKey)
   const fwdHeaders = forwardHeaders(c.req.raw.headers)
 
   if (body.stream) {
+    // Ask OpenAI to include usage in the final chunk (harmless for most clients)
+    if (!isLocal && !(body.stream_options as Record<string, unknown>)?.include_usage) {
+      body.stream_options = { ...(body.stream_options as Record<string, unknown> ?? {}), include_usage: true }
+    }
     const upstreamResp = await proxyStream(upstream, body, fwdHeaders)
+    if (!isLocal) updateOpenAIFromHeaders(upstreamResp.headers)
     return stream(c, async (s) => {
       const reader = upstreamResp.body!.getReader()
+      const decoder = new TextDecoder()
+      const sseParser = makeSseUsageParser('openai', (inp, out) => addOpenAIUsage(inp, out))
       while (true) {
         const { done, value } = await reader.read()
         if (done) break
         await s.write(value)
+        if (!isLocal) sseParser(decoder.decode(value, { stream: true }))
       }
     })
   }
@@ -299,7 +332,15 @@ app.post('/v1/chat/completions', async (c) => {
     body: JSON.stringify(body),
   })
 
+  if (!isLocal) {
+    updateOpenAIFromHeaders(resp.headers)
+    maybeRefreshOpenAIBilling(openAIKey).catch(() => {})
+  }
   const respBody = await resp.json() as Record<string, unknown>
+  if (!isLocal && respBody.usage) {
+    const u = respBody.usage as { prompt_tokens?: number; completion_tokens?: number }
+    addOpenAIUsage(u.prompt_tokens ?? 0, u.completion_tokens ?? 0)
+  }
 
   const expandCall = !isLocal ? handleOpenAIExpandCall(respBody) : null
   if (expandCall) {
@@ -353,12 +394,16 @@ app.post('/v1beta/models/*', async (c) => {
 
   if (modelPath.includes('stream')) {
     const upstreamResp = await proxyStream(targetUrl, body, fwdHeaders, params)
+    if (upstreamResp.status === 429) updateGeminiFrom429(upstreamResp.headers)
     return stream(c, async (s) => {
       const reader = upstreamResp.body!.getReader()
+      const decoder = new TextDecoder()
+      const sseParser = makeSseUsageParser('anthropic', (inp, out) => addGeminiUsage(inp, out)) // Gemini SSE same structure for usage counts
       while (true) {
         const { done, value } = await reader.read()
         if (done) break
         await s.write(value)
+        sseParser(decoder.decode(value, { stream: true }))
       }
     })
   }
@@ -370,11 +415,21 @@ app.post('/v1beta/models/*', async (c) => {
     body: JSON.stringify(body),
   })
 
+  if (resp.status === 429) updateGeminiFrom429(resp.headers)
+
+  // Extract Gemini usage from response body
+  const geminiRespBuf = await resp.arrayBuffer()
+  try {
+    const geminiRespJson = JSON.parse(new TextDecoder().decode(geminiRespBuf)) as Record<string, unknown>
+    const meta = geminiRespJson.usageMetadata as { promptTokenCount?: number; candidatesTokenCount?: number } | undefined
+    if (meta) addGeminiUsage(meta.promptTokenCount ?? 0, meta.candidatesTokenCount ?? 0)
+  } catch { /* ignore */ }
+
   const respHeaders: Record<string, string> = {}
   for (const [k, v] of resp.headers.entries()) {
     if (!SKIP_RESP_HEADERS.has(k.toLowerCase())) respHeaders[k] = v
   }
-  return c.body(await resp.arrayBuffer(), resp.status as any, respHeaders)
+  return c.body(geminiRespBuf, resp.status as any, respHeaders)
 })
 
 // ── Squeezr internal endpoints ────────────────────────────────────────────────
@@ -390,6 +445,7 @@ function buildStatsPayload() {
     version: VERSION,
     port: config.port,
     mode: runtimeOverrides.mode,
+    limits: limitsSnapshot(),
   }
 }
 
@@ -424,6 +480,10 @@ app.get('/squeezr/events', (c) => {
       } catch { break }
     }
   })
+})
+
+app.get('/squeezr/limits', (c) => {
+  return c.json(limitsSnapshot())
 })
 
 // ── History + Projects endpoints ──────────────────────────────────────────────
