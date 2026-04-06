@@ -2,6 +2,14 @@
 
 All notable changes to Squeezr will be documented here.
 
+## [1.17.5] - 2026-04-06
+### Added
+- **Real-time web dashboard** — `GET /squeezr/dashboard` opens a live dark-theme dashboard. Updates every 2s via SSE. Shows tokens saved, compression %, requests, estimated cost saved, per-tool breakdown, sparkline chart, context pressure bars, and cache sizes.
+- **Compression mode selector** — Switch 🐢 Soft / ⚖️ Normal / 🔥 Aggressive / 🚨 Critical from the dashboard with instant effect via `POST /squeezr/config { mode }`.
+- **Hot-reload compression mode** — Mode changes take effect immediately without restarting the proxy. Overrides TOML thresholds and keepRecent in memory.
+- **Port conflict auto-recovery** — On `EADDRINUSE`, Squeezr scans upward and binds to the first free port, printing a clear warning instead of crashing.
+- **Dashboard URL on startup** — `http://localhost:PORT/squeezr/dashboard` printed when proxy starts.
+
 ## [1.17.3] - 2026-04-06
 ### Fixed
 - **Critical: AI compression burst on first activation** — On first use with existing long conversations, ALL historical tool results were sent as simultaneous Haiku API calls via `Promise.allSettled`, consuming the entire Anthropic token quota in minutes. Now only tool results from the **current user message** (genuinely new blocks) are AI-compressed. All historical uncached blocks receive deterministic-only compression (free, no API calls).
