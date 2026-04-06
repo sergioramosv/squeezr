@@ -11,6 +11,13 @@
     "declaration": true,
     "resolveJsonModule": true
   },
-  "include": ["src/**/*"],
-  "exclude": ["node_modules", "dist"]
+  "include": [
+    "src/**/*"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "src/cursorMitm.ts",
+    "src/__tests__/cursorMitm.test.ts"
+  ]
 }

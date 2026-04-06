@@ -2,6 +2,10 @@
 
 All notable changes to Squeezr will be documented here.
 
+## [1.17.4] - 2026-04-06
+### Fixed
+- Repackage: removed in-progress `cursorMitm.js` that was accidentally included in 1.17.3 dist. No functional changes vs 1.17.3.
+
 ## [1.17.3] - 2026-04-06
 ### Fixed
 - **Critical: AI compression burst on first activation** — On first use with existing long conversations, ALL historical tool results were sent as simultaneous Haiku API calls via `Promise.allSettled`, consuming the entire Anthropic token quota in minutes. Now only tool results from the **current user message** (genuinely new blocks) are AI-compressed. All historical uncached blocks receive deterministic-only compression (free, no API calls).
