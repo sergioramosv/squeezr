@@ -199,6 +199,8 @@ Usage:
   squeezr discover         Show pattern coverage report (proxy must be running)
   squeezr status           Check if proxy is running
   squeezr config           Print config file path and current settings
+  squeezr mcp install      Register Squeezr MCP server in Claude Code, Cursor, Windsurf & Cline
+  squeezr mcp uninstall    Remove Squeezr MCP registration
   squeezr ports            Change HTTP and MITM proxy ports
   squeezr tunnel           Expose proxy via Cloudflare Tunnel for Cursor IDE
   squeezr update           Kill old processes, install latest from npm, restart
@@ -389,6 +391,100 @@ function showConfig() {
   } else {
     console.log('No squeezr.toml found. Using defaults.')
   }
+}
+
+
+// ── squeezr mcp ───────────────────────────────────────────────────────────────
+
+async function mcpInstall() {
+  const mcpServerPath = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'dist', 'mcp.js')
+  const entry = {
+    type: 'stdio',
+    command: 'node',
+    args: [mcpServerPath],
+  }
+
+  const targets = [
+    {
+      name: 'Claude Code',
+      file: path.join(os.homedir(), '.claude.json'),
+      key: 'mcpServers',
+    },
+    {
+      name: 'Cursor',
+      file: path.join(os.homedir(), '.cursor', 'mcp.json'),
+      key: 'mcpServers',
+    },
+    {
+      name: 'Windsurf',
+      file: path.join(os.homedir(), '.codeium', 'windsurf', 'mcp_config.json'),
+      key: 'mcpServers',
+    },
+    {
+      name: 'Cline / Roo-Cline',
+      file: path.join(os.homedir(), '.vscode', 'extensions', 'mcp_settings.json'),
+      key: 'mcpServers',
+    },
+  ]
+
+  let installed = 0
+
+  for (const target of targets) {
+    try {
+      // Only install into configs that already exist (user has that tool)
+      if (!fs.existsSync(target.file) && target.name !== 'Claude Code') continue
+
+      let cfg = {}
+      if (fs.existsSync(target.file)) {
+        try { cfg = JSON.parse(fs.readFileSync(target.file, 'utf-8')) } catch { cfg = {} }
+      }
+      cfg[target.key] = cfg[target.key] || {}
+      cfg[target.key].squeezr = entry
+
+      const dir = path.dirname(target.file)
+      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
+      fs.writeFileSync(target.file, JSON.stringify(cfg, null, 2))
+      console.log()
+      console.log('  ok ' + target.name + ': ' + target.file)
+    } catch (e) {
+      console.warn()
+      console.warn('  warn ' + target.name + ': ' + (e.message || e))
+  }
+
+  console.log()
+  console.log('MCP server registered in ' + installed + ' client(s).')
+  console.log('Server binary: ' + mcpServerPath)
+  console.log('')
+  console.log('Available tools in Claude/Codex/Cursor:')
+  console.log('  squeezr_status   — Check if Squeezr is running')
+  console.log('  squeezr_stats    — Real-time token savings')
+  console.log('  squeezr_set_mode — Change compression aggressiveness')
+  console.log('  squeezr_config   — Current configuration')
+  console.log('  squeezr_habits   — Wasteful pattern report')
+}
+
+async function mcpUninstall() {
+  const files = [
+    path.join(os.homedir(), '.claude.json'),
+    path.join(os.homedir(), '.cursor', 'mcp.json'),
+    path.join(os.homedir(), '.codeium', 'windsurf', 'mcp_config.json'),
+    path.join(os.homedir(), '.vscode', 'extensions', 'mcp_settings.json'),
+  ]
+  let removed = 0
+  for (const file of files) {
+    if (!fs.existsSync(file)) continue
+    try {
+      const cfg = JSON.parse(fs.readFileSync(file, 'utf-8'))
+      if (cfg.mcpServers?.squeezr) {
+        delete cfg.mcpServers.squeezr
+        fs.writeFileSync(file, JSON.stringify(cfg, null, 2))
+        console.log()
+        removed++
+      }
+    } catch { /* ignore */ }
+  }
+  if (removed === 0) console.log('Squeezr MCP not found in any config.')
+  else console.log()
 }
 
 // ── squeezr ports ─────────────────────────────────────────────────────────────
@@ -1378,6 +1474,12 @@ switch (command) {
     showConfig()
     break
 
+  case 'mcp': {
+    const subCmd = args[0] ?? 'install'
+    if (subCmd === 'uninstall') await mcpUninstall()
+    else await mcpInstall()
+    break
+  }
   case 'version':
   case '--version':
   case '-v':

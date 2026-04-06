@@ -174,7 +174,7 @@ Squeezr uses cheap/free models for AI compression (the deterministic layer is pu
 ## CLI commands
 
 ```bash
-squeezr setup      # configure env vars, auto-start, CA trust
+squeezr setup      # configure env vars, auto-start, CA trust, install MCP server
 squeezr start      # start the proxy (auto-restarts if version mismatch after update)
 squeezr update     # kill old processes, install latest from npm, restart
 squeezr stop       # stop the proxy
@@ -184,9 +184,27 @@ squeezr config     # print current config
 squeezr ports      # change HTTP and MITM proxy ports
 squeezr gain       # estimate token savings for a directory
 squeezr discover   # detect which AI CLIs are installed
+squeezr mcp install    # register MCP server in Claude Code, Cursor, Windsurf, Cline
+squeezr mcp uninstall  # remove MCP server registration
 squeezr uninstall  # remove Squeezr completely (env vars, CA, auto-start, logs)
 squeezr version    # print version
 ```
+
+## MCP server
+
+Squeezr ships with a built-in MCP server (`squeezr-mcp`) that gives any MCP-capable AI CLI real-time awareness of Squeezr's state and control over it.
+
+**Installed automatically** by `squeezr setup` into Claude Code, Cursor, Windsurf, and Cline.
+
+Available MCP tools:
+
+| Tool | Description |
+|---|---|
+| `squeezr_status` | Is proxy running? Version, port, uptime, mode |
+| `squeezr_stats` | Token savings, compression %, cost saved, per-tool breakdown |
+| `squeezr_set_mode` | Change compression mode instantly (soft / normal / aggressive / critical) |
+| `squeezr_config` | Current thresholds, keepRecent, cache sizes |
+| `squeezr_habits` | Detect wasteful patterns this session (duplicate reads, high Bash count, cache efficiency) |
 
 ## Requirements
 

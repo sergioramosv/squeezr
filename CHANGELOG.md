@@ -2,6 +2,16 @@
 
 All notable changes to Squeezr will be documented here.
 
+## [1.17.6] - 2026-04-06
+### Added
+- **Squeezr MCP server** — Universal MCP server (`squeezr-mcp`) compatible with Claude Code, Cursor, Windsurf, Cline, and any MCP-capable AI CLI. Exposes 5 tools:
+  - `squeezr_status` — Check if proxy is running; returns version, port, uptime, compression mode.
+  - `squeezr_stats` — Real-time token savings, compression %, cost saved estimate, per-tool breakdown.
+  - `squeezr_set_mode` — Hot-reload compression mode (soft/normal/aggressive/critical) without restarting.
+  - `squeezr_config` — Current thresholds, keepRecent, cache sizes, available modes.
+  - `squeezr_habits` — Detects wasteful patterns this session (duplicate reads, excessive Bash calls, cache efficiency).
+- **Auto-install on setup** — `squeezr setup` automatically registers the MCP server in Claude Code (`~/.claude.json`), Cursor (`~/.cursor/mcp.json`), Windsurf, and Cline. Manual control via `squeezr mcp install` / `squeezr mcp uninstall`.
+
 ## [1.17.4] - 2026-04-06
 ### Fixed
 - Repackage: removed in-progress `cursorMitm.js` that was accidentally included in 1.17.3 dist. No functional changes vs 1.17.3.

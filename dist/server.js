@@ -2,9 +2,10 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
 import { Hono } from 'hono';
-import { stream } from 'hono/streaming';
-import { config } from './config.js';
+import { stream, streamSSE } from 'hono/streaming';
+import { config, applyMode, runtimeOverrides } from './config.js';
 import { Stats } from './stats.js';
+import { DASHBOARD_HTML } from './dashboard.js';
 import { getCache } from './compressor.js';
 import { compressAnthropicMessages, compressOpenAIMessages, compressGeminiContents, } from './compressor.js';
 import { injectExpandToolAnthropic, injectExpandToolOpenAI, handleAnthropicExpandCall, handleOpenAIExpandCall, retrieveOriginal, expandStoreSize, } from './expand.js';
@@ -263,7 +264,7 @@ app.post('/v1beta/models/*', async (c) => {
 });
 // ── Squeezr internal endpoints ────────────────────────────────────────────────
 app.get('/squeezr/stats', (c) => {
-    return c.json({ ...stats.summary(), cache: getCache(config).stats(), expand_store_size: expandStoreSize(), session_cache_size: sessionCacheSize(), dry_run: config.dryRun, pattern_hits: detPatternHits });
+    return c.json({ ...stats.summary(), cache: getCache(config).stats(), expand_store_size: expandStoreSize(), session_cache_size: sessionCacheSize(), dry_run: config.dryRun, pattern_hits: detPatternHits, version: VERSION, port: config.port, mode: runtimeOverrides.mode });
 });
 app.get('/squeezr/health', (c) => {
     return c.json({ status: 'ok', version: VERSION });
@@ -274,6 +275,34 @@ app.get('/squeezr/expand/:id', (c) => {
     if (!original)
         return c.json({ error: 'Not found or expired' }, 404);
     return c.json({ id, content: original });
+});
+// ── Dashboard + SSE + config ──────────────────────────────────────────────────
+app.get('/squeezr/dashboard', (c) => {
+    return c.html(DASHBOARD_HTML);
+});
+app.get('/squeezr/events', (c) => {
+    return streamSSE(c, async (s) => {
+        // Send initial data immediately
+        const payload = { ...stats.summary(), cache: getCache(config).stats(), expand_store_size: expandStoreSize(), session_cache_size: sessionCacheSize(), dry_run: config.dryRun, pattern_hits: detPatternHits, version: VERSION, port: config.port, mode: runtimeOverrides.mode };
+        await s.writeSSE({ data: JSON.stringify(payload) });
+        while (true) {
+            await s.sleep(2000);
+            try {
+                const d = { ...stats.summary(), cache: getCache(config).stats(), expand_store_size: expandStoreSize(), session_cache_size: sessionCacheSize(), dry_run: config.dryRun, pattern_hits: detPatternHits, version: VERSION, port: config.port, mode: runtimeOverrides.mode };
+                await s.writeSSE({ data: JSON.stringify(d) });
+            }
+            catch {
+                break;
+            }
+        }
+    });
+});
+app.post('/squeezr/config', async (c) => {
+    const body = await c.req.json();
+    if (body.mode && ['soft', 'normal', 'aggressive', 'critical'].includes(body.mode)) {
+        applyMode(body.mode);
+    }
+    return c.json({ ok: true, mode: runtimeOverrides.mode });
 });
 // ── OAuth token refresh proxy (Codex: set CODEX_REFRESH_TOKEN_URL_OVERRIDE=http://localhost:PORT/oauth/token) ──
 app.post('/oauth/token', async (c) => {
