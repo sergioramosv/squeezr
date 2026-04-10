@@ -2,6 +2,11 @@
 
 All notable changes to Squeezr will be documented here.
 
+## [1.21.4] - 2026-04-10
+### Fixed
+- **Windows auto-start: 3-tier fallback** — `squeezr setup` now tries NSSM → Task Scheduler (without admin) → Startup folder VBS script. Previously Task Scheduler required admin (`RunLevel Highest`) and silently failed, leaving no auto-start registered. The new VBS fallback writes a silent launcher to `%APPDATA%\...\Startup\` which works without any permissions.
+- **Uninstall cleans up Startup VBS** — `squeezr uninstall` now removes the VBS script from the Startup folder if present.
+
 ## [1.21.3] - 2026-04-10
 ### Fixed
 - **Dashboard: dark theme** — Switched from blue accent to green. Background is now pure black (#09090b) with dark greys. All links, bars, badges, and active states use green (#22c55e/#16a34a).

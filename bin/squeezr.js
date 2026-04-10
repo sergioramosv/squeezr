@@ -693,6 +693,9 @@ async function uninstall() {
     try { execSync('nssm stop SqueezrProxy', { stdio: 'pipe' }) } catch {}
     try { execSync('nssm remove SqueezrProxy confirm', { stdio: 'pipe' }) } catch {}
     try { execSync('schtasks /Delete /TN "Squeezr" /F', { stdio: 'pipe' }); console.log('  [ok] Removed scheduled task') } catch {}
+    // Remove Startup folder VBS (fallback auto-start)
+    const startupVbs = path.join(process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming'), 'Microsoft', 'Windows', 'Start Menu', 'Programs', 'Startup', 'squeezr-start.vbs')
+    try { fs.unlinkSync(startupVbs); console.log('  [ok] Removed startup VBS script') } catch {}
   } else if (process.platform === 'darwin') {
     const plistPath = path.join(os.homedir(), 'Library', 'LaunchAgents', 'com.squeezr.plist')
     try { execSync(`launchctl unload "${plistPath}"`, { stdio: 'pipe' }) } catch {}
@@ -837,7 +840,7 @@ function setupWindows() {
   }
 
   if (!autoStartOk) {
-    // Fallback: Task Scheduler (no crash recovery, but no admin needed for user tasks)
+    // Fallback: Task Scheduler (no crash recovery, but works without admin)
     const taskName = 'Squeezr'
     const nodeArg = `${nodeExe} \`"${distIndex}\`"`
     const ps = [
@@ -846,13 +849,36 @@ function setupWindows() {
       `$a = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument '-WindowStyle Hidden -NonInteractive -Command "${nodeArg}"' -WorkingDirectory '${ROOT}'`,
       `$t = New-ScheduledTaskTrigger -AtLogon`,
       `$s = New-ScheduledTaskSettingsSet -ExecutionTimeLimit 0 -RestartCount 5 -RestartInterval (New-TimeSpan -Minutes 1)`,
-      `Register-ScheduledTask -TaskName '${taskName}' -Action $a -Trigger $t -Settings $s -RunLevel Highest -Force | Out-Null`,
+      `Register-ScheduledTask -TaskName '${taskName}' -Action $a -Trigger $t -Settings $s -Force | Out-Null`,
     ].join('; ')
     try {
       execSync(`powershell -NoProfile -Command "${ps}"`, { stdio: 'pipe' })
       console.log(`  [ok] Auto-start registered in Task Scheduler (install NSSM for crash recovery)`)
+      autoStartOk = true
     } catch {
-      console.log(`  [warn] Auto-start failed — install NSSM or run as admin: https://nssm.cc`)
+      // ignore — will fall through to Startup folder VBS
+    }
+  }
+
+  if (!autoStartOk) {
+    // Final fallback: VBS script in user Startup folder (no admin, no special tools)
+    try {
+      const appData = process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming')
+      const squeezrCmd = path.join(appData, 'npm', 'squeezr.cmd')
+      const startupDir = path.join(appData, 'Microsoft', 'Windows', 'Start Menu', 'Programs', 'Startup')
+      const vbsPath = path.join(startupDir, 'squeezr-start.vbs')
+      const cmdToRun = fs.existsSync(squeezrCmd) ? squeezrCmd : nodeExe
+      const cmdArg = fs.existsSync(squeezrCmd) ? 'start' : `"${distIndex}"`
+      const vbsContent = [
+        'Set WshShell = CreateObject("WScript.Shell")',
+        `WshShell.Run """${cmdToRun}"" ${cmdArg}", 0, False`,
+        '',
+      ].join('\r\n')
+      fs.mkdirSync(startupDir, { recursive: true })
+      fs.writeFileSync(vbsPath, vbsContent)
+      console.log(`  [ok] Auto-start registered in Startup folder (${vbsPath})`)
+    } catch (err) {
+      console.log(`  [warn] Auto-start failed — run as admin or install NSSM: https://nssm.cc`)
     }
   }
 
