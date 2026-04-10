@@ -1091,14 +1091,7 @@ function renderLimits(d) {
   const arl = anthropic?.rl
   const au = anthropic?.usage
   const antHasUsage = au && (au.inputSession > 0 || au.outputSession > 0)
-  if (arl?.hasData) {
-    document.getElementById('ant-badge').className = 'limits-cli-badge live'
-    document.getElementById('ant-badge').textContent = 'live'
-    fillGauge('ant-tok-fill','ant-tok-pct','ant-tok-rem','ant-tok-reset', arl.tokensRemaining, arl.tokensLimit, arl.tokensResetEpoch)
-    fillGauge('ant-req-fill','ant-req-pct','ant-req-rem','ant-req-reset', arl.requestsRemaining, arl.requestsLimit, arl.requestsResetEpoch)
-    fillGauge('ant-inp-fill','ant-inp-pct','ant-inp-rem','ant-inp-reset', arl.inputTokensRemaining, arl.inputTokensLimit, arl.tokensResetEpoch)
-    fillGauge('ant-out-fill','ant-out-pct','ant-out-rem','ant-out-reset', arl.outputTokensRemaining, arl.outputTokensLimit, arl.tokensResetEpoch)
-  } else if (anthropic?.unified?.hasData) {
+  if (anthropic?.unified?.hasData) {
     // Subscription (OAuth): unified rate limits with 5h/7d windows
     const u = anthropic.unified
     document.getElementById('ant-badge').className = 'limits-cli-badge live'
@@ -1141,6 +1134,13 @@ function renderLimits(d) {
     document.getElementById('ant-inp-rem').textContent = 'session input'
     document.getElementById('ant-out-pct').textContent = fmtTokens(au?.outputSession || 0)
     document.getElementById('ant-out-rem').textContent = 'session output'
+  } else if (arl?.hasData) {
+    document.getElementById('ant-badge').className = 'limits-cli-badge live'
+    document.getElementById('ant-badge').textContent = 'live'
+    fillGauge('ant-tok-fill','ant-tok-pct','ant-tok-rem','ant-tok-reset', arl.tokensRemaining, arl.tokensLimit, arl.tokensResetEpoch)
+    fillGauge('ant-req-fill','ant-req-pct','ant-req-rem','ant-req-reset', arl.requestsRemaining, arl.requestsLimit, arl.requestsResetEpoch)
+    fillGauge('ant-inp-fill','ant-inp-pct','ant-inp-rem','ant-inp-reset', arl.inputTokensRemaining, arl.inputTokensLimit, arl.tokensResetEpoch)
+    fillGauge('ant-out-fill','ant-out-pct','ant-out-rem','ant-out-reset', arl.outputTokensRemaining, arl.outputTokensLimit, arl.tokensResetEpoch)
   } else if (antHasUsage) {
     // Fallback: no rate limit headers at all, but usage is tracked
     document.getElementById('ant-badge').className = 'limits-cli-badge live'

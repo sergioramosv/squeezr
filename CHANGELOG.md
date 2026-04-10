@@ -2,6 +2,10 @@
 
 All notable changes to Squeezr will be documented here.
 
+## [1.21.8] - 2026-04-10
+### Fixed
+- **Claude Limits: prefer subscription windows** - When unified subscription data is available, the Limits page now prioritizes Claude `5-hour window` and `7-day window` rendering over legacy per-minute rate-limit headers, so it no longer falls back to `tokens / minute` incorrectly.
+
 ## [1.21.7] - 2026-04-10
 ### Improved
 - **Codex/OpenAI limits: smarter refresh cadence** - Session-limit refreshes are now adaptive instead of effectively checking every minute all day. Squeezr refreshes less often when resets are far away, and tightens polling only near an actual reset window.
