@@ -2,6 +2,11 @@
 
 All notable changes to Squeezr will be documented here.
 
+## [1.21.7] - 2026-04-10
+### Improved
+- **Codex/OpenAI limits: smarter refresh cadence** - Session-limit refreshes are now adaptive instead of effectively checking every minute all day. Squeezr refreshes less often when resets are far away, and tightens polling only near an actual reset window.
+- **Limits UI: clearer zero-crossing state** - When a local countdown reaches zero before the next snapshot arrives, the dashboard now shows `updating...` instead of `resetting...`.
+
 ## [1.21.6] - 2026-04-10
 ### Fixed
 - **Windows: hidden Codex limit refresh shell** - The OpenAI/Codex session-limit refresh now spawns the local `codex app-server` with `windowsHide: true`, so Windows no longer flashes transient `cmd.exe` windows while the dashboard refreshes limits.
