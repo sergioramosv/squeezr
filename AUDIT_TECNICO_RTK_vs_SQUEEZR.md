@@ -9,7 +9,7 @@
 | | RTK | Squeezr |
 |---|---|---|
 | **Nombre** | Rust Token Killer | Squeezr AI |
-| **Version** | 0.34.2 | 1.11.1 |
+| **Version** | 0.34.2 | 1.21.0 |
 | **Lenguaje** | Rust | TypeScript |
 | **Licencia** | Apache 2.0 / MIT dual | MIT |
 | **Distribucion** | Homebrew, Cargo, binarios | npm (`squeezr-ai`) |

@@ -1,3 +1,5 @@
+> **Note:** All tasks in this plan have been completed as of v1.21.0.
+
 # Plan: Squeezr para IDEs (Cursor, Continue, Windsurf)
 
 Rama: `feature/cursor-ide-support`  
@@ -94,7 +96,7 @@ Output esperado:
 
 ---
 
-### 3. Documentación para Continue ⏳ PENDIENTE
+### 3. Documentación para Continue ⏳ ✅ HECHO
 
 **Archivo:** `squeezr-web/app/docs/` → nueva página `continue/page.tsx`
 
@@ -114,7 +116,7 @@ Continue no necesita tunnel. Config en `~/.continue/config.json`:
 
 ---
 
-### 4. Documentación para Cursor ⏳ PENDIENTE
+### 4. Documentación para Cursor ⏳ ✅ HECHO
 
 **Archivo:** `squeezr-web/app/docs/` → nueva página `cursor/page.tsx`
 
@@ -132,16 +134,16 @@ Advertencias a documentar:
 
 ---
 
-### 5. Actualizar docs index y navegación ⏳ PENDIENTE
+### 5. Actualizar docs index y navegación ⏳ ✅ HECHO
 
 - Añadir Cursor y Continue a la sección Tool Guides de `squeezr-web/app/docs/page.tsx`
 - Actualizar README con mención de Cursor/Continue
 
 ---
 
-### 6. Bump versión y compilar ⏳ PENDIENTE
+### 6. Bump versión y compilar ⏳ ✅ HECHO
 
-- `package.json`: `1.17.1` → `1.17.2`
+- `package.json`: `1.21.0` → `1.21.0`
 - `npm run build`
 - Commit en rama `feature/cursor-ide-support`
 - **No publicar** en npm hasta probar en Cursor real

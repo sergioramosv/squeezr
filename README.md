@@ -1,13 +1,13 @@
 # Squeezr
 
-**Token compression proxy for AI coding CLIs.** Sits between your CLI and the API, compresses context on the fly, saves thousands of tokens per session.
+**Token compression proxy for AI coding CLIs.** Sits between your CLI and the API, compresses context on the fly, saves thousands of tokens per session. Includes a real-time web dashboard and MCP integration.
 
-[![npm](https://img.shields.io/npm/v/squeezr-ai)](https://www.npmjs.com/package/squeezr-ai) [![license](https://img.shields.io/npm/l/squeezr-ai)](LICENSE) [![tests](https://img.shields.io/badge/tests-237%20passing-brightgreen)]()
+[![npm](https://img.shields.io/npm/v/squeezr-ai)](https://www.npmjs.com/package/squeezr-ai) [![license](https://img.shields.io/npm/l/squeezr-ai)](LICENSE)
 
 ## Supported CLIs
 
 | CLI | Protocol | Proxy method |
-|-----|----------|-------------|
+|-----|----------|--------------|
 | Claude Code | HTTP to Anthropic API | `ANTHROPIC_BASE_URL=http://localhost:8080` |
 | Aider | HTTP to Anthropic/OpenAI API | `ANTHROPIC_BASE_URL` / `openai_base_url` |
 | OpenCode | HTTP to Anthropic/OpenAI API | `ANTHROPIC_BASE_URL` / `openai_base_url` |
@@ -17,11 +17,13 @@
 | **Cursor IDE** | **ConnectRPC/HTTP2 to api2.cursor.sh** | **`squeezr cursor` — MITM proxy on :8082** |
 | Continue (VS Code) | HTTP to OpenAI-compat | `apiBase: http://localhost:8080/v1` |
 
+Works with both API keys and subscription plans (OAuth) — Claude Code Max/Pro, OpenAI Plus, etc.
+
 ## Quick start
 
 ```bash
 npm install -g squeezr-ai
-squeezr setup   # configures env vars, auto-start, and CA trust
+squeezr setup   # configures env vars, auto-start, CA trust, and MCP server
 squeezr start
 ```
 
@@ -29,8 +31,9 @@ squeezr start
 - Sets `ANTHROPIC_BASE_URL`, `GEMINI_API_BASE_URL`, `NODE_EXTRA_CA_CERTS`
 - Installs a shell wrapper (PowerShell on Windows, bash/zsh on Linux/macOS/WSL) that auto-refreshes env vars after `squeezr start/setup/update` — no need to restart the terminal
 - Registers auto-start (launchd on macOS, systemd on Linux, Task Scheduler/NSSM on Windows)
+- Registers the MCP server in Claude Code, Cursor, Windsurf, and Cline
 - **Windows:** imports the MITM CA into the Windows Certificate Store (user-level, no admin required) so Rust-based CLIs like Codex trust the proxy's TLS certificates
-- **macOS/Linux/WSL:** generates a CA bundle at `~/.squeezr/mitm-ca/bundle.crt` for `SSL_CERT_FILE`
+- **macOS/Linux/WSL:** generates a CA bundle at `~/.squeezr/mitm-ca/bundle.crt` for `NODE_EXTRA_CA_CERTS`
 
 ## How it works
 
@@ -53,7 +56,7 @@ Zero-latency, rule-based transformations applied to every tool result:
 Each tool result is matched against specialized compression rules:
 
 | Category | Tools | What it does |
-|----------|-------|-------------|
+|----------|-------|--------------|
 | Git | diff, log, status, branch | 1-line diff context, capped log, compact status |
 | JS/TS | vitest, jest, playwright, tsc, eslint, biome, prettier | Failures/errors only, grouped by file |
 | Package managers | pnpm, npm | Install summary, list capped at 30, outdated only |
@@ -78,7 +81,7 @@ Applied to specific content types regardless of tool:
 Compression aggressiveness scales with context window usage:
 
 | Context usage | Threshold | Behavior |
-|--------------|-----------|----------|
+|---------------|-----------|----------|
 | < 50% | 1,500 chars | Light — only compress large results |
 | 50–75% | 800 chars | Normal — standard compression |
 | 75–90% | 400 chars | Aggressive — compress most results |
@@ -91,6 +94,72 @@ Compression aggressiveness scales with context window usage:
 - **Cross-turn dedup:** If the same file is read multiple times, earlier reads are replaced with reference pointers
 - **Expand on demand:** Compressed blocks include a `squeezr_expand(id)` callback to retrieve full content
 
+## Web dashboard
+
+Live dashboard at `http://localhost:PORT/squeezr/dashboard` with 5 pages:
+
+| Page | What it shows |
+|------|---------------|
+| **Overview** | Tokens saved, compression %, requests, cost saved, per-tool breakdown, sparkline chart, context pressure bars, active project badge, savings breakdown (deterministic, AI, dedup, system prompt, overhead) |
+| **Projects** | Per-project aggregate stats across all sessions, auto-detected from working directory or set manually via MCP |
+| **History** | Past proxy sessions grouped by project and day — start/end time, duration, request count, tokens saved, relative timestamps |
+| **Limits** | Real-time rate limit gauges per CLI: Anthropic token/request limits, OpenAI billing & credit balance, Gemini 429 tracking, input/output token usage (session + daily), personal monthly budget bar |
+| **Settings** | Compression mode selector (Soft/Normal/Aggressive/Critical), threshold tuning |
+
+Updates every 2 seconds via SSE. Works with both API key and subscription (OAuth) authentication.
+
+## MCP server
+
+Built-in MCP server (`squeezr-mcp`) that gives any MCP-capable AI CLI real-time awareness and control of Squeezr.
+
+**Installed automatically** by `squeezr setup` into Claude Code, Cursor, Windsurf, and Cline.
+
+| Tool | Description |
+|------|-------------|
+| `squeezr_status` | Is proxy running? Version, port, uptime, mode, dry-run state |
+| `squeezr_stats` | Token savings, compression %, cost saved, savings breakdown (deterministic/AI/dedup/system prompt/overhead), per-tool breakdown |
+| `squeezr_set_mode` | Change compression mode instantly (soft / normal / aggressive / critical) |
+| `squeezr_config` | Current thresholds, keepRecent, cache sizes, AI-skipped tools |
+| `squeezr_habits` | Detect wasteful patterns this session (duplicate reads, high Bash count, cache efficiency) |
+| `squeezr_stop` | Stop the proxy gracefully (persists caches before exit) |
+| `squeezr_check_updates` | Check npm for newer Squeezr version |
+| `squeezr_update` | Update to latest version via `npm install -g squeezr-ai@latest` |
+| `squeezr_set_project` | Manually set/clear the current project name (overrides auto-detection) |
+
+Every MCP tool response automatically checks for updates and appends a notification banner when a new version is available.
+
+## Honest savings tracking
+
+Squeezr tracks token savings with full transparency. `squeezr gain` and the dashboard break down savings by source:
+
+| Source | Description |
+|--------|-------------|
+| Deterministic | Rule-based preprocessing (ANSI strip, dedup, minification) — free, zero latency |
+| AI compression | Haiku/GPT-mini summarization of tool results — near-free, slight latency |
+| Read dedup | Cross-turn deduplication of repeated file reads |
+| System prompt | One-time AI compression of the system prompt, cached across requests |
+| Tag overhead | Bytes added by `[squeezr:ID]` markers (subtracted from savings) |
+| AI cost | Estimated token cost of compression API calls (subtracted from NET) |
+
+**NET savings** = total savings − tag overhead − AI compression cost.
+
+### `squeezr gain` subcommands
+
+```bash
+squeezr gain              # all-time savings summary
+squeezr gain --session    # live session savings from the running proxy
+squeezr gain --details    # all-time stats with per-tool breakdown
+squeezr gain --reset      # reset all-time counters
+```
+
+## Project tracking
+
+Squeezr automatically detects the active project from the CLI's working directory (e.g. Claude Code's `<cwd>` tag in the system prompt). Per-project stats are tracked across sessions.
+
+- **Auto-detection:** extracts the project name from the last meaningful path segment
+- **Manual override:** `squeezr_set_project` MCP tool or `POST /squeezr/project` REST endpoint
+- **Per-project stats:** visible on the Dashboard's Projects page and in `squeezr gain --session`
+
 ## Codex support (MITM proxy)
 
 Codex uses WebSocket over TLS to `chatgpt.com` with OAuth authentication — it cannot be proxied via `OPENAI_BASE_URL`. Squeezr runs a TLS-terminating MITM proxy on port 8081 that intercepts and compresses WebSocket frames. See [CODEX.md](CODEX.md) for the full technical breakdown.
@@ -102,37 +171,44 @@ The MITM proxy **only intercepts `chatgpt.com`** traffic. All other HTTPS reques
 ### Global config: `squeezr.toml` (next to the binary)
 
 ```toml
-[proxy]
-port = 8080           # HTTP proxy (Claude, Aider, Gemini)
-mitm_port = 8081      # MITM proxy (Codex) — defaults to port + 1
+# Compression thresholds
+threshold = 800         # min chars to apply compression
+keep_recent = 3         # skip the N most recent tool results
+ai_compression = false  # enable AI (Haiku) for tool result compression
 
-[compression]
-threshold = 800          # min chars to trigger compression
-keep_recent = 3          # last N results left uncompressed
-compress_system_prompt = true
-compress_conversation = false  # aggressive: compress assistant messages too
-# skip_tools = ["Read"]       # skip ALL compression for these tools (deterministic + AI)
-# only_tools = ["Bash"]       # only compress these tools
-ai_skip_tools = ["Read"]      # skip AI compression only (default); deterministic still runs
+# Ports
+port = 8080             # HTTP proxy port
+mitm_port = 8081        # MITM proxy port (Codex)
 
-[cache]
-enabled = true
-max_entries = 1000
+# Models
+local_model = "qwen2.5-coder:1.5b"  # model for local compression
+local_upstream = "http://localhost:11434"
 
-[adaptive]
-enabled = true
-low_threshold = 1500
-mid_threshold = 800
-high_threshold = 400
-critical_threshold = 150
+# Tools to never AI-compress (deterministic-only)
+ai_skip_tools = ["Read", "View"]
 
-[local]
-enabled = true
-upstream_url = "http://localhost:11434"       # Ollama
-compression_model = "qwen2.5-coder:1.5b"
+# Compression modes override thresholds
+[modes.soft]
+threshold = 1500
+keep_recent = 10
+ai_compression = false
+
+[modes.normal]
+threshold = 800
+keep_recent = 3
+
+[modes.aggressive]
+threshold = 200
+keep_recent = 1
+ai_compression = true
+
+[modes.critical]
+threshold = 50
+keep_recent = 0
+ai_compression = true
 ```
 
-### Project config: `.squeezr.toml` (in project root)
+### Project-level config: `squeezr.project.toml` (in project root)
 
 Project-level config is deep-merged over global config. Useful for per-repo tuning.
 
@@ -153,6 +229,28 @@ Project-level config is deep-merged over global config. Useful for per-repo tuni
 
 Add `# squeezr:skip` anywhere in a Bash command to bypass compression for that result.
 
+## CLI commands
+
+```bash
+squeezr setup          # configure env vars, auto-start, CA trust, install MCP server
+squeezr start          # start the proxy (auto-restarts if version mismatch after update)
+squeezr update         # kill old processes, install latest from npm, restart
+squeezr stop           # stop the proxy
+squeezr status         # check if proxy is running
+squeezr logs           # show last 50 log lines
+squeezr config         # print current config
+squeezr ports          # change HTTP and MITM proxy ports
+squeezr gain           # all-time token savings summary
+squeezr gain --session # live session savings from the running proxy
+squeezr gain --details # all-time stats with per-tool breakdown
+squeezr gain --reset   # reset all-time counters
+squeezr discover       # detect which AI CLIs are installed
+squeezr mcp install    # register MCP server in Claude Code, Cursor, Windsurf, Cline
+squeezr mcp uninstall  # remove MCP server registration
+squeezr uninstall      # remove Squeezr completely (env vars, CA, auto-start, logs)
+squeezr version        # print version
+```
+
 ## Compression backends
 
 Squeezr uses cheap/free models for AI compression (the deterministic layer is pure regex, no API calls):
@@ -164,47 +262,6 @@ Squeezr uses cheap/free models for AI compression (the deterministic layer is pu
 | Gemini | Flash-8B | Fallback compression | Free |
 | Local | qwen2.5-coder:1.5b | Compression when using Ollama | Free |
 | ChatGPT (WS) | GPT-5.4-mini | Codex frame compression | $0 (same subscription) |
-
-### Typical savings
-
-- **Per tool result:** 70–95% reduction depending on tool
-- **Per session (2 hours):** ~200K tokens → ~80K tokens (60% savings)
-- **System prompt:** ~13KB → ~600 tokens (cached)
-
-## CLI commands
-
-```bash
-squeezr setup      # configure env vars, auto-start, CA trust, install MCP server
-squeezr start      # start the proxy (auto-restarts if version mismatch after update)
-squeezr update     # kill old processes, install latest from npm, restart
-squeezr stop       # stop the proxy
-squeezr status     # check if proxy is running
-squeezr logs       # show last 50 log lines
-squeezr config     # print current config
-squeezr ports      # change HTTP and MITM proxy ports
-squeezr gain       # estimate token savings for a directory
-squeezr discover   # detect which AI CLIs are installed
-squeezr mcp install    # register MCP server in Claude Code, Cursor, Windsurf, Cline
-squeezr mcp uninstall  # remove MCP server registration
-squeezr uninstall  # remove Squeezr completely (env vars, CA, auto-start, logs)
-squeezr version    # print version
-```
-
-## MCP server
-
-Squeezr ships with a built-in MCP server (`squeezr-mcp`) that gives any MCP-capable AI CLI real-time awareness of Squeezr's state and control over it.
-
-**Installed automatically** by `squeezr setup` into Claude Code, Cursor, Windsurf, and Cline.
-
-Available MCP tools:
-
-| Tool | Description |
-|---|---|
-| `squeezr_status` | Is proxy running? Version, port, uptime, mode |
-| `squeezr_stats` | Token savings, compression %, cost saved, per-tool breakdown |
-| `squeezr_set_mode` | Change compression mode instantly (soft / normal / aggressive / critical) |
-| `squeezr_config` | Current thresholds, keepRecent, cache sizes |
-| `squeezr_habits` | Detect wasteful patterns this session (duplicate reads, high Bash count, cache efficiency) |
 
 ## Requirements
 
