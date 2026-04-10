@@ -89,12 +89,17 @@ function extractProjectName(body: Record<string, unknown>): string {
 
     // Fallback: extract LAST meaningful path segment from system prompt
     // e.g. C:\Users\Ramos\Documents\InvoiceApp\src → InvoiceApp
+    // Only match filesystem paths (not URLs like https://github.com)
     const pathMatch = text.match(/(?:[A-Za-z]:[\\/]|\/(?:Users|home|workspace|projects|Documents)[\\/])[^\s<>"*?|]+/i)
-    if (pathMatch) {
+    if (pathMatch && !pathMatch[0].includes('://')) {
       const parts = pathMatch[0].replace(/\\/g, '/').split('/').filter(Boolean)
-      const skip = new Set(['users', 'home', 'documents', 'workspace', 'projects', 'desktop', 'dev', 'src', 'repos'])
+      const skip = new Set([
+        'users', 'home', 'documents', 'workspace', 'projects', 'desktop',
+        'dev', 'src', 'repos', 'mnt', 'c', 'var', 'tmp', 'opt', 'usr',
+        'lib', 'bin', 'etc', 'node_modules', '.claude', '.config',
+      ])
       for (const pt of parts) {
-        if (!skip.has(pt.toLowerCase()) && !/^[a-z]:$/i.test(pt)) return pt
+        if (!skip.has(pt.toLowerCase()) && !/^[a-z]:$/i.test(pt) && pt.length > 1) return pt
       }
       if (parts.length) return parts[parts.length - 1]
     }

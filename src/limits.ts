@@ -52,6 +52,19 @@ export interface GeminiErrorState {
   hasData: boolean
 }
 
+// Subscription (OAuth) uses unified rate limits instead of per-minute token limits
+export interface UnifiedRateLimitState {
+  fiveHourUtilization: number    // 0-1 fraction of 5h rolling window
+  fiveHourResetEpoch: number     // epoch seconds
+  fiveHourStatus: string         // 'allowed' | 'throttled' | 'blocked'
+  sevenDayUtilization: number    // 0-1 fraction of 7d ceiling
+  sevenDayResetEpoch: number     // epoch seconds
+  sevenDayStatus: string
+  overageUtilization: number
+  overageStatus: string
+  hasData: boolean
+}
+
 // ── State singletons ──────────────────────────────────────────────────────────
 
 function emptyRL(): RateLimitState {
@@ -75,6 +88,13 @@ function emptyUsage(): UsageState {
 export const anthropicRL = emptyRL()
 export const openaiRL    = emptyRL()
 export const geminiRL    = emptyRL()
+
+export const anthropicUnified: UnifiedRateLimitState = {
+  fiveHourUtilization: 0, fiveHourResetEpoch: 0, fiveHourStatus: '',
+  sevenDayUtilization: 0, sevenDayResetEpoch: 0, sevenDayStatus: '',
+  overageUtilization: 0, overageStatus: '',
+  hasData: false,
+}
 
 export const anthropicUsage = emptyUsage()
 export const openaiUsage    = emptyUsage()
@@ -127,6 +147,21 @@ function h(headers: Headers, name: string): number {
 // ── Rate limit update from headers ────────────────────────────────────────────
 
 export function updateAnthropicFromHeaders(headers: Headers): void {
+  // Subscription (OAuth) sends unified rate limits instead of per-minute limits
+  const unified5hUtil = headers.get('anthropic-ratelimit-unified-5h-utilization')
+  if (unified5hUtil !== null) {
+    anthropicUnified.fiveHourUtilization = parseFloat(unified5hUtil) || 0
+    anthropicUnified.fiveHourResetEpoch = parseInt(headers.get('anthropic-ratelimit-unified-5h-reset') ?? '0') * 1000
+    anthropicUnified.fiveHourStatus = headers.get('anthropic-ratelimit-unified-5h-status') ?? ''
+    anthropicUnified.sevenDayUtilization = parseFloat(headers.get('anthropic-ratelimit-unified-7d-utilization') ?? '0') || 0
+    anthropicUnified.sevenDayResetEpoch = parseInt(headers.get('anthropic-ratelimit-unified-7d-reset') ?? '0') * 1000
+    anthropicUnified.sevenDayStatus = headers.get('anthropic-ratelimit-unified-7d-status') ?? ''
+    anthropicUnified.overageUtilization = parseFloat(headers.get('anthropic-ratelimit-unified-overage-utilization') ?? '0') || 0
+    anthropicUnified.overageStatus = headers.get('anthropic-ratelimit-unified-overage-status') ?? ''
+    anthropicUnified.hasData = true
+  }
+
+  // API key users get standard per-minute rate limits
   if (!headers.get('anthropic-ratelimit-requests-limit') &&
       !headers.get('anthropic-ratelimit-tokens-limit')) return
 
@@ -288,7 +323,7 @@ export async function maybeRefreshOpenAIBilling(apiKey: string): Promise<void> {
 
 export function limitsSnapshot() {
   return {
-    anthropic: { rl: anthropicRL, usage: anthropicUsage },
+    anthropic: { rl: anthropicRL, usage: anthropicUsage, unified: anthropicUnified },
     openai:    { rl: openaiRL,    usage: openaiUsage, billing: openAIBilling },
     gemini:    { rl: geminiRL,    usage: geminiUsage, errors: geminiErrors },
   }

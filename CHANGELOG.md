@@ -2,6 +2,27 @@
 
 All notable changes to Squeezr will be documented here.
 
+## [1.21.3] - 2026-04-10
+### Fixed
+- **Dashboard: dark theme** — Switched from blue accent to green. Background is now pure black (#09090b) with dark greys. All links, bars, badges, and active states use green (#22c55e/#16a34a).
+- **Dashboard: real CLI logos** — Replaced placeholder SVGs with official Bootstrap Icons for Claude (Anthropic star), OpenAI (hexagon), and Google (G icon).
+- **Dashboard: removed uptime/Running** — Status shows "Connected" instead of "Running 44s". Uptime removed from header and sidebar.
+- **Project detection: excluded URLs** — Fallback regex no longer matches `github.com` or other domains from URLs in the system prompt.
+- **`squeezr gain --sesion`** — Added Spanish typo alias.
+
+## [1.21.2] - 2026-04-10
+### Fixed
+- **Limits: 5h/7d countdown timers** — Shows time remaining until rate limit reset for subscription users. When throttled, displays "throttled — resets in Xh Ym". When allowed, shows "X% free" or "X% used" for high utilization.
+- **Limits: CLI logos** — Added Anthropic, OpenAI, and Gemini SVG icons next to each CLI card header.
+- **Dashboard: Squeezr logo in sidebar** — Added the green compression bars SVG logo next to the brand name.
+- **Dashboard: removed uptime/Running** — Removed uptime counter from header and sidebar. Status now shows "Connected" instead of "Running 44s".
+- **Project detection: fixed `github.com` false positive** — Fallback regex now excludes URLs (`://`), single-char segments, and common system dirs (`mnt`, `c`, `node_modules`, `.claude`, etc.). No longer extracts domain names from URLs in the system prompt.
+- **`squeezr gain --sesion`** — Added Spanish typo alias for `--session`.
+
+## [1.21.1] - 2026-04-10
+### Fixed
+- **Limits page now shows subscription rate limits** — Claude Code subscription (OAuth) uses `anthropic-ratelimit-unified-*` headers instead of standard per-minute limits. Squeezr now captures the 5-hour rolling window utilization (%), 7-day weekly ceiling utilization (%), and overage status. Dashboard shows these as filled gauges with proper labels ("5-hour window", "7-day window") instead of empty dashes.
+
 ## [1.21.0] - 2026-04-10
 ### Added
 - **MCP auto-update notification** — Every MCP tool response now checks npm for newer versions (cached 30 min). When an update is available, appends `🆕 Squeezr vX.Y.Z available. Run: squeezr update` to the tool output so the user sees it naturally in the chat.

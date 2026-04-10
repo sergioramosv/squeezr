@@ -199,7 +199,7 @@ function render(d: GainData, showTools: boolean) {
 
 async function main() {
   const showDetails = args.includes('--details') || args.includes('-d')
-  const showSession = args.includes('--session') || args.includes('-s')
+  const showSession = args.includes('--session') || args.includes('-s') || args.includes('--sesion')
 
   if (showSession) {
     const session = await loadSession()
