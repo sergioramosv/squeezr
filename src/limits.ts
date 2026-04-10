@@ -407,11 +407,10 @@ function nextOpenAISessionResetEpoch(): number {
 function openAISessionRefreshIntervalMs(): number {
   if (!openAISessionLimits.hasData) return 60_000
   const nextReset = nextOpenAISessionResetEpoch()
-  if (!nextReset) return 5 * 60_000
+  if (!nextReset) return 60_000
   const remainingMs = nextReset - Date.now()
   if (remainingMs <= 2 * 60_000) return 15_000
-  if (remainingMs <= 15 * 60_000) return 60_000
-  return 5 * 60_000
+  return 60_000
 }
 
 function codexAppServerCommand(): { cmd: string, args: string[] } {
