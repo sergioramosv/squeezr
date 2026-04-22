@@ -2,7 +2,7 @@
 
 All notable changes to Squeezr will be documented here.
 
-## [1.23.0] - 2026-04-22
+## [1.24.0] - 2026-04-22
 
 ### Added
 
