@@ -366,30 +366,143 @@ function compressProtoStrings(payload: Buffer, depth = 0): Buffer | null {
 
 // Proto structure discovered via hex analysis:
 //   root → field#1 → field#2 (large, conversation+files) → field#1 (container)
-//     container → field#1 entries (messages: text+UUID+metadata)
-//               → field#2 entries (file context chunks, 176 files × ~1-15KB each)
-// Compression via compressProtoStrings applied to the full payload tree.
+//     container:
+//       → field#1 entries (messages: field#1=plain_text, field#2=UUID, field#8=Lexical_JSON)
+//       → field#2 entries (file context chunks, 176 files × ~1-15KB each)
+//
+// Key insight: field#8 is Lexical JSON (Cursor's rich text editor format).
+// It's a verbose duplicate of field#1 (plain text). For OLD messages we remove
+// field#8 entirely — 100% lossless because plain text is preserved in field#1.
+// Recent messages (last KEEP_RECENT) are kept intact.
 
-/** Process one ConnectRPC frame: decompress, compress text content, recompress. */
+/** Navigate to the conversation container field#1 entries and compress old ones. */
+function compressOldConversationMessages(payload: Buffer): Buffer | null {
+  try {
+    const rootFs = parseProtoFields(payload)
+    const rootF1 = rootFs.find(f => f.fieldNumber === 1 && f.wireType === WIRE_LENGTH_DELIMITED)
+    if (!rootF1) return null
+    const l1 = extractLengthDelimitedPayload(rootF1.data)
+    const l1Fs = parseProtoFields(l1)
+
+    // Find the large conversation field (>10KB)
+    const l1Large = l1Fs.filter(f => f.wireType === WIRE_LENGTH_DELIMITED && f.data.length > 10000)
+      .sort((a, b) => b.data.length - a.data.length)[0]
+    if (!l1Large) return null
+
+    const l2 = extractLengthDelimitedPayload(l1Large.data)
+    const l2Fs = parseProtoFields(l2)
+    const l2F1 = l2Fs.find(f => f.fieldNumber === 1 && f.wireType === WIRE_LENGTH_DELIMITED)
+    if (!l2F1) return null
+
+    const l3 = extractLengthDelimitedPayload(l2F1.data)
+    const l3Fs = parseProtoFields(l3)
+    const l3F1 = l3Fs.find(f => f.fieldNumber === 1 && f.wireType === WIRE_LENGTH_DELIMITED)
+    if (!l3F1) return null
+
+    const container = extractLengthDelimitedPayload(l3F1.data)
+    const containerFs = parseProtoFields(container)
+
+    // Collect all field#1 message entries
+    const msgEntries = containerFs.filter(f => f.fieldNumber === 1 && f.wireType === WIRE_LENGTH_DELIMITED)
+    if (msgEntries.length <= KEEP_RECENT + 1) return null  // nothing to compress
+
+    const oldMsgs = msgEntries.slice(0, msgEntries.length - KEEP_RECENT)
+    let totalSaved = 0
+
+    // Rebuild container: strip field#8 (Lexical JSON) from old messages
+    const newContainerParts: Buffer[] = []
+    let msgIdx = 0
+    for (const cf of containerFs) {
+      if (cf.fieldNumber !== 1 || cf.wireType !== WIRE_LENGTH_DELIMITED) {
+        newContainerParts.push(cf.data)
+        continue
+      }
+      if (msgIdx < oldMsgs.length) {
+        // Old message: remove field#8 (verbose Lexical JSON duplicate of plain text)
+        const msgInner = extractLengthDelimitedPayload(cf.data)
+        const msgFs = parseProtoFields(msgInner)
+        const f8 = msgFs.find(f => f.fieldNumber === 8 && f.wireType === WIRE_LENGTH_DELIMITED)
+        if (f8) {
+          // Also apply deterministicCompress to any large text fields
+          const newMsgParts: Buffer[] = []
+          for (const sf of msgFs) {
+            if (sf.fieldNumber === 8 && sf.wireType === WIRE_LENGTH_DELIMITED) {
+              // Remove field#8 entirely (plain text already in field#1)
+              totalSaved += sf.data.length
+              continue
+            }
+            if (sf.wireType === WIRE_LENGTH_DELIMITED) {
+              const inner = extractLengthDelimitedPayload(sf.data)
+              if (looksLikeText(inner) && !inner.toString('utf-8').includes('�')) {
+                const text = inner.toString('utf-8')
+                const compressed = deterministicCompress(text)
+                if (compressed.length < text.length - 50) {
+                  totalSaved += text.length - compressed.length
+                  newMsgParts.push(encodeLengthDelimited(sf.fieldNumber, Buffer.from(compressed, 'utf-8')))
+                  continue
+                }
+              }
+            }
+            newMsgParts.push(sf.data)
+          }
+          newContainerParts.push(encodeLengthDelimited(1, Buffer.concat(newMsgParts)))
+        } else {
+          newContainerParts.push(cf.data)
+        }
+      } else {
+        // Recent message: keep intact
+        newContainerParts.push(cf.data)
+      }
+      msgIdx++
+    }
+
+    if (totalSaved === 0) return null
+
+    // Rebuild up the proto tree using index-based replacement
+    const rebuild = (fields: ProtoField[], targetIdx: number, newData: Buffer): Buffer => {
+      return Buffer.concat(fields.map((f, i) => i === targetIdx ? newData : f.data))
+    }
+    const l3F1idx = l3Fs.indexOf(l3F1)
+    const l2F1idx = l2Fs.indexOf(l2F1)
+    const l1Largeidx = l1Fs.indexOf(l1Large)
+    const rootF1idx = rootFs.indexOf(rootF1)
+
+    const newContainer = Buffer.concat(newContainerParts)
+    const newL3 = rebuild(l3Fs, l3F1idx, encodeLengthDelimited(l3F1.fieldNumber, newContainer))
+    const newL2 = rebuild(l2Fs, l2F1idx, encodeLengthDelimited(l2F1.fieldNumber, newL3))
+    const newL1 = rebuild(l1Fs, l1Largeidx, encodeLengthDelimited(l1Large.fieldNumber, newL2))
+    const newPayload = rebuild(rootFs, rootF1idx, encodeLengthDelimited(rootF1.fieldNumber, newL1))
+
+    cursorStats.compressed++
+    cursorStats.charsSaved += totalSaved
+    console.log(`[squeezr/cursor] AgentRun: -${totalSaved}b (${oldMsgs.length} old msgs, field#8 stripped)`)
+    return newPayload
+  } catch { return null }
+}
+
+/** Process one ConnectRPC frame: decompress, compress, recompress. */
 function processAgentFrame(frameBuf: Buffer): Buffer {
   const frame = parseConnectFrame(frameBuf)
   if (!frame) return frameBuf
 
   const payload = isGzip(frame.payload) ? zlib.gunzipSync(frame.payload) : frame.payload
 
-  // Apply recursive text compression across the entire payload tree.
-  // Finds and compresses: file content chunks, code files, long text fields.
-  // Safe: only touches fields that are >80 chars of valid non-binary UTF-8.
-  const newPayload = compressProtoStrings(payload)
-  if (!newPayload || newPayload.length >= payload.length) return frameBuf
+  // Step 1: Lossless — remove field#8 (Lexical JSON verbose duplicate) from old messages.
+  // field#8 = Cursor's rich-text editor JSON of each message.
+  // field#1 already has the plain text, so stripping field#8 loses nothing.
+  const afterLossless = compressOldConversationMessages(payload) ?? payload
 
-  const charsSaved = payload.length - newPayload.length
+  // Step 2: Deterministic — compress long text fields (tool outputs, verbose content).
+  // Safe: only removes noise (blank lines, trailing whitespace, repeated patterns).
+  const afterDet = compressProtoStrings(afterLossless) ?? afterLossless
+
+  if (afterDet.length >= payload.length) return frameBuf
+
+  const charsSaved = payload.length - afterDet.length
   const pct = Math.round(charsSaved / payload.length * 100)
-  cursorStats.compressed++
-  cursorStats.charsSaved += charsSaved
-  console.log(`[squeezr/cursor] AgentRun compressed: -${charsSaved} chars (-${pct}%)`)
+  console.log(`[squeezr/cursor] AgentRun: -${charsSaved}b (-${pct}%)`)
 
-  const finalPayload = isGzip(frame.payload) ? zlib.gzipSync(newPayload) : newPayload
+  const finalPayload = isGzip(frame.payload) ? zlib.gzipSync(afterDet) : afterDet
   return buildConnectFrame(finalPayload, frame.flag)
 }
 

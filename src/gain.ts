@@ -89,6 +89,9 @@ interface GainData {
   byTool: Record<string, { count: number; savedChars: number; originalChars: number }>
   project?: string
   uptime?: number
+  cursorRequests?: number
+  cursorCompressed?: number
+  cursorSaved?: number
 }
 
 function loadHistoric(): GainData | null {
@@ -123,6 +126,7 @@ async function loadSession(): Promise<GainData | null> {
     for (const [tool, t] of Object.entries(byTool)) {
       bt[tool] = { count: t.count, savedChars: t.saved_chars, originalChars: Math.round(t.saved_chars / Math.max(t.avg_pct / 100, 0.01)) }
     }
+    const cursor = (d.cursor ?? {}) as { requests?: number; compressed?: number; charsSaved?: number }
     return {
       title: 'Session Savings (live)',
       requests: (d.requests as number) ?? 0,
@@ -137,6 +141,9 @@ async function loadSession(): Promise<GainData | null> {
       byTool: bt,
       project: (d.current_project as string) ?? undefined,
       uptime: (d.uptime_seconds as number) ?? undefined,
+      cursorRequests: cursor.requests ?? 0,
+      cursorCompressed: cursor.compressed ?? 0,
+      cursorSaved: cursor.charsSaved ?? 0,
     }
   } catch {
     return null
@@ -155,14 +162,16 @@ function render(d: GainData, showTools: boolean) {
   row(`  Squeezr — ${d.title}`)
   midLine()
   if (d.project && d.project !== 'unknown') kv('Project', d.project)
-  kv('Requests', String(d.requests))
+  kv('Requests (CLI)', String(d.requests))
+  if ((d.cursorRequests ?? 0) > 0) kv('Requests (Cursor)', `${d.cursorRequests} (${d.cursorCompressed} compressed)`)
   if (d.uptime) kv('Uptime', fmtUptime(d.uptime))
   blank()
-  if (d.detSaved > 0)       kv3('Deterministic', d.detSaved)
-  if (d.aiSaved > 0)        kv3('AI compression', d.aiSaved)
-  if (d.dedupSaved > 0)     kv3('Read dedup', d.dedupSaved)
-  if (d.syspromptSaved > 0)  kv3('System prompt', d.syspromptSaved)
-  if (d.overheadAdded > 0)  kv3('Tag overhead', d.overheadAdded, '+')
+  if (d.detSaved > 0)         kv3('Deterministic', d.detSaved)
+  if (d.aiSaved > 0)          kv3('AI compression', d.aiSaved)
+  if (d.dedupSaved > 0)       kv3('Read dedup', d.dedupSaved)
+  if (d.syspromptSaved > 0)   kv3('System prompt', d.syspromptSaved)
+  if ((d.cursorSaved ?? 0) > 0) kv3('Cursor IDE', d.cursorSaved!)
+  if (d.overheadAdded > 0)    kv3('Tag overhead', d.overheadAdded, '+')
   if (d.aiCalls > 0) {
     // AI compression cost: tokens spent on Haiku/GPT-mini calls
     kv3('AI compress cost', Math.round(aiCostChars), '+')

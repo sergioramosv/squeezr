@@ -576,6 +576,12 @@ app.post('/v1beta/models/*', async (c) => {
 
 async function buildStatsPayload() {
   await maybeRefreshOpenAISessionLimits().catch(() => {})
+  // Cursor MITM stats (optional — only available if cursorMitm is loaded)
+  let cursorStats = { requests: 0, compressed: 0, charsSaved: 0 }
+  try {
+    const m = await import('./cursorMitm.js')
+    cursorStats = m.getCursorStats()
+  } catch {}
   return {
     ...stats.summary(),
     cache: getCache(config).stats(),
@@ -589,6 +595,7 @@ async function buildStatsPayload() {
     limits: limitsSnapshot(),
     bypassed: isBypassed(),
     circuit_breaker: circuitBreaker.snapshot(),
+    cursor: cursorStats,
   }
 }
 
