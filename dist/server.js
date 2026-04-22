@@ -508,6 +508,13 @@ app.post('/v1beta/models/*', async (c) => {
 // ── Squeezr internal endpoints ────────────────────────────────────────────────
 async function buildStatsPayload() {
     await maybeRefreshOpenAISessionLimits().catch(() => { });
+    // Cursor MITM stats (optional — only available if cursorMitm is loaded)
+    let cursorStats = { requests: 0, compressed: 0, charsSaved: 0 };
+    try {
+        const m = await import('./cursorMitm.js');
+        cursorStats = m.getCursorStats();
+    }
+    catch { }
     return {
         ...stats.summary(),
         cache: getCache(config).stats(),
@@ -521,6 +528,7 @@ async function buildStatsPayload() {
         limits: limitsSnapshot(),
         bypassed: isBypassed(),
         circuit_breaker: circuitBreaker.snapshot(),
+        cursor: cursorStats,
     };
 }
 app.get('/squeezr/stats', (c) => {
@@ -622,6 +630,18 @@ app.post('/squeezr/config', async (c) => {
         applyMode(body.mode);
     }
     return c.json({ ok: true, mode: runtimeOverrides.mode });
+});
+// ── Cursor TLS server (start on demand) ──────────────────────────────────────
+app.post('/squeezr/cursor/start', async (c) => {
+    try {
+        const { resolveRealIps, startDirectTlsServer } = await import('./cursorMitm.js');
+        const ipMap = await resolveRealIps();
+        await startDirectTlsServer(ipMap);
+        return c.json({ ok: true, port: 8443 });
+    }
+    catch (e) {
+        return c.json({ ok: false, error: e.message }, 500);
+    }
 });
 // ── Bypass mode (runtime-only compression toggle) ────────────────────────────
 app.get('/squeezr/bypass', (c) => {
