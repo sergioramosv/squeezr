@@ -134,6 +134,9 @@ function stripTimestamps(text: string): string {
 
 export function preprocess(text: string): string {
   let t = text
+  // Normalize CRLF → LF first so all subsequent patterns work consistently
+  // and so Claude's Edit tool old_string matching works on Windows files.
+  t = t.replace(/\r\n/g, '\n').replace(/\r/g, '\n')
   t = stripAnsi(t)
   t = stripProgressBars(t)
   t = stripTimestamps(t)
