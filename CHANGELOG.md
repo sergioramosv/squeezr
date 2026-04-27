@@ -2,7 +2,7 @@
 
 All notable changes to Squeezr will be documented here.
 
-## [Unreleased]
+## [1.23.0] - 2026-04-27
 ### Added
 - **Port-conflict diagnostics** — On startup, Squeezr now classifies the configured port as `free`, `squeezr` (existing instance), or `foreign` (an unrelated HTTP service). When a foreign service is detected (e.g. a Docker container squatting on 8080), Squeezr prints an explicit warning that names the conflict and reminds the user that their shell env vars likely still point to the wrong port. This prevents Claude Code from silently routing API calls into Apache/WordPress/etc., which produced cryptic errors like `undefined is not an object (evaluating '$.speed')`.
 - **Post-start self-test** — After a successful `listen()`, Squeezr runs four async checks that never block accepting requests:
@@ -18,6 +18,7 @@ All notable changes to Squeezr will be documented here.
 - **Auto-heal in `setupUnix` / `setupWSL` / `squeezr ports`** — The shell-profile auto-heal previously used `curl -sf …/squeezr/health`, which does not fail on 3xx responses. A foreign service replying with `301` (e.g. WordPress redirecting `/squeezr/health` → `/squeezr/health/`) was therefore mistaken for a healthy Squeezr, and the auto-heal never restarted the proxy. The block now uses an `_squeezr_alive` helper that grep-matches `"identity":"squeezr"` in the body.
 - **`squeezr start` version detection** — `startDaemon()` previously caught a `JSON.parse('')` error, returned the string `'unknown'`, and entered a "version mismatch → restart" loop against the foreign service. It now uses the same `identity` validation, so a foreign service is correctly reported instead of triggering a restart attempt that cannot succeed.
 - **`squeezr status`** — When the configured port is occupied by a foreign service, the command now reports it explicitly (with the foreign `Server` header) instead of saying "Squeezr is NOT running".
+- **CRLF normalization in compressed output** — `preprocess()` now normalizes `\r\n` → `\n` before any other transformation. On Windows, file content read via the Read tool has CRLF line endings. After Squeezr compressed it, the Edit tool's `old_string` matching failed silently because the pattern used LF while the compressed content kept CRLF. All compressed tool results now use LF consistently.
 
 ## [1.22.0] - 2026-04-10
 ### Added
