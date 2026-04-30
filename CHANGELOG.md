@@ -2,6 +2,10 @@
 
 All notable changes to Squeezr will be documented here.
 
+## [1.24.0] - 2026-04-30
+### Fixed
+- **Rate limit headers not forwarded on streaming responses** — When `ANTHROPIC_BASE_URL` pointed to the Squeezr proxy, Claude Code never received the `anthropic-ratelimit-*` response headers, causing the `rate_limits` field to be absent from the statusline JSON. The proxy now forwards all non-hop-by-hop headers (including `anthropic-ratelimit-*`) to the client across all three `/v1/messages` branches: bypass streaming, normal streaming, and expand-call continuation. Also calls `updateAnthropicFromHeaders()` on the expand-call continuation response so the internal dashboard stays in sync. Fix contributed by [@jorgecasar](https://github.com/jorgecasar) in [#4](https://github.com/sergioramosv/Squeezr/issues/4) / [PR #5](https://github.com/sergioramosv/Squeezr/pull/5).
+
 ## [1.23.0] - 2026-04-27
 ### Added
 - **Port-conflict diagnostics** — On startup, Squeezr now classifies the configured port as `free`, `squeezr` (existing instance), or `foreign` (an unrelated HTTP service). When a foreign service is detected (e.g. a Docker container squatting on 8080), Squeezr prints an explicit warning that names the conflict and reminds the user that their shell env vars likely still point to the wrong port. This prevents Claude Code from silently routing API calls into Apache/WordPress/etc., which produced cryptic errors like `undefined is not an object (evaluating '$.speed')`.

@@ -302,7 +302,7 @@ If the output says `a foreign service is` listening on the port, you have three 
 2. **Stop the offending service**: `docker ps` to find what owns 8080, then `docker stop <id>`.
 3. **Inspect runtime info**: `cat ~/.squeezr/runtime.json` shows the *actual* port Squeezr is bound to. If it differs from your `ANTHROPIC_BASE_URL`, run `squeezr setup` to refresh your shell profile.
 
-Squeezr v1.23.0+ runs a self-test on every startup that detects this exact failure mode and prints actionable hints. You can re-run it any time with:
+Squeezr v1.24.0+ runs a self-test on every startup that detects this exact failure mode and prints actionable hints. You can re-run it any time with:
 
 ```bash
 curl -s "http://localhost:$(jq -r .port ~/.squeezr/runtime.json)/squeezr/selftest?run=1" | jq
