@@ -431,7 +431,7 @@ code{font-family:'Cascadia Code','SF Mono',Consolas,monospace;font-size:.9em}
 
       <!-- Spend: theoretical vs real -->
       <div class="section">
-        <div class="section-head"><span class="section-title">Cost Comparison</span><span style="font-size:11px;color:var(--text3)">est. at $3/1M tokens</span></div>
+        <div class="section-head"><span class="section-title">Cost Comparison</span><span style="font-size:11px;color:var(--text3)" id="cost-note">per-model pricing</span></div>
         <div class="section-body">
           <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px">
             <div style="text-align:center">
@@ -825,6 +825,7 @@ function render(d) {
   setTxt('sp-with-tok',    actualTokens > 0 ? '~' + fmt(actualTokens) + ' tokens' : '—');
   setTxt('sp-saved',       costSaved > 0 ? fmtUsd(costSaved) : '—');
   setTxt('sp-saved-pct',   (ratioPct != null ? Math.round(ratioPct) + '% · ' : '') + priceNote);
+  var noteEl = document.getElementById('cost-note'); if(noteEl) noteEl.textContent = priceNote;
   // Model breakdown section
   renderModelBreakdown(d.by_model);
 
@@ -1068,7 +1069,7 @@ function renderModelBreakdown(byModel) {
     var priceLabel = priceIn === DEFAULT_PRICE_INPUT ? '$' + priceIn + '/1M (est.)' : '$' + priceIn + '/1M input';
     return '<div style="margin-bottom:14px">' +
       '<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px">' +
-        '<span style="font-size:13px;font-weight:600;color:var(--text);font-family:\'Cascadia Code\',monospace">' + esc(model) + '</span>' +
+        '<span style="font-size:13px;font-weight:600;color:var(--text);font-family:monospace">' + esc(model) + '</span>' +
         '<span style="font-size:12px;color:var(--text3)">' + priceLabel + '</span>' +
       '</div>' +
       '<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:5px">' +
