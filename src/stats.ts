@@ -57,6 +57,8 @@ export class Stats {
   private byProject: Record<string, {
     requests: number; savedChars: number; savedTokens: number
   }> = {}
+  // Per-client tracking: 'claude' | 'openai' | 'gemini' | 'mitm'
+  private byClient: Record<string, { requests: number; originalChars: number; savedChars: number }> = {}
   private currentProject = 'unknown'
   private sessionStart = Date.now()
   private lastOriginalChars = 0
@@ -126,7 +128,7 @@ export class Stats {
   }
 
   /** Call instead of record() when a project name is known. */
-  recordWithProject(project: string, originalChars: number, compressedChars: number, savings: Savings, latency?: LatencyInfo): void {
+  recordWithProject(project: string, originalChars: number, compressedChars: number, savings: Savings, latency?: LatencyInfo, client?: string): void {
     if (project !== 'unknown') this.currentProject = project
     this.record(originalChars, compressedChars, savings, latency)
 
@@ -137,6 +139,14 @@ export class Stats {
     const saved = originalChars - compressedChars
     this.byProject[p].savedChars += saved
     this.byProject[p].savedTokens = Math.round(this.byProject[p].savedChars / CHARS_PER_TOKEN)
+
+    // Per-client tracking
+    if (client) {
+      if (!this.byClient[client]) this.byClient[client] = { requests: 0, originalChars: 0, savedChars: 0 }
+      this.byClient[client].requests++
+      this.byClient[client].originalChars += originalChars
+      this.byClient[client].savedChars += saved
+    }
   }
 
   setProject(project: string): void {
@@ -203,6 +213,20 @@ export class Stats {
           ? Math.round((this.expandCalls / this.totalCompressions) * 1000) / 10
           : 0,
       },
+      // Per-client breakdown: tokens saved by Claude Code/Desktop, Codex, Gemini, etc.
+      by_client: Object.fromEntries(
+        Object.entries(this.byClient).map(([client, data]) => [
+          client,
+          {
+            requests: data.requests,
+            original_tokens: Math.round(data.originalChars / CHARS_PER_TOKEN),
+            saved_tokens: Math.round(data.savedChars / CHARS_PER_TOKEN),
+            savings_pct: data.originalChars > 0
+              ? Math.round((data.savedChars / data.originalChars) * 1000) / 10
+              : 0,
+          },
+        ])
+      ),
     }
   }
 

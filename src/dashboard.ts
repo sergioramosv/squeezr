@@ -450,6 +450,30 @@ code{font-family:'Cascadia Code','SF Mono',Consolas,monospace;font-size:.9em}
         </div>
       </div>
 
+      <!-- Spend: theoretical vs real -->
+      <div class="section">
+        <div class="section-head"><span class="section-title">Cost Comparison</span><span style="font-size:11px;color:var(--text3)">est. at $3/1M tokens</span></div>
+        <div class="section-body">
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px" id="spend-grid">
+            <div style="text-align:center">
+              <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;color:var(--text3);margin-bottom:6px">Without Squeezr</div>
+              <div style="font-size:24px;font-weight:700;color:var(--text)" id="sp-without">—</div>
+              <div style="font-size:11px;color:var(--text3);margin-top:4px" id="sp-without-tok">—</div>
+            </div>
+            <div style="text-align:center">
+              <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;color:var(--text3);margin-bottom:6px">With Squeezr</div>
+              <div style="font-size:24px;font-weight:700;color:var(--brand2)" id="sp-with">—</div>
+              <div style="font-size:11px;color:var(--text3);margin-top:4px" id="sp-with-tok">—</div>
+            </div>
+            <div style="text-align:center">
+              <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;color:var(--text3);margin-bottom:6px">Saved</div>
+              <div style="font-size:24px;font-weight:700;color:var(--brand2)" id="sp-saved">—</div>
+              <div style="font-size:11px;color:var(--text3);margin-top:4px" id="sp-saved-pct">—</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <!-- Rate Limits -->
       <div class="section">
         <div class="section-head"><span class="section-title">Rate Limits</span></div>
@@ -512,6 +536,21 @@ code{font-family:'Cascadia Code','SF Mono',Consolas,monospace;font-size:.9em}
         <div class="settings-row">
           <span class="s-key">Circuit Breaker</span>
           <span class="s-val"><code id="cfg-cb">—</code></span>
+        </div>
+      </div>
+
+      <!-- Token savings by client — toggle -->
+      <div class="settings-block">
+        <div class="settings-head" style="cursor:pointer;display:flex;align-items:center;justify-content:space-between" onclick="toggleClientBreakdown()">
+          <span>Token savings by client</span>
+          <svg id="cli-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="transition:transform .2s;color:var(--text3)">
+            <polyline points="6 9 12 15 18 9"/>
+          </svg>
+        </div>
+        <div id="cli-breakdown" style="display:none">
+          <div id="cli-breakdown-body" style="padding:14px 20px">
+            <span style="font-size:13px;color:var(--text3)">No client data yet — starts tracking after first request.</span>
+          </div>
         </div>
       </div>
 
@@ -642,9 +681,9 @@ function render(d) {
   lastStats = d;
 
   // ── Normalize field names (API uses snake_case with various naming conventions) ──
-  // tokens
+  // tokens — server uses CHARS_PER_TOKEN=3.5, match it here for consistency
   var tokensSaved = d.total_saved_tokens || d.tokens_saved || 0;
-  var tokensIn    = d.tokens_in || Math.round((d.total_original_chars || 0) / 4); // chars→tokens estimate
+  var tokensIn    = Math.round((d.total_original_chars || 0) / 3.5); // same ratio as stats.ts
   // ratio: API gives savings_pct (0-100), or compression_ratio (0-1)
   var ratioPct    = d.savings_pct != null ? d.savings_pct
                   : d.compression_ratio != null ? Math.round((1 - d.compression_ratio) * 100)
@@ -693,6 +732,22 @@ function render(d) {
 
   // Limits
   renderLimits(d.limits);
+
+  // Cost comparison (#7)
+  var PRICE_PER_TOKEN = 0.000003; // $3 / 1M tokens (Sonnet input)
+  var actualTokens = tokensIn - tokensSaved;
+  var costWithout  = tokensIn * PRICE_PER_TOKEN;
+  var costWith     = actualTokens * PRICE_PER_TOKEN;
+  var costSaved    = tokensSaved * PRICE_PER_TOKEN;
+  document.getElementById('sp-without').textContent     = costWithout > 0 ? fmtUsd(costWithout) : '—';
+  document.getElementById('sp-without-tok').textContent = tokensIn > 0 ? '~' + fmt(tokensIn) + ' tokens' : '—';
+  document.getElementById('sp-with').textContent        = costWith > 0 ? fmtUsd(costWith) : '—';
+  document.getElementById('sp-with-tok').textContent    = actualTokens > 0 ? '~' + fmt(actualTokens) + ' tokens' : '—';
+  document.getElementById('sp-saved').textContent       = costSaved > 0 ? fmtUsd(costSaved) : '—';
+  document.getElementById('sp-saved-pct').textContent   = ratioPct != null ? Math.round(ratioPct) + '% less' : '—';
+
+  // CLI breakdown (#8)
+  renderClientBreakdown(d.by_client);
 
   // Mode & bypass
   updateMode(mode, byp);
@@ -783,6 +838,47 @@ function limRow(name, pct, cls, label) {
     '<span class="lim-name">'+esc(name)+'</span>'+
     '<div class="lim-track"><div class="lim-fill '+cls+'" style="width:'+pct+'%"></div></div>'+
     '<span class="lim-text">'+esc(label)+'</span></div>';
+}
+
+// ── Client breakdown (#8) ──────────────────────────────────────────────────
+var clientOpen = false;
+var CLIENT_LABELS = { claude: 'Claude Code / Desktop / Aider', openai: 'Codex Desktop / OpenAI apps', gemini: 'Gemini CLI', mitm: 'Codex CLI (MITM)' };
+
+function toggleClientBreakdown() {
+  clientOpen = !clientOpen;
+  document.getElementById('cli-breakdown').style.display = clientOpen ? '' : 'none';
+  document.getElementById('cli-chevron').style.transform = clientOpen ? 'rotate(180deg)' : '';
+}
+
+function renderClientBreakdown(byClient) {
+  var el = document.getElementById('cli-breakdown-body');
+  if (!byClient || !Object.keys(byClient).length) {
+    el.innerHTML = '<span style="font-size:13px;color:var(--text3)">No client data yet — starts tracking after the first request.</span>';
+    return;
+  }
+  var rows = Object.entries(byClient)
+    .filter(function(e){ return e[1].requests > 0; })
+    .sort(function(a,b){ return b[1].saved_tokens - a[1].saved_tokens; });
+  if (!rows.length) {
+    el.innerHTML = '<span style="font-size:13px;color:var(--text3)">No requests recorded yet.</span>';
+    return;
+  }
+  var maxSaved = rows[0][1].saved_tokens || 1;
+  el.innerHTML = rows.map(function(e){
+    var label = CLIENT_LABELS[e[0]] || e[0];
+    var data  = e[1];
+    var pct   = Math.round((data.saved_tokens / maxSaved) * 100);
+    return '<div style="margin-bottom:14px">' +
+      '<div style="display:flex;justify-content:space-between;margin-bottom:5px">' +
+        '<span style="font-size:13px;font-weight:500;color:var(--text2)">' + esc(label) + '</span>' +
+        '<span style="font-size:12px;color:var(--text3)">' + fmt(data.saved_tokens) + ' tokens saved · ' + data.savings_pct + '%</span>' +
+      '</div>' +
+      '<div style="height:6px;background:var(--surface3);border-radius:3px;overflow:hidden">' +
+        '<div style="height:100%;width:' + pct + '%;background:var(--brand);border-radius:3px;transition:width .4s"></div>' +
+      '</div>' +
+      '<div style="font-size:11px;color:var(--text3);margin-top:3px">' + data.requests + ' requests · ~' + fmt(data.original_tokens) + ' tokens processed</div>' +
+    '</div>';
+  }).join('');
 }
 
 function updateMode(mode, byp) {

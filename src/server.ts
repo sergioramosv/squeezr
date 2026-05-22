@@ -221,7 +221,7 @@ app.post('/v1/messages', async (c) => {
 
   // Bypass mode: skip all compression, still record request stats
   if (isBypassed()) {
-    stats.recordWithProject(project, originalChars, originalChars, emptySavings())
+    stats.recordWithProject(project, originalChars, originalChars, emptySavings(), undefined, 'claude')
     recordRequest(project, 0, 0, [])
     storeKey('anthropic', apiKey)
     const fwdHeaders = forwardHeaders(c.req.raw.headers)
@@ -287,7 +287,7 @@ app.post('/v1/messages', async (c) => {
 
   // Inject expand tool
   injectExpandToolAnthropic(body)
-  stats.recordWithProject(project, originalChars, estimateChars(compressedMsgs), savings, compLatency)
+  stats.recordWithProject(project, originalChars, estimateChars(compressedMsgs), savings, compLatency, 'claude')
   recordRequest(project, savings.savedChars, savings.compressed, savings.byTool)
 
   storeKey('anthropic', apiKey)
@@ -380,7 +380,7 @@ app.post('/v1/chat/completions', async (c) => {
 
   // Bypass mode: skip all compression, still record request stats
   if (isBypassed()) {
-    stats.recordWithProject(oaiProject, originalChars, originalChars, emptySavings())
+    stats.recordWithProject(oaiProject, originalChars, originalChars, emptySavings(), undefined, 'openai')
     recordRequest(oaiProject, 0, 0, [])
     if (!isLocal) storeKey('openai', openAIKey)
     const fwdHeaders = forwardHeaders(c.req.raw.headers)
@@ -435,7 +435,7 @@ app.post('/v1/chat/completions', async (c) => {
   body.messages = compressedMsgs
 
   if (!isLocal) injectExpandToolOpenAI(body)
-  stats.recordWithProject(oaiProject, originalChars, estimateChars(compressedMsgs), savings, oaiCompLatency)
+  stats.recordWithProject(oaiProject, originalChars, estimateChars(compressedMsgs), savings, oaiCompLatency, 'openai')
   recordRequest(oaiProject, savings.savedChars, savings.compressed, savings.byTool)
 
   if (!isLocal) storeKey('openai', openAIKey)
@@ -519,7 +519,7 @@ app.post('/v1beta/models/*', async (c) => {
 
   // Bypass mode: skip all compression, still record request stats
   if (isBypassed()) {
-    stats.recordWithProject(geminiProject, originalChars, originalChars, emptySavings())
+    stats.recordWithProject(geminiProject, originalChars, originalChars, emptySavings(), undefined, 'gemini')
     recordRequest(geminiProject, 0, 0, [])
     const targetUrl = `${GOOGLE_API}/v1beta/models/${modelPath}`
     const fwdHeaders = forwardHeaders(c.req.raw.headers)
@@ -546,7 +546,7 @@ app.post('/v1beta/models/*', async (c) => {
   const gemCompLatency: LatencyInfo = { totalMs: Date.now() - gemCompT0, detMs: savings.detMs, aiMs: savings.aiMs }
   body.contents = compressedContents
 
-  stats.recordWithProject(geminiProject, originalChars, estimateChars(compressedContents), savings, gemCompLatency)
+  stats.recordWithProject(geminiProject, originalChars, estimateChars(compressedContents), savings, gemCompLatency, 'gemini')
   recordRequest(geminiProject, savings.savedChars, savings.compressed, savings.byTool)
 
   const targetUrl = `${GOOGLE_API}/v1beta/models/${modelPath}`
