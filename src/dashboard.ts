@@ -768,8 +768,8 @@ function render(d) {
   document.getElementById('h-reqs').textContent  = fmt(reqs);
   document.getElementById('h-comp').textContent  = fmt(comps);
 
-  // Latency
-  var lp = function(id, v){ document.getElementById(id).textContent = v != null ? v : '—'; };
+  // Latency (elements removed from Overview but kept for potential future use)
+  var lp = function(id, v){ var e = document.getElementById(id); if(e) e.textContent = v != null ? v : '—'; };
   lp('l-50', p50); lp('l-95', p95); lp('l-99', p99);
 
   // Cache
@@ -806,15 +806,13 @@ function render(d) {
   // Settings page — ports come from health endpoint (d.port / d.mitm_port)
   var httpPort = d.port || window.location.port || '8080';
   var mitmPort = d.mitm_port || (parseInt(String(httpPort)) + 1);
-  document.getElementById('cfg-url-val').textContent  = 'http://localhost:' + httpPort;
-  document.getElementById('cfg-oai-val').textContent  = 'http://localhost:' + httpPort + '/v1';
-  document.getElementById('cfg-gem-val').textContent  = 'http://localhost:' + httpPort;
-  document.getElementById('cfg-mitm-val').textContent = 'http://localhost:' + mitmPort;
-  // Store for port inputs
-  if (!document.getElementById('inp-http-port').value)
-    document.getElementById('inp-http-port').value = String(httpPort);
-  if (!document.getElementById('inp-mitm-port').value)
-    document.getElementById('inp-mitm-port').value = String(mitmPort);
+  var setEl = function(id, v){ var e = document.getElementById(id); if(e) e.textContent = v; };
+  setEl('cfg-url-val', 'http://localhost:' + httpPort);
+  setEl('cfg-oai-val', 'http://localhost:' + httpPort + '/v1');
+  setEl('cfg-gem-val', 'http://localhost:' + httpPort);
+  setEl('cfg-mitm-val', 'http://localhost:' + mitmPort);
+  var ih = document.getElementById('inp-http-port'); if(ih && !ih.value) ih.value = String(httpPort);
+  var im = document.getElementById('inp-mitm-port'); if(im && !im.value) im.value = String(mitmPort);
   if (d.version) document.getElementById('cfg-ver').textContent = d.version;
   if (d.uptime_seconds != null) document.getElementById('cfg-uptime').textContent = fmtUptime(d.uptime_seconds);
   document.getElementById('cfg-mode').textContent   = mode;
