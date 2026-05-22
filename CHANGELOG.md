@@ -2,6 +2,16 @@
 
 All notable changes to Squeezr will be documented here.
 
+## [1.29.0] - 2026-05-22
+### Added
+- **Per-model pricing** — Cost Comparison now uses real prices per model (30+ models: Claude Opus/Sonnet/Haiku, GPT-4o/mini, o1/o3/o4-mini, Codex, Gemini 2.5 Pro/Flash, etc.). When model data is available, pricing is model-weighted; otherwise falls back to $3/1M estimate.
+- **`by_model` stats tracking** — Server tracks `originalChars`/`savedChars` per model name extracted from request body (`body.model` for Anthropic/OpenAI, URL path for Gemini).
+- **Overview: By model section** — Shows each model used with price/1M, tokens saved, cost saved, and without/with Squeezr comparison.
+- **Savings tab: By model section** — Same model breakdown visible in Savings tab.
+### Fixed
+- **Rate Limits "Loading…"** — `render()` was crashing with TypeError on removed latency DOM elements (`l-50`, `l-95`, `l-99`) before reaching `renderLimits`. Added null checks.
+- **`renderLimits` using wrong API fields** — Now reads `limits.anthropic.unified` (5h/7d utilization for Claude Code Max) and `limits.openai.session` (Codex plan window), plus actual session token usage.
+
 ## [1.28.0] - 2026-05-22
 ### Added
 - **Token savings by client** — Settings page shows a collapsible breakdown of tokens saved per client protocol: `claude` (Claude Code, Claude Desktop, Aider), `openai` (Codex Desktop, Continue, Cline), `gemini` (Gemini CLI). Each row has a bar chart, saved tokens, savings %, and request count. Tracked server-side in `stats.ts` via new `by_client` map populated from which endpoint handled the request.

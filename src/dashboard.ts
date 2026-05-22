@@ -885,7 +885,9 @@ function renderLimits(lim) {
     el.innerHTML = '<div class="lim-nodata">No limit data yet.</div>';
     return;
   }
-  var rows = [];
+  var claudeRows = [];
+  var openaiRows = [];
+  var rows = claudeRows; // default alias for Claude section
 
   // ── Claude / Anthropic ──────────────────────────────────────────────────
   var a = lim.anthropic;
@@ -930,6 +932,7 @@ function renderLimits(lim) {
   }
 
   // ── OpenAI / Codex ──────────────────────────────────────────────────────
+  rows = openaiRows; // switch alias
   var o = lim.openai;
   if (o) {
     var os = o.session;
@@ -950,11 +953,22 @@ function renderLimits(lim) {
     }
   }
 
-  if (!rows.length) {
+  if (!claudeRows.length && !openaiRows.length) {
     el.innerHTML = '<div class="lim-nodata">No limit data yet — appears after first API call.</div>';
     return;
   }
-  el.innerHTML = '<div class="limits-grid">' + rows.join('') + '</div>';
+
+  var col = function(title, content) {
+    return '<div>' +
+      '<div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;color:var(--text3);margin-bottom:10px">' + title + '</div>' +
+      (content || '<div class="lim-nodata" style="padding:0">No data</div>') +
+    '</div>';
+  };
+
+  el.innerHTML = '<div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">' +
+    col('Claude', claudeRows.length ? '<div class="limits-grid">' + claudeRows.join('') + '</div>' : null) +
+    col('Codex / OpenAI', openaiRows.length ? '<div class="limits-grid">' + openaiRows.join('') + '</div>' : null) +
+  '</div>';
 }
 
 function limRow(name, pct, cls, label) {
