@@ -502,16 +502,16 @@ code{font-family:'Cascadia Code','SF Mono',Consolas,monospace;font-size:.9em}
           <span class="s-val"><code id="cfg-url-val">—</code></span>
         </div>
         <div class="settings-row">
-          <span class="s-key" title="Codex Desktop, Continue, Cline, Cursor">OpenAI-compat <span style="font-size:11px;color:var(--text3)">(Codex)</span></span>
-          <span class="s-val"><code id="cfg-oai-val">—</code><span style="font-size:11px;color:var(--text3);margin-left:6px">same port, /v1</span></span>
+          <span class="s-key" title="Codex Desktop app, Continue, Cline, Cursor — use openai_base_url">Codex Desktop <span style="font-size:11px;color:var(--text3)">/ OpenAI apps</span></span>
+          <span class="s-val"><code id="cfg-oai-val">—</code><span style="font-size:11px;color:var(--text3);margin-left:6px">/v1 · openai_base_url</span></span>
         </div>
         <div class="settings-row">
-          <span class="s-key" title="Gemini CLI">Gemini <span style="font-size:11px;color:var(--text3)">(Gemini CLI)</span></span>
-          <span class="s-val"><code id="cfg-gem-val">—</code><span style="font-size:11px;color:var(--text3);margin-left:6px">same port</span></span>
+          <span class="s-key" title="Gemini CLI — GEMINI_API_BASE_URL">Gemini CLI</span>
+          <span class="s-val"><code id="cfg-gem-val">—</code><span style="font-size:11px;color:var(--text3);margin-left:6px">GEMINI_API_BASE_URL</span></span>
         </div>
         <div class="settings-row">
-          <span class="s-key" title="Codex CLI WebSocket — set per-session only">MITM <span style="font-size:11px;color:var(--text3)">(Codex CLI)</span></span>
-          <span class="s-val"><code id="cfg-mitm-val">—</code><span style="font-size:11px;color:var(--text3);margin-left:6px">TLS intercept</span></span>
+          <span class="s-key" title="Codex CLI (terminal) — WebSocket TLS intercept, set HTTPS_PROXY per session">Codex CLI <span style="font-size:11px;color:var(--text3)">(terminal)</span></span>
+          <span class="s-val"><code id="cfg-mitm-val">—</code><span style="font-size:11px;color:var(--text3);margin-left:6px">HTTPS_PROXY · TLS intercept</span></span>
         </div>
         <div class="settings-row">
           <span class="s-key">Version</span>
