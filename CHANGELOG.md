@@ -2,11 +2,16 @@
 
 All notable changes to Squeezr will be documented here.
 
+## [1.26.0] - 2026-05-22
+### Added
+- **Dashboard Settings: actions panel** — The Settings page now has an Actions section with buttons for Stop Proxy, Update, Check Status, and port info — no terminal needed. Also shows a yellow banner when a newer version is available on npm (checked against `registry.npmjs.org` on page load).
+- **Dashboard: Rate Limits section** — The Overview page now shows rate limit gauges (tokens used / limit, requests used / limit) for Claude and OpenAI when the upstream API reports them via response headers. Gauges are color-coded: green < 70%, yellow 70–90%, red > 90%.
+- **Dashboard redesign** — Complete visual overhaul: new surface/border token system, bolder hero numbers (800 weight), two-column tools+cache grid, cleaner latency pills, consistent brand green accent, dark/light mode via `:root` CSS variables. Removed all "context pressure" and "activity" sections from the old design.
+
 ## [1.25.0] - 2026-05-22
 ### Added
 - **Claude Desktop support** — `squeezr setup` now configures Claude Desktop (the GUI app) so it routes through the proxy automatically. On Windows, `setx ANTHROPIC_BASE_URL` already makes the env var visible to all new processes including GUI apps. On macOS, a `com.squeezr.env` launchd plist is written to `~/Library/LaunchAgents/` and loaded immediately via `launchctl`; this sets `ANTHROPIC_BASE_URL`, `GEMINI_API_BASE_URL`, and `NODE_EXTRA_CA_CERTS` for the entire GUI session and persists across reboots. On Linux, env vars are written to `~/.config/environment.d/squeezr.conf` (read by `systemd --user`, effective on next login).
 - **Codex Desktop support** — `squeezr setup` now writes `openai_base_url = "http://localhost:<port>/v1"` to `~/.codex/config.toml` (creating the file if it doesn't exist, updating the key if it does). On WSL, also writes to the Windows-side `%USERPROFILE%\.codex\config.toml` so Codex Desktop on Windows is configured. Codex Desktop reads this file natively — no MITM proxy or env var tricks needed.
-- **Dashboard refactor** — Rebuilt the web dashboard with only two pages (Home and Settings), dark/light mode toggle (persisted in localStorage), and the Squeezr logo/design system. Removed the non-functional History, Projects, and Limits pages.
 - **MCP: Claude Desktop auto-registration** — `squeezr setup` and `squeezr mcp install` now register the MCP server in `claude_desktop_config.json` automatically (Windows: `%APPDATA%\Claude\`, macOS: `~/Library/Application Support/Claude/`, Linux: `~/.config/Claude/`). No manual config editing needed.
 - **MCP tool `squeezr_open_dashboard`** — New tool that opens the Squeezr web dashboard in the system browser. Works from Claude Desktop, Claude Code, Codex Desktop, Cursor, or any MCP client. The user can say "open squeezr dashboard" and the browser opens automatically.
 
