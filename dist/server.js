@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
 import { Hono } from 'hono';
@@ -145,6 +145,41 @@ app.use('*', async (c, next) => {
     c.res.headers.set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
     c.res.headers.set('Access-Control-Allow-Headers', '*');
 });
+// ── Client detection from User-Agent ─────────────────────────────────────────
+function detectAnthropicClient(ua) {
+    const u = ua.toLowerCase();
+    if (u.includes('claude-code') || u.includes('claude_code'))
+        return 'claude_code';
+    if (u.includes('claude-desktop') || u.includes('claude desktop') || u.includes('electron'))
+        return 'claude_desktop';
+    if (u.includes('aider'))
+        return 'aider';
+    if (u.includes('opencode') || u.includes('open-code'))
+        return 'opencode';
+    if (u.includes('cursor'))
+        return 'cursor';
+    if (u.includes('cline') || u.includes('roo'))
+        return 'cline';
+    if (u.includes('windsurf'))
+        return 'windsurf';
+    return 'claude_code'; // default: most likely Claude Code if using /v1/messages
+}
+function detectOpenAIClient(ua) {
+    const u = ua.toLowerCase();
+    if (u.includes('codex'))
+        return 'codex_desktop';
+    if (u.includes('cursor'))
+        return 'cursor';
+    if (u.includes('continue'))
+        return 'continue';
+    if (u.includes('cline') || u.includes('roo'))
+        return 'cline';
+    if (u.includes('windsurf'))
+        return 'windsurf';
+    if (u.includes('aider'))
+        return 'aider';
+    return 'openai_other';
+}
 // ── Anthropic / Claude Code ───────────────────────────────────────────────────
 app.post('/v1/messages', async (c) => {
     const body = await c.req.json();
@@ -154,19 +189,41 @@ app.post('/v1/messages', async (c) => {
         ?? c.req.header('authorization')?.replace(/^bearer\s+/i, '').trim()
         ?? process.env.ANTHROPIC_API_KEY
         ?? '';
+    const clientId = detectAnthropicClient(c.req.header('user-agent') ?? '');
+    const modelId = String(body.model ?? 'unknown');
     // Extract project name BEFORE compressing system prompt (compression destroys <cwd> tags)
     const project = extractProjectName(body);
     const messages = (body.messages ?? []);
     const originalChars = estimateChars(messages);
+    // Dry-run mode: exercises the compression pipeline but does NOT forward to
+    // upstream. Used by the post-start self-test to verify the request path is
+    // wired correctly without consuming any API quota.
+    if (c.req.header('x-squeezr-dryrun') === '1') {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const [dryMessages, savings] = await compressAnthropicMessages(messages, apiKey, config);
+        const compressedChars = estimateChars(dryMessages);
+        return c.json({
+            identity: 'squeezr',
+            dry_run: true,
+            original_chars: originalChars,
+            compressed_chars: compressedChars,
+            saved_chars: Math.max(0, originalChars - compressedChars),
+            savings,
+        });
+    }
     // Bypass mode: skip all compression, still record request stats
     if (isBypassed()) {
-        stats.recordWithProject(project, originalChars, originalChars, emptySavings());
+        stats.recordWithProject(project, originalChars, originalChars, emptySavings(), undefined, clientId, modelId);
         recordRequest(project, 0, 0, []);
         storeKey('anthropic', apiKey);
         const fwdHeaders = forwardHeaders(c.req.raw.headers);
         if (body.stream) {
             const upstream = await proxyStream(`${ANTHROPIC_API}/v1/messages`, body, fwdHeaders);
             updateAnthropicFromHeaders(upstream.headers);
+            for (const [k, v] of upstream.headers.entries()) {
+                if (!SKIP_RESP_HEADERS.has(k.toLowerCase()))
+                    c.header(k, v);
+            }
             return stream(c, async (s) => {
                 const reader = upstream.body.getReader();
                 const decoder = new TextDecoder();
@@ -222,14 +279,22 @@ app.post('/v1/messages', async (c) => {
     body.messages = compressedMsgs;
     // Inject expand tool
     injectExpandToolAnthropic(body);
-    stats.recordWithProject(project, originalChars, estimateChars(compressedMsgs), savings, compLatency);
-    recordRequest(project, savings.savedChars, savings.compressed, savings.byTool);
+    const _claudeCompChars = estimateChars(compressedMsgs);
+    stats.recordWithProject(project, originalChars, _claudeCompChars, savings, compLatency, clientId, modelId);
+    // Record TOTAL saved (originalChars - compressedChars), not just AI savings
+    recordRequest(project, Math.max(0, originalChars - _claudeCompChars), savings.compressed, savings.byTool);
     storeKey('anthropic', apiKey);
     const fwdHeaders = forwardHeaders(c.req.raw.headers);
     if (body.stream) {
         const upstream = await proxyStream(`${ANTHROPIC_API}/v1/messages`, body, fwdHeaders);
         // Extract rate limit headers immediately (available before body starts)
         updateAnthropicFromHeaders(upstream.headers);
+        // Forward anthropic-ratelimit-* (and other response) headers so Claude Code
+        // can populate rate_limits in the statusline JSON (issue #4).
+        for (const [k, v] of upstream.headers.entries()) {
+            if (!SKIP_RESP_HEADERS.has(k.toLowerCase()))
+                c.header(k, v);
+        }
         return stream(c, async (s) => {
             const reader = upstream.body.getReader();
             const decoder = new TextDecoder();
@@ -274,8 +339,14 @@ app.post('/v1/messages', async (c) => {
             headers: { ...fwdHeaders, 'content-type': 'application/json' },
             body: JSON.stringify(body),
         });
+        updateAnthropicFromHeaders(continuedResp.headers);
         const continuedBody = await continuedResp.json();
-        return c.json(continuedBody, continuedResp.status);
+        const continuedHeaders = {};
+        for (const [k, v] of continuedResp.headers.entries()) {
+            if (!SKIP_RESP_HEADERS.has(k.toLowerCase()))
+                continuedHeaders[k] = v;
+        }
+        return c.json(continuedBody, continuedResp.status, continuedHeaders);
     }
     const respHeaders = {};
     for (const [k, v] of resp.headers.entries()) {
@@ -290,13 +361,15 @@ app.post('/v1/chat/completions', async (c) => {
     const openAIKey = extractOpenAIKey(c.req.raw.headers);
     const isLocal = config.isLocalKey(openAIKey);
     const upstream = isLocal ? `${config.localUpstreamUrl.replace(/\/$/, '')}/v1/chat/completions` : `${OPENAI_API}/v1/chat/completions`;
+    const oaiClientId = detectOpenAIClient(c.req.header('user-agent') ?? '');
+    const oaiModelId = String(body.model ?? 'unknown');
     // Extract project name BEFORE compressing system prompt
     const oaiProject = extractProjectName(body);
     const messages = (body.messages ?? []);
     const originalChars = estimateChars(messages);
     // Bypass mode: skip all compression, still record request stats
     if (isBypassed()) {
-        stats.recordWithProject(oaiProject, originalChars, originalChars, emptySavings());
+        stats.recordWithProject(oaiProject, originalChars, originalChars, emptySavings(), undefined, oaiClientId, oaiModelId);
         recordRequest(oaiProject, 0, 0, []);
         if (!isLocal)
             storeKey('openai', openAIKey);
@@ -349,8 +422,9 @@ app.post('/v1/chat/completions', async (c) => {
     body.messages = compressedMsgs;
     if (!isLocal)
         injectExpandToolOpenAI(body);
-    stats.recordWithProject(oaiProject, originalChars, estimateChars(compressedMsgs), savings, oaiCompLatency);
-    recordRequest(oaiProject, savings.savedChars, savings.compressed, savings.byTool);
+    const _oaiCompChars = estimateChars(compressedMsgs);
+    stats.recordWithProject(oaiProject, originalChars, _oaiCompChars, savings, oaiCompLatency, oaiClientId, oaiModelId);
+    recordRequest(oaiProject, Math.max(0, originalChars - _oaiCompChars), savings.compressed, savings.byTool);
     if (!isLocal)
         storeKey('openai', openAIKey);
     const fwdHeaders = forwardHeaders(c.req.raw.headers);
@@ -425,9 +499,11 @@ app.post('/v1beta/models/*', async (c) => {
     const contents = (body.contents ?? []);
     const originalChars = estimateChars(contents);
     const geminiProject = extractProjectName(body);
+    // Gemini model is in the URL path: /v1beta/models/gemini-2.5-pro:generateContent
+    const geminiModelId = modelPath.split(':')[0] || 'gemini';
     // Bypass mode: skip all compression, still record request stats
     if (isBypassed()) {
-        stats.recordWithProject(geminiProject, originalChars, originalChars, emptySavings());
+        stats.recordWithProject(geminiProject, originalChars, originalChars, emptySavings(), undefined, 'gemini', geminiModelId);
         recordRequest(geminiProject, 0, 0, []);
         const targetUrl = `${GOOGLE_API}/v1beta/models/${modelPath}`;
         const fwdHeaders = forwardHeaders(c.req.raw.headers);
@@ -449,8 +525,9 @@ app.post('/v1beta/models/*', async (c) => {
     const [compressedContents, savings] = await compressGeminiContents(contents, googleKey, config);
     const gemCompLatency = { totalMs: Date.now() - gemCompT0, detMs: savings.detMs, aiMs: savings.aiMs };
     body.contents = compressedContents;
-    stats.recordWithProject(geminiProject, originalChars, estimateChars(compressedContents), savings, gemCompLatency);
-    recordRequest(geminiProject, savings.savedChars, savings.compressed, savings.byTool);
+    const _gemCompChars = estimateChars(compressedContents);
+    stats.recordWithProject(geminiProject, originalChars, _gemCompChars, savings, gemCompLatency, 'gemini', geminiModelId);
+    recordRequest(geminiProject, Math.max(0, originalChars - _gemCompChars), savings.compressed, savings.byTool);
     const targetUrl = `${GOOGLE_API}/v1beta/models/${modelPath}`;
     const fwdHeaders = forwardHeaders(c.req.raw.headers);
     const params = url.searchParams;
@@ -526,10 +603,42 @@ async function buildStatsPayload() {
 app.get('/squeezr/stats', (c) => {
     return buildStatsPayload().then(d => c.json(d));
 });
+// ── POST /squeezr/ports — write port config to squeezr.toml ─────────────────
+app.post('/squeezr/ports', async (c) => {
+    const body = await c.req.json();
+    const { port: newPort, mitm_port: newMitm } = body;
+    if (!newPort || !newMitm || newPort < 1024 || newMitm < 1024 || newPort === newMitm) {
+        return c.text('Invalid ports', 400);
+    }
+    try {
+        // Find squeezr.toml — same logic as config.ts
+        const globalPath = join(__dirname, '..', '..', 'squeezr.toml');
+        const tomlPath = existsSync(globalPath) ? globalPath : join(process.cwd(), 'squeezr.toml');
+        let content = existsSync(tomlPath) ? readFileSync(tomlPath, 'utf-8') : '[proxy]\n';
+        // Update or insert [proxy] port and mitm_port
+        const updateKey = (src, key, val) => {
+            const re = new RegExp(`^(\\s*${key}\\s*=\\s*)\\d+`, 'm');
+            return re.test(src) ? src.replace(re, `$1${val}`) : src.replace(/(\[proxy\][^\[]*)/s, `$1${key} = ${val}\n`);
+        };
+        if (!content.includes('[proxy]'))
+            content = '[proxy]\n' + content;
+        content = updateKey(content, 'port', newPort);
+        content = updateKey(content, 'mitm_port', newMitm);
+        writeFileSync(tomlPath, content, 'utf-8');
+        return c.json({ ok: true, port: newPort, mitm_port: newMitm, toml: tomlPath });
+    }
+    catch (err) {
+        return c.text('Failed to write squeezr.toml: ' + err.message, 500);
+    }
+});
 app.get('/squeezr/health', (c) => {
     const cb = circuitBreaker.snapshot();
     const s = stats.summary();
     return c.json({
+        // Magic identifier so callers can distinguish a real squeezr instance from
+        // any other HTTP service that happens to answer 200 on this port (e.g. a
+        // Docker container occupying the configured port).
+        identity: 'squeezr',
         status: 'ok',
         version: VERSION,
         uptime_seconds: s.uptime_seconds,
@@ -551,7 +660,27 @@ app.get('/squeezr/health', (c) => {
             requests: s.requests,
             savings_pct: s.savings_pct,
         },
+        port: config.port,
+        mitm_port: config.mitmPort,
     });
+});
+// ── Self-test endpoint ─────────────────────────────────────────────────────
+// Last self-test results are populated by src/selfTest.ts at startup and on
+// demand via GET /squeezr/selftest?run=1.
+let lastSelfTest = null;
+export function setLastSelfTest(result) {
+    lastSelfTest = result;
+}
+app.get('/squeezr/selftest', async (c) => {
+    if (c.req.query('run') === '1') {
+        const { runSelfTest } = await import('./selfTest.js');
+        const result = await runSelfTest({ port: Number(c.req.query('port')) || 0 });
+        return c.json(result);
+    }
+    if (!lastSelfTest) {
+        return c.json({ status: 'not_run', message: 'Self-test has not been executed yet. Call ?run=1 to execute.' });
+    }
+    return c.json(lastSelfTest);
 });
 // ── Project management ─────────────────────────────────────────────────────
 app.get('/squeezr/project', (c) => {

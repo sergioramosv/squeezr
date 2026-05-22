@@ -2,6 +2,14 @@
 
 All notable changes to Squeezr will be documented here.
 
+## [1.30.0] - 2026-05-22
+### Fixed
+- **History sessions had `savedTokens: 0`** — `recordRequest` in `history.ts` was being passed `savings.savedChars` which only counts AI-compression savings, missing deterministic + system prompt + dedup savings (which are the majority). Now passes `originalChars - compressedChars` (total saved) so the Savings tab shows real numbers for past sessions.
+- **Dashboard JS crashed silently (everything `—`, buttons dead)** — `'Cascadia Code'` inside a single-quoted JS string broke the parser when the HTML was served (escaped backslashes vanish). Replaced with `monospace`.
+### Changed
+- **Cost Comparison label** — Removed hardcoded "est. at $3/1M tokens". Now shows dynamic note: `per-model pricing` when model data is available, fallback note otherwise.
+- **Rate Limits 2-column layout** — Claude left, Codex / OpenAI right. Previously cramped horizontally at default widths.
+
 ## [1.29.0] - 2026-05-22
 ### Added
 - **Per-model pricing** — Cost Comparison now uses real prices per model (30+ models: Claude Opus/Sonnet/Haiku, GPT-4o/mini, o1/o3/o4-mini, Codex, Gemini 2.5 Pro/Flash, etc.). When model data is available, pricing is model-weighted; otherwise falls back to $3/1M estimate.

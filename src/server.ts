@@ -314,8 +314,10 @@ app.post('/v1/messages', async (c) => {
 
   // Inject expand tool
   injectExpandToolAnthropic(body)
-  stats.recordWithProject(project, originalChars, estimateChars(compressedMsgs), savings, compLatency, clientId, modelId)
-  recordRequest(project, savings.savedChars, savings.compressed, savings.byTool)
+  const _claudeCompChars = estimateChars(compressedMsgs)
+  stats.recordWithProject(project, originalChars, _claudeCompChars, savings, compLatency, clientId, modelId)
+  // Record TOTAL saved (originalChars - compressedChars), not just AI savings
+  recordRequest(project, Math.max(0, originalChars - _claudeCompChars), savings.compressed, savings.byTool)
 
   storeKey('anthropic', apiKey)
   const fwdHeaders = forwardHeaders(c.req.raw.headers)
@@ -465,8 +467,9 @@ app.post('/v1/chat/completions', async (c) => {
   body.messages = compressedMsgs
 
   if (!isLocal) injectExpandToolOpenAI(body)
-  stats.recordWithProject(oaiProject, originalChars, estimateChars(compressedMsgs), savings, oaiCompLatency, oaiClientId, oaiModelId)
-  recordRequest(oaiProject, savings.savedChars, savings.compressed, savings.byTool)
+  const _oaiCompChars = estimateChars(compressedMsgs)
+  stats.recordWithProject(oaiProject, originalChars, _oaiCompChars, savings, oaiCompLatency, oaiClientId, oaiModelId)
+  recordRequest(oaiProject, Math.max(0, originalChars - _oaiCompChars), savings.compressed, savings.byTool)
 
   if (!isLocal) storeKey('openai', openAIKey)
   const fwdHeaders = forwardHeaders(c.req.raw.headers)
@@ -578,8 +581,9 @@ app.post('/v1beta/models/*', async (c) => {
   const gemCompLatency: LatencyInfo = { totalMs: Date.now() - gemCompT0, detMs: savings.detMs, aiMs: savings.aiMs }
   body.contents = compressedContents
 
-  stats.recordWithProject(geminiProject, originalChars, estimateChars(compressedContents), savings, gemCompLatency, 'gemini', geminiModelId)
-  recordRequest(geminiProject, savings.savedChars, savings.compressed, savings.byTool)
+  const _gemCompChars = estimateChars(compressedContents)
+  stats.recordWithProject(geminiProject, originalChars, _gemCompChars, savings, gemCompLatency, 'gemini', geminiModelId)
+  recordRequest(geminiProject, Math.max(0, originalChars - _gemCompChars), savings.compressed, savings.byTool)
 
   const targetUrl = `${GOOGLE_API}/v1beta/models/${modelPath}`
   const fwdHeaders = forwardHeaders(c.req.raw.headers)
