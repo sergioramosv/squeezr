@@ -4,9 +4,12 @@ All notable changes to Squeezr will be documented here.
 
 ## [1.26.0] - 2026-05-22
 ### Added
+- **Dashboard: top navbar with tabs** — Replaced the sidebar with a horizontal top navbar (logo + version left, two tabs center, connection dot + theme toggle right). Cleaner layout since there are only 2 pages.
 - **Dashboard Settings: actions panel** — The Settings page now has an Actions section with buttons for Stop Proxy, Update, Check Status, and port info — no terminal needed. Also shows a yellow banner when a newer version is available on npm (checked against `registry.npmjs.org` on page load).
 - **Dashboard: Rate Limits section** — The Overview page now shows rate limit gauges (tokens used / limit, requests used / limit) for Claude and OpenAI when the upstream API reports them via response headers. Gauges are color-coded: green < 70%, yellow 70–90%, red > 90%.
 - **Dashboard redesign** — Complete visual overhaul: new surface/border token system, bolder hero numbers (800 weight), two-column tools+cache grid, cleaner latency pills, consistent brand green accent, dark/light mode via `:root` CSS variables. Removed all "context pressure" and "activity" sections from the old design.
+### Fixed
+- **Dashboard: wrong API field names** — The render function was reading `tokens_saved`, `compression_ratio`, `total_requests`, `latency_p50`, `cache_hits` etc. but the proxy API returns `total_saved_tokens`, `savings_pct`, `requests`, `latency.total.p50`, `cache.hits`. Dashboard now normalizes all field names correctly so stats display instead of showing `—`.
 
 ## [1.25.0] - 2026-05-22
 ### Added

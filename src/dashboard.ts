@@ -604,7 +604,8 @@ function fmt(n) {
   return String(Math.round(n));
 }
 function fmtUsd(n) {
-  if (n == null || isNaN(n)) return '—';
+  if (n == null || isNaN(n) || n === 0) return '—';
+  if (n < 0.01) return '<$0.01';
   return '$' + Number(n).toFixed(2);
 }
 function fmtRatio(r) {
@@ -628,39 +629,63 @@ function render(d) {
   if (!d) return;
   lastStats = d;
 
+  // ── Normalize field names (API uses snake_case with various naming conventions) ──
+  // tokens
+  var tokensSaved = d.total_saved_tokens || d.tokens_saved || 0;
+  var tokensIn    = d.tokens_in || Math.round((d.total_original_chars || 0) / 4); // chars→tokens estimate
+  // ratio: API gives savings_pct (0-100), or compression_ratio (0-1)
+  var ratioPct    = d.savings_pct != null ? d.savings_pct
+                  : d.compression_ratio != null ? Math.round((1 - d.compression_ratio) * 100)
+                  : null;
+  // cost estimate: if not provided, estimate from saved tokens at ~$3/1M tokens
+  var costUsd     = d.cost_saved_usd != null ? d.cost_saved_usd
+                  : tokensSaved > 0 ? tokensSaved * 0.000003 : null;
+  // requests
+  var reqs        = d.requests != null ? d.requests : (d.total_requests || 0);
+  var comps       = d.compressions != null ? d.compressions : (d.compressed || 0);
+  // latency: nested object { total: { p50, p95, p99 } } or flat
+  var lat         = (d.latency && d.latency.total) ? d.latency.total : d.latency || {};
+  var p50         = lat.p50 != null ? lat.p50 : d.latency_p50;
+  var p95         = lat.p95 != null ? lat.p95 : d.latency_p95;
+  var p99         = lat.p99 != null ? lat.p99 : d.latency_p99;
+  // cache: nested { hits, misses } or flat
+  var cacheHits   = (d.cache && d.cache.hits != null) ? d.cache.hits : (d.cache_hits || 0);
+  var cacheMiss   = (d.cache && d.cache.misses != null) ? d.cache.misses : (d.cache_miss || 0);
+  // bypass
+  var byp         = !!(d.bypassed || d.bypass);
+  var mode        = d.mode || 'normal';
+
   // Sidebar version
   if (d.version) document.getElementById('sb-ver').textContent = 'v' + d.version;
 
-  // Hero
-  document.getElementById('h-saved').textContent  = fmt(d.tokens_saved);
-  document.getElementById('h-in').textContent     = fmt(d.tokens_in);
-  document.getElementById('h-ratio').textContent  = fmtRatio(d.compression_ratio);
-  document.getElementById('h-cost').textContent   = fmtUsd(d.cost_saved_usd);
-  document.getElementById('h-reqs').textContent   = fmt(d.total_requests);
-  document.getElementById('h-comp').textContent   = fmt(d.compressed);
+  // Hero cards
+  document.getElementById('h-saved').textContent = fmt(tokensSaved);
+  document.getElementById('h-in').textContent    = fmt(tokensIn);
+  document.getElementById('h-ratio').textContent = ratioPct != null ? Math.round(ratioPct) + '%' : '—';
+  document.getElementById('h-cost').textContent  = fmtUsd(costUsd);
+  document.getElementById('h-reqs').textContent  = fmt(reqs);
+  document.getElementById('h-comp').textContent  = fmt(comps);
 
   // Latency
   var lp = function(id, v){ document.getElementById(id).textContent = v != null ? v : '—'; };
-  lp('l-50', d.latency_p50); lp('l-95', d.latency_p95); lp('l-99', d.latency_p99);
+  lp('l-50', p50); lp('l-95', p95); lp('l-99', p99);
 
   // Cache
-  var hits = d.cache_hits || 0, miss = d.cache_miss || 0, tot = hits + miss;
-  document.getElementById('c-hits').textContent = fmt(hits);
-  document.getElementById('c-miss').textContent = fmt(miss);
-  document.getElementById('c-rate').textContent = tot > 0 ? Math.round(hits/tot*100) + '%' : '—';
+  var tot = cacheHits + cacheMiss;
+  document.getElementById('c-hits').textContent = fmt(cacheHits);
+  document.getElementById('c-miss').textContent = fmt(cacheMiss);
+  document.getElementById('c-rate').textContent = tot > 0 ? Math.round(cacheHits/tot*100) + '%' : '—';
 
   // Tools
-  renderTools(d.tools || d.by_tool);
+  renderTools(d.by_tool || d.tools);
 
   // Limits
   renderLimits(d.limits);
 
   // Mode & bypass
-  var mode = d.mode || 'normal';
-  var byp  = !!(d.bypass || d.bypassed);
   updateMode(mode, byp);
 
-  // Settings
+  // Settings page
   var port = window.location.port || '8080';
   document.getElementById('cfg-url-val').textContent = 'http://localhost:' + port;
   if (d.version) document.getElementById('cfg-ver').textContent = d.version;
