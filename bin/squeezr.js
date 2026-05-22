@@ -470,10 +470,22 @@ async function mcpInstall() {
     args: [mcpServerPath],
   }
 
+  // Claude Desktop config path varies by platform
+  const claudeDesktopConfig = process.platform === 'win32'
+    ? path.join(process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming'), 'Claude', 'claude_desktop_config.json')
+    : process.platform === 'darwin'
+      ? path.join(os.homedir(), 'Library', 'Application Support', 'Claude', 'claude_desktop_config.json')
+      : path.join(os.homedir(), '.config', 'Claude', 'claude_desktop_config.json')
+
   const targets = [
     {
       name: 'Claude Code',
       file: path.join(os.homedir(), '.claude.json'),
+      key: 'mcpServers',
+    },
+    {
+      name: 'Claude Desktop',
+      file: claudeDesktopConfig,
       key: 'mcpServers',
     },
     {
@@ -523,17 +535,24 @@ async function mcpInstall() {
   console.log('MCP server registered in ' + installed + ' client(s).')
   console.log('Server binary: ' + mcpServerPath)
   console.log('')
-  console.log('Available tools in Claude/Codex/Cursor:')
-  console.log('  squeezr_status   — Check if Squeezr is running')
-  console.log('  squeezr_stats    — Real-time token savings')
-  console.log('  squeezr_set_mode — Change compression aggressiveness')
-  console.log('  squeezr_config   — Current configuration')
-  console.log('  squeezr_habits   — Wasteful pattern report')
+  console.log('Available tools in Claude Desktop, Claude Code, Codex Desktop, Cursor…:')
+  console.log('  squeezr_status         — Check if Squeezr is running')
+  console.log('  squeezr_stats          — Real-time token savings')
+  console.log('  squeezr_set_mode       — Change compression aggressiveness')
+  console.log('  squeezr_config         — Current configuration')
+  console.log('  squeezr_habits         — Wasteful pattern report')
+  console.log('  squeezr_open_dashboard — Open the Squeezr dashboard in your browser')
 }
 
 async function mcpUninstall() {
+  const claudeDesktopConfig = process.platform === 'win32'
+    ? path.join(process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming'), 'Claude', 'claude_desktop_config.json')
+    : process.platform === 'darwin'
+      ? path.join(os.homedir(), 'Library', 'Application Support', 'Claude', 'claude_desktop_config.json')
+      : path.join(os.homedir(), '.config', 'Claude', 'claude_desktop_config.json')
   const files = [
     path.join(os.homedir(), '.claude.json'),
+    claudeDesktopConfig,
     path.join(os.homedir(), '.cursor', 'mcp.json'),
     path.join(os.homedir(), '.codeium', 'windsurf', 'mcp_config.json'),
     path.join(os.homedir(), '.vscode', 'extensions', 'mcp_settings.json'),
@@ -846,7 +865,7 @@ function configureCodexDesktop(port) {
 
 // ── squeezr setup ─────────────────────────────────────────────────────────────
 
-function setupWindows() {
+async function setupWindows() {
   const squeezrBin = process.argv[1]
   const nodeExe = process.execPath
   const distIndex = path.join(ROOT, 'dist', 'index.js')
@@ -882,6 +901,9 @@ function setupWindows() {
   // On Windows, ANTHROPIC_BASE_URL from setx is already visible to all GUI apps
   // (including Claude Desktop) since user-level env vars propagate to new processes.
   configureCodexDesktop(port)
+
+  // 1c. Register MCP server in Claude Desktop + Codex Desktop automatically
+  await mcpInstall()
 
   // 1c. Install PowerShell wrapper so env vars auto-refresh after start/setup/update
   installShellWrapper()
@@ -1037,7 +1059,7 @@ Done!
     }
 }
 
-function setupUnix() {
+async function setupUnix() {
   const squeezrBin = process.argv[1]
   const nodeExe = process.execPath
   const platform = process.platform
@@ -1124,6 +1146,9 @@ function setupUnix() {
   // 2. Configure Codex Desktop + Claude Desktop
   // Codex Desktop reads ~/.codex/config.toml (openai_base_url key).
   configureCodexDesktop(port)
+
+  // Register MCP server in Claude Desktop and Codex Desktop automatically
+  await mcpInstall()
 
   // Claude Desktop (GUI app) does not read shell env vars.
   // macOS: inject via a launchd env-setter plist (persists across reboots).
@@ -1277,7 +1302,7 @@ function isWSL() {
 
 // ── squeezr setup — WSL2 ────────────────────────────────────────────────────
 
-function setupWSL() {
+async function setupWSL() {
   const nodeExe = process.execPath
   const distIndex = path.join(ROOT, 'dist', 'index.js')
 
@@ -1373,9 +1398,12 @@ function setupWSL() {
     console.log('  [skip] setx.exe not found — Windows env vars not set')
   }
 
-  // 3. Configure Codex Desktop
+  // 3. Configure Codex Desktop + MCP
   //    WSL-side ~/.codex/config.toml (for Codex Desktop running in WSL)
   configureCodexDesktop(port)
+
+  // Register MCP server in Claude Desktop and Codex Desktop automatically
+  await mcpInstall()
   //    Windows-side %USERPROFILE%\.codex\config.toml (for Codex Desktop on Windows)
   try {
     const winHome = execSync('cmd.exe /c echo %USERPROFILE%', { stdio: 'pipe' }).toString().trim().replace(/\r/g, '')

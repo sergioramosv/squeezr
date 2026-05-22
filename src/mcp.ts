@@ -241,6 +241,14 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         required: ['project'],
       },
     },
+    {
+      name: 'squeezr_open_dashboard',
+      description:
+        'Open the Squeezr web dashboard in the system browser. ' +
+        'The dashboard shows real-time token savings, compression stats, and settings. ' +
+        'Use this when you want a visual overview of Squeezr\'s activity.',
+      inputSchema: { type: 'object', properties: {}, required: [] },
+    },
   ],
 }))
 
@@ -702,6 +710,36 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
           : `✅ Project cleared. Auto-detection active (current: ${name_}).`,
       }],
     }
+  }
+
+  // ── squeezr_open_dashboard ───────────────────────────────────────────────────
+  if (name === 'squeezr_open_dashboard') {
+    const url = `${BASE_URL}/squeezr/dashboard`
+
+    // Open the dashboard in the system default browser
+    const { spawn } = await import('node:child_process')
+    const opener =
+      process.platform === 'win32' ? ['cmd', ['/c', 'start', url]] :
+      process.platform === 'darwin' ? ['open', [url]] :
+      ['xdg-open', [url]]
+    spawn(opener[0] as string, opener[1] as string[], { detached: true, stdio: 'ignore' }).unref()
+
+    return appendUpdate({
+      content: [{
+        type: 'text',
+        text: [
+          `✅ Opening Squeezr dashboard in your browser`,
+          `   ${url}`,
+          '',
+          'The dashboard shows:',
+          '  • Real-time token savings and compression ratio',
+          '  • Per-tool breakdown (Bash, Read, Grep…)',
+          '  • Latency stats (p50 / p95 / p99)',
+          '  • Compression mode controls',
+          '  • Settings and proxy configuration',
+        ].join('\n'),
+      }],
+    })
   }
 
   return {
