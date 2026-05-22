@@ -472,10 +472,22 @@ code{font-family:'Cascadia Code','SF Mono',Consolas,monospace;font-size:.9em}
 
 
       <div class="settings-block">
-        <div class="settings-head">Proxy</div>
+        <div class="settings-head">Proxy endpoints</div>
         <div class="settings-row">
-          <span class="s-key">ANTHROPIC_BASE_URL</span>
-          <span class="s-val" id="cfg-url"><code id="cfg-url-val">—</code></span>
+          <span class="s-key" title="Claude Code, Claude Desktop, Aider, OpenCode">Anthropic <span style="font-size:11px;color:var(--text3)">(Claude)</span></span>
+          <span class="s-val"><code id="cfg-url-val">—</code></span>
+        </div>
+        <div class="settings-row">
+          <span class="s-key" title="Codex Desktop, Continue, Cline, Cursor">OpenAI-compat <span style="font-size:11px;color:var(--text3)">(Codex)</span></span>
+          <span class="s-val"><code id="cfg-oai-val">—</code><span style="font-size:11px;color:var(--text3);margin-left:6px">same port, /v1</span></span>
+        </div>
+        <div class="settings-row">
+          <span class="s-key" title="Gemini CLI">Gemini <span style="font-size:11px;color:var(--text3)">(Gemini CLI)</span></span>
+          <span class="s-val"><code id="cfg-gem-val">—</code><span style="font-size:11px;color:var(--text3);margin-left:6px">same port</span></span>
+        </div>
+        <div class="settings-row">
+          <span class="s-key" title="Codex CLI WebSocket — set per-session only">MITM <span style="font-size:11px;color:var(--text3)">(Codex CLI)</span></span>
+          <span class="s-val"><code id="cfg-mitm-val">—</code><span style="font-size:11px;color:var(--text3);margin-left:6px">TLS intercept</span></span>
         </div>
         <div class="settings-row">
           <span class="s-key">Version</span>
@@ -687,7 +699,11 @@ function render(d) {
 
   // Settings page
   var port = window.location.port || '8080';
-  document.getElementById('cfg-url-val').textContent = 'http://localhost:' + port;
+  var mitmPort = d.mitm_port || (parseInt(port) + 1);
+  document.getElementById('cfg-url-val').textContent  = 'http://localhost:' + port;
+  document.getElementById('cfg-oai-val').textContent  = 'http://localhost:' + port + '/v1';
+  document.getElementById('cfg-gem-val').textContent  = 'http://localhost:' + port;
+  document.getElementById('cfg-mitm-val').textContent = 'http://localhost:' + mitmPort;
   if (d.version) document.getElementById('cfg-ver').textContent = d.version;
   if (d.uptime_seconds != null) document.getElementById('cfg-uptime').textContent = fmtUptime(d.uptime_seconds);
   document.getElementById('cfg-mode').textContent   = mode;
