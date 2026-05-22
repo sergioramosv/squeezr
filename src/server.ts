@@ -185,6 +185,30 @@ app.use('*', async (c, next) => {
   c.res.headers.set('Access-Control-Allow-Headers', '*')
 })
 
+// ── Client detection from User-Agent ─────────────────────────────────────────
+function detectAnthropicClient(ua: string): string {
+  const u = ua.toLowerCase()
+  if (u.includes('claude-code') || u.includes('claude_code')) return 'claude_code'
+  if (u.includes('claude-desktop') || u.includes('claude desktop') || u.includes('electron')) return 'claude_desktop'
+  if (u.includes('aider')) return 'aider'
+  if (u.includes('opencode') || u.includes('open-code')) return 'opencode'
+  if (u.includes('cursor')) return 'cursor'
+  if (u.includes('cline') || u.includes('roo')) return 'cline'
+  if (u.includes('windsurf')) return 'windsurf'
+  return 'claude_code' // default: most likely Claude Code if using /v1/messages
+}
+
+function detectOpenAIClient(ua: string): string {
+  const u = ua.toLowerCase()
+  if (u.includes('codex')) return 'codex_desktop'
+  if (u.includes('cursor')) return 'cursor'
+  if (u.includes('continue')) return 'continue'
+  if (u.includes('cline') || u.includes('roo')) return 'cline'
+  if (u.includes('windsurf')) return 'windsurf'
+  if (u.includes('aider')) return 'aider'
+  return 'openai_other'
+}
+
 // ── Anthropic / Claude Code ───────────────────────────────────────────────────
 
 app.post('/v1/messages', async (c) => {
@@ -195,6 +219,8 @@ app.post('/v1/messages', async (c) => {
     ?? c.req.header('authorization')?.replace(/^bearer\s+/i, '').trim()
     ?? process.env.ANTHROPIC_API_KEY
     ?? ''
+
+  const clientId = detectAnthropicClient(c.req.header('user-agent') ?? '')
 
   // Extract project name BEFORE compressing system prompt (compression destroys <cwd> tags)
   const project = extractProjectName(body)
@@ -221,7 +247,7 @@ app.post('/v1/messages', async (c) => {
 
   // Bypass mode: skip all compression, still record request stats
   if (isBypassed()) {
-    stats.recordWithProject(project, originalChars, originalChars, emptySavings(), undefined, 'claude')
+    stats.recordWithProject(project, originalChars, originalChars, emptySavings(), undefined, clientId)
     recordRequest(project, 0, 0, [])
     storeKey('anthropic', apiKey)
     const fwdHeaders = forwardHeaders(c.req.raw.headers)
@@ -287,7 +313,7 @@ app.post('/v1/messages', async (c) => {
 
   // Inject expand tool
   injectExpandToolAnthropic(body)
-  stats.recordWithProject(project, originalChars, estimateChars(compressedMsgs), savings, compLatency, 'claude')
+  stats.recordWithProject(project, originalChars, estimateChars(compressedMsgs), savings, compLatency, clientId)
   recordRequest(project, savings.savedChars, savings.compressed, savings.byTool)
 
   storeKey('anthropic', apiKey)
@@ -372,6 +398,8 @@ app.post('/v1/chat/completions', async (c) => {
   const isLocal = config.isLocalKey(openAIKey)
   const upstream = isLocal ? `${config.localUpstreamUrl.replace(/\/$/, '')}/v1/chat/completions` : `${OPENAI_API}/v1/chat/completions`
 
+  const oaiClientId = detectOpenAIClient(c.req.header('user-agent') ?? '')
+
   // Extract project name BEFORE compressing system prompt
   const oaiProject = extractProjectName(body)
 
@@ -380,7 +408,7 @@ app.post('/v1/chat/completions', async (c) => {
 
   // Bypass mode: skip all compression, still record request stats
   if (isBypassed()) {
-    stats.recordWithProject(oaiProject, originalChars, originalChars, emptySavings(), undefined, 'openai')
+    stats.recordWithProject(oaiProject, originalChars, originalChars, emptySavings(), undefined, oaiClientId)
     recordRequest(oaiProject, 0, 0, [])
     if (!isLocal) storeKey('openai', openAIKey)
     const fwdHeaders = forwardHeaders(c.req.raw.headers)
@@ -435,7 +463,7 @@ app.post('/v1/chat/completions', async (c) => {
   body.messages = compressedMsgs
 
   if (!isLocal) injectExpandToolOpenAI(body)
-  stats.recordWithProject(oaiProject, originalChars, estimateChars(compressedMsgs), savings, oaiCompLatency, 'openai')
+  stats.recordWithProject(oaiProject, originalChars, estimateChars(compressedMsgs), savings, oaiCompLatency, oaiClientId)
   recordRequest(oaiProject, savings.savedChars, savings.compressed, savings.byTool)
 
   if (!isLocal) storeKey('openai', openAIKey)

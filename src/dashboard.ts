@@ -474,6 +474,14 @@ code{font-family:'Cascadia Code','SF Mono',Consolas,monospace;font-size:.9em}
         </div>
       </div>
 
+      <!-- Savings by client -->
+      <div class="section">
+        <div class="section-head"><span class="section-title">Savings by client</span></div>
+        <div class="section-body" id="client-body-overview">
+          <div style="font-size:13px;color:var(--text3)">No data yet — starts after first request.</div>
+        </div>
+      </div>
+
       <!-- Rate Limits -->
       <div class="section">
         <div class="section-head"><span class="section-title">Rate Limits</span></div>
@@ -530,11 +538,15 @@ code{font-family:'Cascadia Code','SF Mono',Consolas,monospace;font-size:.9em}
           <span class="s-val"><code id="cfg-mode">—</code></span>
         </div>
         <div class="settings-row">
-          <span class="s-key">Bypass</span>
+          <span class="s-key" title="Bypass: when ON, requests pass through uncompressed. Useful to temporarily disable Squeezr without stopping the proxy. Resets on restart.">
+            Bypass <span style="font-size:10px;color:var(--text3);cursor:help" title="When ON, requests pass through uncompressed. Useful to debug issues. Resets on restart.">ⓘ</span>
+          </span>
           <span class="s-val"><code id="cfg-bypass">—</code></span>
         </div>
         <div class="settings-row">
-          <span class="s-key">Circuit Breaker</span>
+          <span class="s-key" title="Circuit Breaker: if the AI compression model fails repeatedly, it auto-disables AI compression to avoid latency. Returns to normal automatically.">
+            Circuit Breaker <span style="font-size:10px;color:var(--text3);cursor:help" title="Auto-disables AI compression if the local model fails repeatedly. Prevents latency spikes.">ⓘ</span>
+          </span>
           <span class="s-val"><code id="cfg-cb">—</code></span>
         </div>
       </div>
@@ -645,7 +657,14 @@ function go(page) {
   });
   document.getElementById('page-overview').style.display = page === 'overview' ? '' : 'none';
   document.getElementById('page-settings').style.display = page === 'settings' ? '' : 'none';
+  try { localStorage.setItem('sq-page', page); } catch(e) {}
 }
+
+// Restore last tab on load
+(function(){
+  var saved = localStorage.getItem('sq-page');
+  if (saved && saved !== 'overview') go(saved);
+})();
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 function fmt(n) {
@@ -847,7 +866,20 @@ function limRow(name, pct, cls, label) {
 
 // ── Client breakdown (#8) ──────────────────────────────────────────────────
 var clientOpen = false;
-var CLIENT_LABELS = { claude: 'Claude Code / Desktop / Aider', openai: 'Codex Desktop / OpenAI apps', gemini: 'Gemini CLI', mitm: 'Codex CLI (MITM)' };
+var CLIENT_LABELS = {
+  claude_code:    'Claude Code',
+  claude_desktop: 'Claude Desktop',
+  aider:          'Aider',
+  opencode:       'OpenCode',
+  codex_desktop:  'Codex Desktop',
+  cursor:         'Cursor',
+  continue:       'Continue.dev',
+  cline:          'Cline / Roo',
+  windsurf:       'Windsurf',
+  openai_other:   'OpenAI (other)',
+  gemini:         'Gemini CLI',
+  mitm:           'Codex CLI',
+};
 
 function toggleClientBreakdown() {
   clientOpen = !clientOpen;
@@ -856,34 +888,41 @@ function toggleClientBreakdown() {
 }
 
 function renderClientBreakdown(byClient) {
-  var el = document.getElementById('cli-breakdown-body');
+  var noData = '<span style="font-size:13px;color:var(--text3)">No client data yet — starts after first request.</span>';
+  var elOverview  = document.getElementById('client-body-overview');
+  var elSettings  = document.getElementById('cli-breakdown-body');
+
   if (!byClient || !Object.keys(byClient).length) {
-    el.innerHTML = '<span style="font-size:13px;color:var(--text3)">No client data yet — starts tracking after the first request.</span>';
+    if (elOverview) elOverview.innerHTML = noData;
+    if (elSettings) elSettings.innerHTML = noData;
     return;
   }
   var rows = Object.entries(byClient)
     .filter(function(e){ return e[1].requests > 0; })
     .sort(function(a,b){ return b[1].saved_tokens - a[1].saved_tokens; });
   if (!rows.length) {
-    el.innerHTML = '<span style="font-size:13px;color:var(--text3)">No requests recorded yet.</span>';
+    if (elOverview) elOverview.innerHTML = noData;
+    if (elSettings) elSettings.innerHTML = noData;
     return;
   }
   var maxSaved = rows[0][1].saved_tokens || 1;
-  el.innerHTML = rows.map(function(e){
+  var html = rows.map(function(e){
     var label = CLIENT_LABELS[e[0]] || e[0];
     var data  = e[1];
     var pct   = Math.round((data.saved_tokens / maxSaved) * 100);
-    return '<div style="margin-bottom:14px">' +
-      '<div style="display:flex;justify-content:space-between;margin-bottom:5px">' +
-        '<span style="font-size:13px;font-weight:500;color:var(--text2)">' + esc(label) + '</span>' +
-        '<span style="font-size:12px;color:var(--text3)">' + fmt(data.saved_tokens) + ' tokens saved · ' + data.savings_pct + '%</span>' +
+    return '<div style="margin-bottom:12px">' +
+      '<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:5px">' +
+        '<span style="font-size:13px;font-weight:600;color:var(--text)">' + esc(label) + '</span>' +
+        '<span style="font-size:12px;color:var(--brand2);font-weight:600">' + fmt(data.saved_tokens) + ' saved&nbsp;<span style="color:var(--text3);font-weight:400">·&nbsp;' + data.savings_pct + '%</span></span>' +
       '</div>' +
-      '<div style="height:6px;background:var(--surface3);border-radius:3px;overflow:hidden">' +
+      '<div style="height:6px;background:var(--surface3);border-radius:3px;overflow:hidden;margin-bottom:3px">' +
         '<div style="height:100%;width:' + pct + '%;background:var(--brand);border-radius:3px;transition:width .4s"></div>' +
       '</div>' +
-      '<div style="font-size:11px;color:var(--text3);margin-top:3px">' + data.requests + ' requests · ~' + fmt(data.original_tokens) + ' tokens processed</div>' +
+      '<div style="font-size:11px;color:var(--text3)">' + data.requests + ' req · ~' + fmt(data.original_tokens) + ' tokens in</div>' +
     '</div>';
   }).join('');
+  if (elOverview) elOverview.innerHTML = html;
+  if (elSettings) elSettings.innerHTML = html;
 }
 
 function updateMode(mode, byp) {
