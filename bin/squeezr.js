@@ -430,9 +430,9 @@ async function checkStatus() {
     return false
   }
   console.log(`Squeezr is running  (v${json.version})`)
-  console.log(`  HTTP proxy (Claude/Aider/Gemini): http://localhost:${port}`)
-  console.log(`  MITM proxy (Codex):               http://localhost:${mitmPort}`)
-  console.log(`  Dashboard:                        http://localhost:${port}/squeezr/dashboard`)
+  console.log(`  HTTP proxy (Claude Code, Claude Desktop, Codex Desktop, Aider, Gemini): http://localhost:${port}`)
+  console.log(`  MITM proxy (Codex CLI TLS):  http://localhost:${mitmPort}`)
+  console.log(`  Dashboard:                   http://localhost:${port}/squeezr/dashboard`)
   if (json.mode) console.log(`  Mode:     ${json.mode}`)
   if (json.uptime_seconds != null) {
     const s = json.uptime_seconds
@@ -812,6 +812,38 @@ async function uninstall() {
   console.log('\nDone! Squeezr has been completely removed.\n')
 }
 
+// ── Codex Desktop config helper ──────────────────────────────────────────────
+// Writes openai_base_url to ~/.codex/config.toml so Codex Desktop routes
+// through Squeezr's HTTP proxy (no MITM needed — uses standard base URL).
+
+function configureCodexDesktop(port) {
+  const codexDir  = path.join(os.homedir(), '.codex')
+  const codexToml = path.join(codexDir, 'config.toml')
+  const url = `http://localhost:${port}/v1`
+  const marker = 'openai_base_url'
+  const line = `openai_base_url = "${url}"`
+
+  try {
+    fs.mkdirSync(codexDir, { recursive: true })
+    if (fs.existsSync(codexToml)) {
+      let content = fs.readFileSync(codexToml, 'utf-8')
+      if (content.includes(marker)) {
+        content = content.replace(/openai_base_url\s*=\s*"[^"]*"/, line)
+        fs.writeFileSync(codexToml, content)
+        console.log(`  [ok] Codex Desktop: updated ${codexToml}`)
+      } else {
+        fs.appendFileSync(codexToml, `\n# Squeezr: route Codex Desktop through the compression proxy\n${line}\n`)
+        console.log(`  [ok] Codex Desktop: configured ${codexToml}`)
+      }
+    } else {
+      fs.writeFileSync(codexToml, `# Squeezr: route Codex Desktop through the compression proxy\n${line}\n`)
+      console.log(`  [ok] Codex Desktop: created ${codexToml}`)
+    }
+  } catch (err) {
+    console.log(`  [warn] Codex Desktop config: ${err.message}`)
+  }
+}
+
 // ── squeezr setup ─────────────────────────────────────────────────────────────
 
 function setupWindows() {
@@ -846,7 +878,12 @@ function setupWindows() {
     }
   }
 
-  // 1b. Install PowerShell wrapper so env vars auto-refresh after start/setup/update
+  // 1b. Configure Codex Desktop (~/.codex/config.toml → openai_base_url)
+  // On Windows, ANTHROPIC_BASE_URL from setx is already visible to all GUI apps
+  // (including Claude Desktop) since user-level env vars propagate to new processes.
+  configureCodexDesktop(port)
+
+  // 1c. Install PowerShell wrapper so env vars auto-refresh after start/setup/update
   installShellWrapper()
 
   // 2. Auto-start: try NSSM (Windows service, survives crashes) → fallback to Task Scheduler
@@ -984,8 +1021,15 @@ function setupWindows() {
 Done!
 
   Squeezr is running on http://localhost:${port}
-  MITM proxy on http://localhost:${mitmPort} (Codex TLS interception)
-  All CLIs (Claude Code, Codex, Aider, Gemini, Ollama) are configured.
+  MITM proxy on http://localhost:${mitmPort} (Codex CLI TLS interception)
+
+  Configured:
+    Claude Code        ANTHROPIC_BASE_URL=http://localhost:${port}
+    Claude Desktop     same — setx env var is visible to all GUI apps
+    Codex Desktop      ~/.codex/config.toml openai_base_url set
+    Codex CLI          HTTPS_PROXY=http://localhost:${mitmPort} codex  (per-session)
+    Aider / OpenCode   ANTHROPIC_BASE_URL + openai_base_url set
+    Gemini CLI         GEMINI_API_BASE_URL=http://localhost:${port}
 
   squeezr status   — check it's running
   squeezr gain     — see token savings
@@ -1077,7 +1121,54 @@ function setupUnix() {
     console.log(`  [ok] Env vars + auto-heal updated in ${profile}`)
   }
 
-  // 2a. macOS — launchd
+  // 2. Configure Codex Desktop + Claude Desktop
+  // Codex Desktop reads ~/.codex/config.toml (openai_base_url key).
+  configureCodexDesktop(port)
+
+  // Claude Desktop (GUI app) does not read shell env vars.
+  // macOS: inject via a launchd env-setter plist (persists across reboots).
+  // Linux: write to ~/.config/environment.d/ (systemd user env, read by GUI apps).
+  if (platform === 'darwin') {
+    const envPlistDir  = path.join(os.homedir(), 'Library', 'LaunchAgents')
+    const envPlistPath = path.join(envPlistDir, 'com.squeezr.env.plist')
+    fs.mkdirSync(envPlistDir, { recursive: true })
+    const envVars = [
+      ['ANTHROPIC_BASE_URL',  `http://localhost:${port}`],
+      ['GEMINI_API_BASE_URL', `http://localhost:${port}`],
+      ['NODE_EXTRA_CA_CERTS', bundlePath],
+    ]
+    const envSetCmds = envVars.map(([k, v]) => `launchctl setenv ${k} "${v}"`).join(' && ')
+    fs.writeFileSync(envPlistPath, `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.squeezr.env</string>
+  <key>ProgramArguments</key>
+  <array><string>/bin/sh</string><string>-c</string><string>${envSetCmds}</string></array>
+  <key>RunAtLoad</key><true/>
+</dict>
+</plist>`)
+    try {
+      execSync(`launchctl unload "${envPlistPath}" 2>/dev/null; launchctl load -w "${envPlistPath}"`, { stdio: 'pipe' })
+      console.log(`  [ok] Claude Desktop: env vars set via launchctl (visible to all GUI apps)`)
+    } catch {
+      console.log(`  [warn] Claude Desktop: launchctl env plist failed — restart Claude Desktop manually after setup`)
+    }
+  } else {
+    // Linux: systemd user environment.d — read by all user processes incl. GUI apps
+    const envDDir  = path.join(os.homedir(), '.config', 'environment.d')
+    const envDPath = path.join(envDDir, 'squeezr.conf')
+    fs.mkdirSync(envDDir, { recursive: true })
+    fs.writeFileSync(envDPath, [
+      `# Squeezr — visible to all GUI apps (Claude Desktop, etc.)`,
+      `ANTHROPIC_BASE_URL=http://localhost:${port}`,
+      `GEMINI_API_BASE_URL=http://localhost:${port}`,
+      `NODE_EXTRA_CA_CERTS=${bundlePath}`,
+    ].join('\n') + '\n')
+    console.log(`  [ok] Claude Desktop: env vars written to ${envDPath} (effective after next login)`)
+  }
+
+  // 3a. macOS — launchd
   if (platform === 'darwin') {
     const plistDir = path.join(os.homedir(), 'Library', 'LaunchAgents')
     const plistPath = path.join(plistDir, 'com.squeezr.plist')
@@ -1126,7 +1217,7 @@ function setupUnix() {
       }
     })
 
-  // 2b. Linux — systemd
+  // 3b. Linux — systemd
   } else {
     const serviceDir = path.join(os.homedir(), '.config', 'systemd', 'user')
     const servicePath = path.join(serviceDir, 'squeezr.service')
@@ -1156,12 +1247,17 @@ WantedBy=default.target
   console.log(`
 Done!
 
-  Squeezr is running on http://localhost:8080
-  All CLIs (Claude Code, Codex, Aider, Gemini, Ollama) are configured.
+  Squeezr is running on http://localhost:${port}
+
+  Configured:
+    Claude Code        ANTHROPIC_BASE_URL=http://localhost:${port}
+    Claude Desktop     ${platform === 'darwin' ? 'env vars set via launchctl (restart app once)' : 'env vars in ~/.config/environment.d/ (re-login to activate)'}
+    Codex Desktop      ~/.codex/config.toml openai_base_url set
+    Codex CLI          HTTPS_PROXY=http://localhost:${mitmPort} codex  (per-session)
+    Aider / OpenCode   ANTHROPIC_BASE_URL + openai_base_url set
+    Gemini CLI         GEMINI_API_BASE_URL=http://localhost:${port}
 
   Run: source ${profile}  (or open a new terminal)
-  After that, everything is automatic.
-
   squeezr status   — check it's running
   squeezr gain     — see token savings
 `)
@@ -1257,6 +1353,7 @@ function setupWSL() {
   }
 
   // 2. Set Windows env vars via setx.exe (so Windows-launched CLIs see them)
+  //    ANTHROPIC_BASE_URL via setx is also visible to Claude Desktop (GUI app).
   const setxExe = '/mnt/c/Windows/System32/setx.exe'
   const winVars = {
     ANTHROPIC_BASE_URL: 'http://localhost:8080',
@@ -1274,6 +1371,34 @@ function setupWSL() {
     }
   } else {
     console.log('  [skip] setx.exe not found — Windows env vars not set')
+  }
+
+  // 3. Configure Codex Desktop
+  //    WSL-side ~/.codex/config.toml (for Codex Desktop running in WSL)
+  configureCodexDesktop(port)
+  //    Windows-side %USERPROFILE%\.codex\config.toml (for Codex Desktop on Windows)
+  try {
+    const winHome = execSync('cmd.exe /c echo %USERPROFILE%', { stdio: 'pipe' }).toString().trim().replace(/\r/g, '')
+    const winCodexDir = winHome + '\\.codex'
+    const winMountedDir = winCodexDir.replace(/\\/g, '/').replace(/^([A-Za-z]):/, (_, d) => `/mnt/${d.toLowerCase()}`)
+    const winMountedToml = winMountedDir + '/config.toml'
+    const winUrl = `http://localhost:${port}/v1`
+    const winLine = `openai_base_url = "${winUrl}"`
+    fs.mkdirSync(winMountedDir, { recursive: true })
+    if (fs.existsSync(winMountedToml)) {
+      let content = fs.readFileSync(winMountedToml, 'utf-8')
+      if (content.includes('openai_base_url')) {
+        content = content.replace(/openai_base_url\s*=\s*"[^"]*"/, winLine)
+        fs.writeFileSync(winMountedToml, content)
+      } else {
+        fs.appendFileSync(winMountedToml, `\n# Squeezr\n${winLine}\n`)
+      }
+    } else {
+      fs.writeFileSync(winMountedToml, `# Squeezr\n${winLine}\n`)
+    }
+    console.log(`  [ok] Codex Desktop (Windows): ${winCodexDir}\\config.toml`)
+  } catch {
+    console.log(`  [skip] Codex Desktop (Windows): could not write config`)
   }
 
   // 3. Auto-start: try systemd first (WSL2 with systemd enabled), fallback to
@@ -1350,7 +1475,14 @@ WantedBy=default.target
 Done!
 
   Squeezr is running on http://localhost:${setupPort}
-  All CLIs (Claude Code, Codex, Aider, Gemini, Ollama) are configured.
+
+  Configured:
+    Claude Code        ANTHROPIC_BASE_URL=http://localhost:${setupPort}
+    Claude Desktop     Windows setx env var set (restart app once to pick it up)
+    Codex Desktop      ~/.codex/config.toml + Windows %USERPROFILE%\\.codex\\config.toml
+    Codex CLI          HTTPS_PROXY=http://localhost:${setupMitmPort} codex  (per-session)
+    Aider / OpenCode   ANTHROPIC_BASE_URL + openai_base_url set
+    Gemini CLI         GEMINI_API_BASE_URL=http://localhost:${setupPort}
 
   Windows env vars are set (effective in new terminals immediately).
   WSL env vars added to ${profile}.

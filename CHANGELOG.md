@@ -2,6 +2,12 @@
 
 All notable changes to Squeezr will be documented here.
 
+## [1.25.0] - 2026-05-22
+### Added
+- **Claude Desktop support** — `squeezr setup` now configures Claude Desktop (the GUI app) so it routes through the proxy automatically. On Windows, `setx ANTHROPIC_BASE_URL` already makes the env var visible to all new processes including GUI apps. On macOS, a `com.squeezr.env` launchd plist is written to `~/Library/LaunchAgents/` and loaded immediately via `launchctl`; this sets `ANTHROPIC_BASE_URL`, `GEMINI_API_BASE_URL`, and `NODE_EXTRA_CA_CERTS` for the entire GUI session and persists across reboots. On Linux, env vars are written to `~/.config/environment.d/squeezr.conf` (read by `systemd --user`, effective on next login).
+- **Codex Desktop support** — `squeezr setup` now writes `openai_base_url = "http://localhost:<port>/v1"` to `~/.codex/config.toml` (creating the file if it doesn't exist, updating the key if it does). On WSL, also writes to the Windows-side `%USERPROFILE%\.codex\config.toml` so Codex Desktop on Windows is configured. Codex Desktop reads this file natively — no MITM proxy or env var tricks needed.
+- **Dashboard refactor** — Rebuilt the web dashboard with only two pages (Home and Settings), dark/light mode toggle (persisted in localStorage), and the Squeezr logo/design system. Removed the non-functional History, Projects, and Limits pages.
+
 ## [1.24.0] - 2026-04-30
 ### Fixed
 - **Rate limit headers not forwarded on streaming responses** — When `ANTHROPIC_BASE_URL` pointed to the Squeezr proxy, Claude Code never received the `anthropic-ratelimit-*` response headers, causing the `rate_limits` field to be absent from the statusline JSON. The proxy now forwards all non-hop-by-hop headers (including `anthropic-ratelimit-*`) to the client across all three `/v1/messages` branches: bypass streaming, normal streaming, and expand-call continuation. Also calls `updateAnthropicFromHeaders()` on the expand-call continuation response so the internal dashboard stays in sync. Fix contributed by [@jorgecasar](https://github.com/jorgecasar) in [#4](https://github.com/sergioramosv/Squeezr/issues/4) / [PR #5](https://github.com/sergioramosv/Squeezr/pull/5).

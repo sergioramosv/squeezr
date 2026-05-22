@@ -1,1477 +1,791 @@
 /**
  * Squeezr Dashboard — single-file SPA
- * Dark GitHub-style theme, sidebar navigation, 4 pages.
- * All data via SSE (/squeezr/events) + REST (/squeezr/history, /squeezr/projects).
+ * 2-page (Home + Settings), dark/light mode, SSE + polling fallback.
+ * Zero external dependencies.
  */
 
 export const DASHBOARD_HTML = /* html */`<!DOCTYPE html>
-<html lang="en">
+<html lang="en" class="dark">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Squeezr Dashboard</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
+
+/* ── Theme tokens ── */
 :root{
-  --bg:#09090b;--bg2:#111113;--bg3:#1a1a1e;--bg4:#252529;
-  --border:#2a2a2e;--text:#e4e4e7;--muted:#71717a;
-  --green:#22c55e;--yellow:#eab308;--red:#ef4444;
-  --blue:#22c55e;--purple:#a78bfa;--orange:#f59e0b;--accent:#16a34a
+  --bg:#0a0a0a;--bg2:#0c0c0c;--bg3:#111111;--bg4:#141414;--bg5:#1a1a1a;
+  --border:#262626;--border2:#404040;
+  --text:#fafafa;--text2:#e5e5e5;--muted:#a3a3a3;
+  --brand:#16a34a;--brand-hover:#15803d;--brand-light:#4ade80;
+  --red:#ef4444;--yellow:#eab308;--blue:#60a5fa;
+  --card-bg:#111111;--card-border:#262626;
+  --input-bg:#141414;--input-border:#404040;
 }
-html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Segoe UI',system-ui,-apple-system,sans-serif;font-size:13px;line-height:1.5}
-a{color:var(--blue);text-decoration:none}
-code{font-family:'Cascadia Code','Fira Mono','Consolas',monospace}
+html:not(.dark){
+  --bg:#ffffff;--bg2:#fafafa;--bg3:#f5f5f5;--bg4:#f0f0f0;--bg5:#e5e5e5;
+  --border:#e5e5e5;--border2:#d4d4d4;
+  --text:#0a0a0a;--text2:#171717;--muted:#737373;
+  --card-bg:#ffffff;--card-border:#e5e5e5;
+  --input-bg:#fafafa;--input-border:#d4d4d4;
+}
+
+html,body{
+  height:100%;background:var(--bg);color:var(--text);
+  font-family:'Segoe UI',system-ui,-apple-system,sans-serif;
+  font-size:14px;line-height:1.5;transition:background .15s,color .15s
+}
+a{color:var(--brand);text-decoration:none}
+code,pre{font-family:'Cascadia Code','Fira Mono',Consolas,monospace}
 
 /* ── App shell ── */
 #app{display:flex;height:100vh;overflow:hidden}
 
 /* ── Sidebar ── */
 #sidebar{
-  width:200px;flex-shrink:0;background:var(--bg2);
-  border-right:1px solid var(--border);
-  display:flex;flex-direction:column;overflow:hidden
+  width:220px;flex-shrink:0;
+  background:var(--bg2);border-right:1px solid var(--border);
+  display:flex;flex-direction:column;overflow:hidden;
+  transition:background .15s,border-color .15s
 }
-#sidebar-brand{padding:16px 16px 12px;border-bottom:1px solid var(--border)}
-#sidebar-brand .logo{font-size:18px;font-weight:700;letter-spacing:.3px;line-height:1}
-#sidebar-brand .logo span{color:var(--blue)}
-#sidebar-brand .ver{font-size:11px;color:var(--muted);margin-top:3px}
 
-nav{flex:1;padding:8px 0;overflow-y:auto}
+/* Brand area */
+#sb-brand{
+  padding:20px 16px 16px;
+  border-bottom:1px solid var(--border);
+  display:flex;align-items:center;gap:10px
+}
+#sb-brand .logo-svg{
+  width:32px;height:32px;flex-shrink:0;color:var(--brand)
+}
+#sb-brand .brand-text .name{
+  font-size:16px;font-weight:700;letter-spacing:-.2px;color:var(--text)
+}
+#sb-brand .brand-text .ver{
+  font-size:11px;color:var(--muted);margin-top:1px
+}
+
+/* Nav */
+nav{flex:1;padding:8px 8px;overflow-y:auto}
 .nav-item{
-  display:flex;align-items:center;gap:9px;padding:8px 16px;
-  color:var(--muted);cursor:pointer;border-radius:0;
-  transition:background .1s,color .1s;user-select:none
+  display:flex;align-items:center;gap:10px;
+  padding:9px 10px;border-radius:8px;
+  color:var(--muted);cursor:pointer;
+  transition:background .1s,color .1s;user-select:none;
+  margin-bottom:2px
 }
-.nav-item:hover{background:var(--bg3);color:var(--text)}
-.nav-item.active{background:var(--bg3);color:var(--blue)}
-.nav-item svg{flex-shrink:0;opacity:.8}
-.nav-item.active svg{opacity:1}
-.nav-label{font-size:13px}
+.nav-item:hover{background:var(--bg4);color:var(--text)}
+.nav-item.active{background:var(--bg5);color:var(--brand)}
+.nav-item svg{flex-shrink:0;width:16px;height:16px}
+.nav-label{font-size:13px;font-weight:500}
 
-#sidebar-footer{padding:12px 16px;border-top:1px solid var(--border)}
-.status-row{display:flex;align-items:center;gap:7px;font-size:12px;color:var(--muted)}
-.dot{width:7px;height:7px;border-radius:50%;background:var(--green);box-shadow:0 0 5px var(--green);flex-shrink:0}
-.dot.off{background:var(--red);box-shadow:0 0 5px var(--red)}
+/* Sidebar footer */
+#sb-footer{
+  padding:12px 16px;border-top:1px solid var(--border);
+  display:flex;flex-direction:column;gap:10px
+}
+#conn-status{
+  display:flex;align-items:center;gap:8px;font-size:12px;color:var(--muted)
+}
+.conn-dot{
+  width:8px;height:8px;border-radius:50%;background:var(--muted);flex-shrink:0
+}
+.conn-dot.online{
+  background:var(--brand);
+  animation:pulse 2s cubic-bezier(.4,0,.6,1) infinite
+}
+.conn-dot.offline{background:var(--red)}
+@keyframes pulse{
+  0%,100%{opacity:1}
+  50%{opacity:.4}
+}
+#theme-btn{
+  display:flex;align-items:center;gap:8px;
+  padding:7px 10px;border-radius:8px;border:1px solid var(--border2);
+  background:var(--input-bg);color:var(--muted);
+  cursor:pointer;font-size:12px;font-family:inherit;
+  transition:all .15s;width:100%
+}
+#theme-btn:hover{background:var(--bg4);color:var(--text);border-color:var(--brand)}
 
 /* ── Main content ── */
-#content{flex:1;display:flex;flex-direction:column;overflow:hidden}
-#page-header{
-  display:flex;align-items:center;gap:10px;padding:12px 20px;
-  background:var(--bg2);border-bottom:1px solid var(--border);flex-shrink:0
+#main{flex:1;overflow-y:auto;background:var(--bg);padding:28px 32px;transition:background .15s}
+
+/* ── Page header ── */
+.page-header{margin-bottom:24px}
+.page-title{font-size:22px;font-weight:700;color:var(--text);letter-spacing:-.3px}
+.page-sub{font-size:13px;color:var(--muted);margin-top:4px}
+
+/* ── Stat cards grid ── */
+.stat-grid{
+  display:grid;
+  grid-template-columns:repeat(auto-fit,minmax(180px,1fr));
+  gap:14px;margin-bottom:24px
 }
-#page-title{font-size:15px;font-weight:600}
-#project-badge{
-  font-size:11px;background:var(--bg3);border:1px solid var(--border);
-  border-radius:12px;padding:2px 10px;color:var(--blue);font-weight:500
+.stat-card{
+  background:var(--card-bg);border:1px solid var(--card-border);
+  border-radius:12px;padding:18px 20px;
+  transition:border-color .15s,background .15s
 }
-#conn-pill{
-  font-size:11px;padding:2px 8px;border-radius:10px;
-  background:rgba(63,185,80,.15);color:var(--green);border:1px solid rgba(63,185,80,.3)
+.stat-card:hover{border-color:var(--border2)}
+.stat-card.accent-green{border-color:rgba(22,163,74,.35)}
+.stat-card .label{font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;margin-bottom:8px}
+.stat-card .value{font-size:28px;font-weight:700;color:var(--text);letter-spacing:-.5px;line-height:1}
+.stat-card .value.green{color:var(--brand-light)}
+.stat-card .sub{font-size:12px;color:var(--muted);margin-top:5px}
+
+/* ── Section ── */
+.section{margin-bottom:24px}
+.section-title{
+  font-size:13px;font-weight:600;color:var(--muted);
+  text-transform:uppercase;letter-spacing:.6px;
+  margin-bottom:12px;padding-bottom:8px;border-bottom:1px solid var(--border)
 }
-#conn-pill.err{background:rgba(248,81,73,.15);color:var(--red);border-color:rgba(248,81,73,.3)}
 
-#pages{flex:1;overflow-y:auto;padding:16px 20px}
-.page{display:none}
-.page.active{display:block}
+/* ── Tools bar chart ── */
+.tools-list{display:flex;flex-direction:column;gap:8px}
+.tool-row{display:flex;align-items:center;gap:10px}
+.tool-name{
+  font-size:12px;font-family:'Cascadia Code','Fira Mono',Consolas,monospace;
+  color:var(--text2);width:120px;flex-shrink:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis
+}
+.tool-bar-wrap{flex:1;background:var(--bg4);border-radius:4px;height:8px;overflow:hidden}
+.tool-bar{height:100%;background:var(--brand);border-radius:4px;transition:width .5s ease}
+.tool-count{font-size:12px;color:var(--muted);width:52px;text-align:right;flex-shrink:0}
 
-/* ── Cards ── */
-.cards-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(175px,1fr));gap:10px;margin-bottom:14px}
-.card{background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:14px 16px}
-.card-label{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px}
-.card-value{font-size:26px;font-weight:700;line-height:1.1}
-.card-sub{font-size:11px;color:var(--muted);margin-top:3px}
-.c-green .card-value{color:var(--green)}
-.c-blue .card-value{color:var(--blue)}
-.c-yellow .card-value{color:var(--yellow)}
-.c-orange .card-value{color:var(--orange)}
-
-/* ── Sections ── */
-.section{background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:14px 16px;margin-bottom:14px}
-.section-title{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px;font-weight:600}
-
-/* ── Bars ── */
-.bar-row{display:flex;align-items:center;gap:8px;margin-bottom:7px}
-.bar-label{font-size:12px;color:var(--muted);width:130px;flex-shrink:0}
-.bar-track{flex:1;height:7px;background:var(--bg3);border-radius:4px;overflow:hidden}
-.bar-fill{height:100%;border-radius:4px;transition:width .4s,background .4s}
-.bar-val{font-size:11px;width:36px;text-align:right;flex-shrink:0;color:var(--muted)}
-
-/* ── Sparkline ── */
-canvas#sparkline{width:100%;height:72px;display:block}
-
-/* ── Tables ── */
-table{width:100%;border-collapse:collapse}
-th{font-size:11px;color:var(--muted);text-align:left;padding:4px 8px;border-bottom:1px solid var(--border);font-weight:500;letter-spacing:.3px;text-transform:uppercase}
-td{padding:6px 8px;font-size:12px;border-bottom:1px solid var(--border)}
-tr:last-child td{border-bottom:none}
-.td-right{text-align:right;font-variant-numeric:tabular-nums}
-.mini-bar{display:inline-block;height:5px;border-radius:2px;vertical-align:middle;margin-right:5px;opacity:.75}
-.tag{display:inline-block;background:var(--bg3);border:1px solid var(--border);border-radius:3px;padding:1px 6px;font-size:11px;font-family:monospace}
+/* ── Latency pills ── */
+.latency-row{display:flex;gap:10px;flex-wrap:wrap}
+.lat-pill{
+  display:flex;flex-direction:column;align-items:center;
+  padding:10px 20px;border-radius:10px;
+  background:var(--card-bg);border:1px solid var(--card-border);min-width:100px
+}
+.lat-pill .lat-label{font-size:11px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.5px}
+.lat-pill .lat-val{font-size:20px;font-weight:700;color:var(--text);margin-top:4px}
+.lat-pill .lat-unit{font-size:11px;color:var(--muted)}
 
 /* ── Cache row ── */
-.cache-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px}
-.cache-card{background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:10px 14px}
-.cache-card .cache-label{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:3px}
-.cache-card .cache-val{font-size:18px;font-weight:600;color:var(--purple)}
+.cache-row{
+  display:flex;gap:14px;flex-wrap:wrap
+}
+.cache-card{
+  background:var(--card-bg);border:1px solid var(--card-border);
+  border-radius:10px;padding:14px 20px;flex:1;min-width:140px
+}
+.cache-card .c-label{font-size:11px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px}
+.cache-card .c-val{font-size:22px;font-weight:700;color:var(--text)}
+.cache-card .c-sub{font-size:11px;color:var(--muted);margin-top:3px}
 
-/* ── Mode buttons ── */
-.mode-btns{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px}
+/* ── Status / controls ── */
+.status-section{
+  background:var(--card-bg);border:1px solid var(--card-border);
+  border-radius:12px;padding:18px 20px
+}
+.status-row{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:14px}
+.mode-badge{
+  display:inline-flex;align-items:center;gap:5px;
+  padding:4px 12px;border-radius:20px;font-size:12px;font-weight:600;
+  background:rgba(22,163,74,.15);color:var(--brand-light);border:1px solid rgba(22,163,74,.3)
+}
+.mode-badge.off{background:rgba(239,68,68,.1);color:#f87171;border-color:rgba(239,68,68,.25)}
+.mode-badge.bypassed{background:rgba(234,179,8,.1);color:#fbbf24;border-color:rgba(234,179,8,.25)}
+
+.btn-row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
 .mode-btn{
-  display:flex;align-items:center;gap:6px;padding:6px 14px;
-  border-radius:6px;border:1px solid var(--border);background:var(--bg3);
-  color:var(--muted);cursor:pointer;font-size:12px;transition:all .15s
+  padding:6px 14px;border-radius:8px;border:1px solid var(--border2);
+  background:var(--input-bg);color:var(--muted);font-size:12px;font-family:inherit;
+  cursor:pointer;transition:all .15s;font-weight:500
 }
-.mode-btn:hover{border-color:var(--blue);color:var(--text)}
-.mode-btn.active{border-color:var(--accent);background:var(--accent);color:#fff}
-.mode-btn.active svg{stroke:white}
-#mode-desc{font-size:12px;color:var(--muted);min-height:16px}
-
-/* ── Projects page ── */
-.project-table td:first-child code{font-size:12px}
-.project-dot{width:8px;height:8px;border-radius:50%;display:inline-block;margin-right:6px}
-
-/* ── History page ── */
-#hist-layout{display:grid;grid-template-columns:220px 1fr;gap:12px;min-height:400px}
-#hist-projects{background:var(--bg2);border:1px solid var(--border);border-radius:8px;overflow:hidden}
-#hist-sessions{background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:0}
-.hist-proj-item{
-  padding:9px 14px;cursor:pointer;border-bottom:1px solid var(--border);
-  display:flex;justify-content:space-between;align-items:center;
-  font-size:12px;color:var(--muted);transition:background .1s
+.mode-btn:hover{background:var(--bg4);color:var(--text);border-color:var(--border2)}
+.mode-btn.active{background:rgba(22,163,74,.15);color:var(--brand-light);border-color:rgba(22,163,74,.4)}
+.mode-btn.active-off{background:rgba(239,68,68,.1);color:#f87171;border-color:rgba(239,68,68,.3)}
+.btn-divider{width:1px;height:24px;background:var(--border2)}
+.bypass-btn{
+  padding:6px 14px;border-radius:8px;border:1px solid var(--border2);
+  background:var(--input-bg);color:var(--muted);font-size:12px;font-family:inherit;
+  cursor:pointer;transition:all .15s;font-weight:500
 }
-.hist-proj-item:last-child{border-bottom:none}
-.hist-proj-item:hover{background:var(--bg3)}
-.hist-proj-item.active{background:var(--bg3);color:var(--blue)}
-.hist-proj-count{font-size:11px;background:var(--bg4);border-radius:10px;padding:1px 7px}
-.hist-sessions-header{padding:12px 16px;border-bottom:1px solid var(--border);font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;font-weight:600}
-.session-card{padding:12px 16px;border-bottom:1px solid var(--border)}
-.session-card:last-child{border-bottom:none}
-.session-date{font-size:12px;font-weight:600;color:var(--text);margin-bottom:4px}
-.session-time{font-size:11px;color:var(--muted);margin-bottom:6px}
-.session-stats{display:flex;gap:14px;flex-wrap:wrap}
-.session-stat{font-size:11px;color:var(--muted)}
-.session-stat span{color:var(--text);font-weight:500}
-.session-project-badge{font-size:10px;background:var(--bg4);border:1px solid var(--border);border-radius:10px;padding:1px 8px;color:var(--blue);margin-left:6px}
-.empty-msg{padding:32px 16px;text-align:center;color:var(--muted);font-size:12px}
+.bypass-btn:hover{background:var(--bg4);color:var(--text)}
+.bypass-btn.active{background:rgba(234,179,8,.1);color:#fbbf24;border-color:rgba(234,179,8,.3)}
 
-/* ── Settings ── */
-.config-row{display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border);font-size:12px}
-.config-row:last-child{border-bottom:none}
-.config-key{color:var(--muted)}
-.config-val{font-family:monospace;color:var(--text)}
+/* ── Settings page ── */
+.settings-group{
+  background:var(--card-bg);border:1px solid var(--card-border);
+  border-radius:12px;overflow:hidden;margin-bottom:20px
+}
+.settings-group-title{
+  font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.6px;
+  color:var(--muted);padding:12px 20px 10px;
+  border-bottom:1px solid var(--border);background:var(--bg3)
+}
+.settings-row{
+  display:flex;align-items:center;padding:13px 20px;
+  border-bottom:1px solid var(--border);gap:12px
+}
+.settings-row:last-child{border-bottom:none}
+.settings-key{
+  font-size:13px;color:var(--muted);width:220px;flex-shrink:0
+}
+.settings-val{
+  font-size:13px;color:var(--text);font-family:'Cascadia Code','Fira Mono',Consolas,monospace;
+  flex:1
+}
+.settings-val code{
+  background:var(--bg4);padding:2px 8px;border-radius:5px;
+  font-size:12px;color:var(--text2);border:1px solid var(--border)
+}
 
-/* ── Limits page ── */
-.limits-cli-section{background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:14px 16px;margin-bottom:14px}
-.limits-cli-header{display:flex;align-items:center;gap:8px;margin-bottom:12px}
-.limits-cli-name{font-size:13px;font-weight:600;color:var(--text)}
-.limits-cli-badge{font-size:10px;padding:1px 7px;border-radius:10px;border:1px solid;margin-left:2px}
-.limits-cli-badge.live{border-color:rgba(63,185,80,.4);color:var(--green);background:rgba(63,185,80,.1)}
-.limits-cli-badge.error{border-color:rgba(248,81,73,.4);color:var(--red);background:rgba(248,81,73,.1)}
-.limits-cli-badge.warn{border-color:rgba(210,153,34,.4);color:var(--yellow);background:rgba(210,153,34,.1)}
-.limits-cli-badge.none{border-color:var(--border);color:var(--muted);background:transparent}
-.limits-gauge-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px;margin-bottom:10px}
-.limits-gauge{background:var(--bg3);border:1px solid var(--border);border-radius:6px;padding:10px 12px}
-.limits-gauge-label{font-size:11px;color:var(--muted);margin-bottom:6px;display:flex;justify-content:space-between}
-.limits-gauge-bar{height:6px;background:var(--bg4);border-radius:3px;overflow:hidden;margin-bottom:5px}
-.limits-gauge-fill{height:100%;border-radius:3px;transition:width .5s,background .5s}
-.limits-gauge-bottom{display:flex;justify-content:space-between;font-size:11px}
-.limits-gauge-remaining{color:var(--text);font-weight:500}
-.limits-gauge-reset{color:var(--muted)}
-.limits-usage-row{display:flex;gap:16px;flex-wrap:wrap;padding-top:8px;border-top:1px solid var(--border);margin-top:4px}
-.limits-usage-item{font-size:12px;color:var(--muted)}
-.limits-usage-item span{color:var(--text);font-weight:500}
-.limits-no-data{padding:16px;text-align:center;color:var(--muted);font-size:12px}
-.limits-billing-row{display:flex;gap:10px;flex-wrap:wrap;padding:8px 0 2px}
-.limits-credit-card{flex:1;min-width:120px;background:var(--bg3);border:1px solid var(--border);border-radius:6px;padding:10px 12px}
-.limits-credit-label{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px}
-.limits-credit-val{font-size:20px;font-weight:600;color:var(--green)}
-.limits-budget-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:6px}
-.limits-budget-input{background:var(--bg3);border:1px solid var(--border);border-radius:5px;padding:5px 10px;color:var(--text);font-size:12px;width:140px;outline:none}
-.limits-budget-input:focus{border-color:var(--blue)}
-.limits-budget-label{font-size:12px;color:var(--muted)}
+/* ── CLI chips ── */
+.cli-chips{display:flex;flex-wrap:wrap;gap:8px;padding:16px 20px}
+.cli-chip{
+  display:flex;align-items:center;gap:6px;
+  padding:6px 14px;border-radius:20px;
+  background:var(--bg4);border:1px solid var(--border2);
+  font-size:12px;color:var(--text2);font-weight:500
+}
+.cli-chip .chip-dot{
+  width:6px;height:6px;border-radius:50%;background:var(--brand);flex-shrink:0
+}
 
-/* ── Footer bar ── */
-#footer{padding:7px 20px;border-top:1px solid var(--border);background:var(--bg2);font-size:11px;color:var(--muted);display:flex;gap:16px;flex-shrink:0}
-#footer a{color:var(--muted)}#footer a:hover{color:var(--blue)}
+/* ── Uptime badge ── */
+.uptime-val{color:var(--brand-light) !important}
+
+/* ── Empty / loading ── */
+.skeleton{
+  background:linear-gradient(90deg,var(--bg4) 25%,var(--bg5) 50%,var(--bg4) 75%);
+  background-size:200% 100%;
+  animation:shimmer 1.4s infinite;border-radius:6px;
+  height:32px;width:80%
+}
+@keyframes shimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}
+
+/* ── Scrollbar ── */
+::-webkit-scrollbar{width:6px;height:6px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:var(--border2);border-radius:3px}
+::-webkit-scrollbar-thumb:hover{background:var(--muted)}
+
+/* ── Responsive ── */
+@media(max-width:700px){
+  #sidebar{width:56px}
+  #sb-brand .brand-text,#sb-footer #conn-label,#sb-footer #theme-label,.nav-label{display:none}
+  #main{padding:16px}
+}
 </style>
 </head>
 <body>
 <div id="app">
 
-<!-- ── Sidebar ─────────────────────────────────────────────────────────────── -->
-<div id="sidebar">
-  <div id="sidebar-brand">
-    <div class="logo" style="display:flex;align-items:center;gap:8px">
-      <svg width="24" height="24" viewBox="0 0 80 80" fill="none"><rect width="80" height="80" rx="16" fill="#16a34a"/><rect x="8" y="14" width="64" height="10" rx="5" fill="white" opacity="0.35"/><rect x="16" y="35" width="48" height="10" rx="5" fill="white" opacity="0.65"/><rect x="24" y="56" width="32" height="10" rx="5" fill="white" opacity="1"/></svg>
-      Squee<span>zr</span>
+  <!-- ── Sidebar ── -->
+  <aside id="sidebar">
+    <div id="sb-brand">
+      <svg class="logo-svg" viewBox="0 0 427 425" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+        <path d="M354.982 369.122C349.882 371.592 338.752 371.792 330.442 369.562C314.752 365.342 292.762 350.502 274.462 331.772L269.022 326.202L268.322 308.932C267.942 299.432 267.332 289.862 266.972 287.662C266.612 285.462 265.842 280.742 265.252 277.162C261.922 256.872 253.782 233.162 245.022 218.222C241.322 211.902 240.442 208.162 242.662 208.162C246.992 208.162 272.062 220.332 283.912 228.172C307.882 244.042 340.042 276.312 356.142 300.642C361.992 309.492 368.862 323.942 370.862 331.632C372.842 339.222 372.822 343.952 370.782 350.952C368.862 357.572 361.602 365.922 354.982 369.122ZM218.282 179.832C214.632 182.212 211.352 184.162 210.992 184.162C209.782 184.162 209.192 181.162 209.872 178.472C211.522 171.892 223.622 148.592 229.912 139.892C238.462 128.072 255.812 107.752 262.572 101.652C289.962 76.9417 301.752 68.0317 317.642 60.0417C337.182 50.2217 355.782 51.3217 365.342 62.8817C368.722 66.9617 372.412 77.3217 372.412 82.7217C372.412 92.2417 366.082 109.302 358.222 120.942C352.882 128.862 338.112 146.372 331.782 152.282L327.912 155.902L306.412 157.012C275.532 158.602 257.232 162.282 234.992 171.372C229.442 173.642 221.922 177.442 218.282 179.832ZM192.352 192.912C191.862 194.152 190.962 195.162 190.372 195.162C188.672 195.162 180.862 177.712 177.542 166.472C172.022 147.832 170.142 131.892 170.112 103.662C170.072 54.9617 176.632 25.5317 190.962 10.2117C203.612 -3.30832 223.802 -3.41833 235.432 9.97167C246.502 22.7117 252.932 45.4017 254.122 75.8417L254.712 91.0217L243.802 102.342C216.642 130.552 201.082 156.292 194.952 183.172C194.012 187.292 192.842 191.672 192.352 192.912ZM226.572 421.482C220.292 424.892 210.782 425.902 205.022 423.752C191.282 418.632 180.692 404.292 175.412 383.662C172.812 373.502 170.052 347.602 170.692 339.372L171.192 333.072L181.082 322.872C198.422 304.992 208.702 290.782 219.092 270.362C225.192 258.372 231.412 241.452 231.412 236.842C231.412 233.222 233.922 230.432 236.032 231.722C240.442 234.432 249.472 263.122 253.062 285.842C255.302 300.022 255.592 348.712 253.532 363.662C249.272 394.512 240.142 414.092 226.572 421.482ZM182.052 209.772C186.532 217.502 181.062 217.082 163.912 208.392C143.982 198.302 124.292 183.882 105.542 165.662C69.9124 131.042 51.3724 100.292 53.7824 79.7817C54.5824 72.9217 59.4624 62.9817 63.5724 59.8517C83.1924 44.8917 111.392 54.5117 145.162 87.6917L156.412 98.7517L156.422 107.702C156.442 128.452 159.472 151.202 164.592 169.092C169.372 185.812 172.862 193.952 182.052 209.772ZM96.0524 369.042C86.6124 371.962 77.4224 371.862 70.9124 368.772C60.5924 363.872 53.4124 352.582 53.4124 341.252C53.4124 325.142 66.4924 301.572 87.9324 279.062C93.8424 272.852 96.3824 270.182 99.4924 269.032C101.842 268.152 104.522 268.152 109.242 268.152C131.112 268.132 157.482 264.312 174.912 258.642C183.912 255.722 201.562 247.552 208.502 243.102C211.022 241.482 213.612 240.162 214.252 240.162C216.572 240.162 215.322 246.362 211.052 256.062C201.052 278.772 190.362 293.692 165.912 319.032C140.952 344.912 115.702 362.982 96.0524 369.042ZM368.762 251.622C362.292 252.472 351.732 253.162 345.312 253.162H333.622L328.262 247.552C314.672 233.322 289.892 214.982 271.112 205.242C261.472 200.242 244.592 193.972 237.082 192.602C232.942 191.852 231.502 189.962 233.362 187.722C235.062 185.672 250.402 179.462 259.532 177.132C280.552 171.762 296.062 170.162 326.772 170.172C369.092 170.192 394.642 174.902 410.892 185.692C419.312 191.282 423.272 197.242 425.392 207.512C426.482 212.822 426.382 214.032 424.312 220.512C422.492 226.212 420.942 228.802 416.682 233.292C413.742 236.392 408.742 240.302 405.572 241.992C398.302 245.872 383.912 249.632 368.762 251.622ZM146.412 251.272C136.432 253.162 130.742 253.482 103.412 253.742C80.9524 253.952 69.0424 253.652 61.9124 252.682C28.4924 248.142 11.0524 240.212 3.39238 226.092C0.252382 220.292 -0.0776191 218.932 0.0123809 212.162C0.142381 202.882 1.92238 198.622 8.60238 191.562C20.8324 178.622 39.5124 173.102 76.4624 171.502L91.0124 170.862L104.492 182.762C125.782 201.552 128.872 203.902 142.912 211.932C160.322 221.882 182.112 231.162 188.092 231.162C189.152 231.162 190.902 231.842 191.972 232.662C193.862 234.132 193.832 234.242 190.912 236.652C184.902 241.622 167.932 247.202 146.412 251.272Z" fill="currentColor"/>
+      </svg>
+      <div class="brand-text">
+        <div class="name">Squeezr</div>
+        <div class="ver" id="sb-version">—</div>
+      </div>
     </div>
-    <div class="ver" id="sb-ver">v—</div>
-  </div>
 
-  <nav>
-    <div class="nav-item active" data-page="overview">
-      <svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor">
-        <path d="M1 2.5A1.5 1.5 0 012.5 1h3A1.5 1.5 0 017 2.5v3A1.5 1.5 0 015.5 7h-3A1.5 1.5 0 011 5.5v-3zm8 0A1.5 1.5 0 0110.5 1h3A1.5 1.5 0 0115 2.5v3A1.5 1.5 0 0113.5 7h-3A1.5 1.5 0 019 5.5v-3zm-8 8A1.5 1.5 0 012.5 9h3A1.5 1.5 0 017 10.5v3A1.5 1.5 0 015.5 15h-3A1.5 1.5 0 011 13.5v-3zm8 0A1.5 1.5 0 0110.5 9h3a1.5 1.5 0 011.5 1.5v3A1.5 1.5 0 0113.5 15h-3A1.5 1.5 0 019 13.5v-3z"/>
-      </svg>
-      <span class="nav-label">Overview</span>
-    </div>
-    <div class="nav-item" data-page="projects">
-      <svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor">
-        <path d="M9.828 3h3.982a2 2 0 011.992 2.181l-.637 7A2 2 0 0113.174 14H2.826a2 2 0 01-1.991-1.819l-.637-7a1.99 1.99 0 01.342-1.31L.5 3a2 2 0 012-2h3.672a2 2 0 011.414.586l.828.828A2 2 0 009.828 3zm-8.322.12C1.72 3.042 1.95 3 2.19 3h5.396l-.707-.707A1 1 0 006.172 2H2.5a1 1 0 00-1 .981l.006.139z"/>
-      </svg>
-      <span class="nav-label">Projects</span>
-    </div>
-    <div class="nav-item" data-page="history">
-      <svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor">
-        <path d="M8 3.5a.5.5 0 00-1 0V9a.5.5 0 00.252.434l3.5 2a.5.5 0 00.496-.868L8 8.71V3.5z"/>
-        <path d="M8 16A8 8 0 108 0a8 8 0 000 16zm7-8A7 7 0 111 8a7 7 0 0114 0z"/>
-      </svg>
-      <span class="nav-label">History</span>
-    </div>
-    <div class="nav-item" data-page="limits">
-      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <line x1="18" y1="20" x2="18" y2="10"/>
-        <line x1="12" y1="20" x2="12" y2="4"/>
-        <line x1="6" y1="20" x2="6" y2="14"/>
-        <line x1="2" y1="20" x2="22" y2="20"/>
-      </svg>
-      <span class="nav-label">Limits</span>
-    </div>
-    <div class="nav-item" data-page="settings">
-      <svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor">
-        <path d="M8 4.754a3.246 3.246 0 100 6.492 3.246 3.246 0 000-6.492zM5.754 8a2.246 2.246 0 114.492 0 2.246 2.246 0 01-4.492 0z"/>
-        <path d="M9.796 1.343c-.527-1.79-3.065-1.79-3.592 0l-.094.319a.873.873 0 01-1.255.52l-.292-.16c-1.64-.892-3.433.902-2.54 2.541l.159.292a.873.873 0 01-.52 1.255l-.319.094c-1.79.527-1.79 3.065 0 3.592l.319.094a.873.873 0 01.52 1.255l-.16.292c-.892 1.64.901 3.434 2.541 2.54l.292-.159a.873.873 0 011.255.52l.094.319c.527 1.79 3.065 1.79 3.592 0l.094-.319a.873.873 0 011.255-.52l.292.16c1.64.892 3.433-.902 2.54-2.541l-.159-.292a.873.873 0 01.52-1.255l.319-.094c1.79-.527 1.79-3.065 0-3.592l-.319-.094a.873.873 0 01-.52-1.255l.16-.292c.892-1.64-.901-3.433-2.541-2.54l-.292.159a.873.873 0 01-1.255-.52l-.094-.319z"/>
-      </svg>
-      <span class="nav-label">Settings</span>
-    </div>
-  </nav>
+    <nav>
+      <div class="nav-item active" data-page="home" onclick="navigate('home')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M3 9.5L12 3l9 6.5V20a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9.5z"/><polyline points="9 21 9 12 15 12 15 21"/>
+        </svg>
+        <span class="nav-label">Home</span>
+      </div>
+      <div class="nav-item" data-page="settings" onclick="navigate('settings')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+        </svg>
+        <span class="nav-label">Settings</span>
+      </div>
+    </nav>
 
-  <div id="sidebar-footer">
-    <div class="status-row" style="margin-bottom:8px">
-      <div class="dot" id="status-dot"></div>
-      <span id="status-text">Connecting…</span>
+    <div id="sb-footer">
+      <div id="conn-status">
+        <div class="conn-dot" id="conn-dot"></div>
+        <span id="conn-label">Connecting…</span>
+      </div>
+      <button id="theme-btn" onclick="toggleTheme()" title="Toggle dark/light mode">
+        <span id="theme-icon">☀️</span>
+        <span id="theme-label">Light mode</span>
+      </button>
     </div>
-    <div class="status-row" style="margin-bottom:6px">
-      <span id="cb-indicator" style="font-size:11px" title="Circuit breaker">🟢 Circuit OK</span>
+  </aside>
+
+  <!-- ── Main ── -->
+  <main id="main">
+    <!-- Home page -->
+    <div id="page-home">
+      <div class="page-header">
+        <div class="page-title">Overview</div>
+        <div class="page-sub">Live stats — updates via server-sent events</div>
+      </div>
+
+      <!-- Hero stat cards -->
+      <div class="stat-grid">
+        <div class="stat-card accent-green">
+          <div class="label">Tokens Saved</div>
+          <div class="value green" id="s-tokens-saved">—</div>
+          <div class="sub" id="s-tokens-sub">of <span id="s-tokens-in">—</span> in</div>
+        </div>
+        <div class="stat-card">
+          <div class="label">Compression Ratio</div>
+          <div class="value" id="s-ratio">—</div>
+          <div class="sub">avg across all requests</div>
+        </div>
+        <div class="stat-card">
+          <div class="label">Cost Saved</div>
+          <div class="value" id="s-cost">—</div>
+          <div class="sub">estimated USD</div>
+        </div>
+        <div class="stat-card">
+          <div class="label">Requests Proxied</div>
+          <div class="value" id="s-requests">—</div>
+          <div class="sub"><span id="s-compressed">—</span> compressed</div>
+        </div>
+      </div>
+
+      <!-- Tools section -->
+      <div class="section">
+        <div class="section-title">Top Tools by Request</div>
+        <div class="tools-list" id="tools-list">
+          <div class="skeleton"></div>
+        </div>
+      </div>
+
+      <!-- Latency section -->
+      <div class="section">
+        <div class="section-title">Latency</div>
+        <div class="latency-row">
+          <div class="lat-pill">
+            <span class="lat-label">p50</span>
+            <span class="lat-val" id="l-p50">—</span>
+            <span class="lat-unit">ms</span>
+          </div>
+          <div class="lat-pill">
+            <span class="lat-label">p95</span>
+            <span class="lat-val" id="l-p95">—</span>
+            <span class="lat-unit">ms</span>
+          </div>
+          <div class="lat-pill">
+            <span class="lat-label">p99</span>
+            <span class="lat-val" id="l-p99">—</span>
+            <span class="lat-unit">ms</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Cache section -->
+      <div class="section">
+        <div class="section-title">Cache</div>
+        <div class="cache-row">
+          <div class="cache-card">
+            <div class="c-label">Hits</div>
+            <div class="c-val" id="c-hits">—</div>
+            <div class="c-sub">served from cache</div>
+          </div>
+          <div class="cache-card">
+            <div class="c-label">Misses</div>
+            <div class="c-val" id="c-miss">—</div>
+            <div class="c-sub">forwarded upstream</div>
+          </div>
+          <div class="cache-card">
+            <div class="c-label">Hit Rate</div>
+            <div class="c-val" id="c-rate">—</div>
+            <div class="c-sub">percentage</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Status & controls -->
+      <div class="section">
+        <div class="section-title">Status &amp; Controls</div>
+        <div class="status-section">
+          <div class="status-row">
+            <span style="font-size:13px;color:var(--muted)">Mode:</span>
+            <span class="mode-badge" id="mode-badge">normal</span>
+            <span style="font-size:13px;color:var(--muted);margin-left:12px">Bypass:</span>
+            <span class="mode-badge" id="bypass-badge">off</span>
+          </div>
+          <div class="btn-row">
+            <button class="mode-btn" data-mode="off" onclick="setMode('off')">off</button>
+            <button class="mode-btn" data-mode="low" onclick="setMode('low')">low</button>
+            <button class="mode-btn active" data-mode="normal" onclick="setMode('normal')">normal</button>
+            <button class="mode-btn" data-mode="aggressive" onclick="setMode('aggressive')">aggressive</button>
+            <div class="btn-divider"></div>
+            <button class="bypass-btn" id="bypass-btn" onclick="toggleBypass()">Toggle Bypass</button>
+          </div>
+        </div>
+      </div>
     </div>
-    <div class="status-row" style="cursor:pointer" id="bypass-toggle" title="Toggle bypass mode">
-      <span style="font-size:11px" id="bypass-label">▶️ Compression ON</span>
+
+    <!-- Settings page -->
+    <div id="page-settings" style="display:none">
+      <div class="page-header">
+        <div class="page-title">Settings</div>
+        <div class="page-sub">Current proxy configuration and environment</div>
+      </div>
+
+      <div class="settings-group">
+        <div class="settings-group-title">Proxy</div>
+        <div class="settings-row">
+          <span class="settings-key">ANTHROPIC_BASE_URL</span>
+          <span class="settings-val"><code>http://localhost:3284</code></span>
+        </div>
+        <div class="settings-row">
+          <span class="settings-key">MITM Port</span>
+          <span class="settings-val"><code>3284</code></span>
+        </div>
+        <div class="settings-row">
+          <span class="settings-key">Version</span>
+          <span class="settings-val" id="cfg-version"><code>—</code></span>
+        </div>
+        <div class="settings-row">
+          <span class="settings-key">Uptime</span>
+          <span class="settings-val uptime-val" id="cfg-uptime">—</span>
+        </div>
+      </div>
+
+      <div class="settings-group">
+        <div class="settings-group-title">Compression</div>
+        <div class="settings-row">
+          <span class="settings-key">Mode</span>
+          <span class="settings-val" id="cfg-mode"><code>normal</code></span>
+        </div>
+        <div class="settings-row">
+          <span class="settings-key">Circuit Breaker</span>
+          <span class="settings-val" id="cfg-cb"><code>—</code></span>
+        </div>
+        <div class="settings-row">
+          <span class="settings-key">Bypass</span>
+          <span class="settings-val" id="cfg-bypass"><code>—</code></span>
+        </div>
+      </div>
+
+      <div class="settings-group">
+        <div class="settings-group-title">Connected CLIs</div>
+        <div class="cli-chips">
+          <div class="cli-chip"><div class="chip-dot"></div>Claude Code</div>
+          <div class="cli-chip"><div class="chip-dot"></div>Cursor</div>
+          <div class="cli-chip"><div class="chip-dot"></div>Codex Desktop</div>
+          <div class="cli-chip"><div class="chip-dot"></div>Aider</div>
+          <div class="cli-chip"><div class="chip-dot"></div>Gemini CLI</div>
+          <div class="cli-chip"><div class="chip-dot"></div>Continue.dev</div>
+          <div class="cli-chip"><div class="chip-dot"></div>Cline</div>
+          <div class="cli-chip"><div class="chip-dot"></div>Windsurf</div>
+        </div>
+      </div>
     </div>
-  </div>
+  </main>
 </div>
 
-<!-- ── Main content ─────────────────────────────────────────────────────────── -->
-<div id="content">
-  <div id="page-header">
-    <span id="page-title">Overview</span>
-    <span id="project-badge" style="display:none"></span>
-    <span id="conn-pill">● live</span>
-  </div>
-
-  <div id="pages">
-
-    <!-- ─── Overview ──────────────────────────────────────────────────────── -->
-    <div class="page active" id="page-overview">
-      <div class="cards-grid">
-        <div class="card c-green">
-          <div class="card-label">Tokens Saved</div>
-          <div class="card-value" id="c-tokens">—</div>
-          <div class="card-sub" id="c-chars">— chars</div>
-        </div>
-        <div class="card c-blue">
-          <div class="card-label">Compression</div>
-          <div class="card-value" id="c-pct">—</div>
-          <div class="card-sub">of tool results</div>
-        </div>
-        <div class="card c-yellow">
-          <div class="card-label">Requests</div>
-          <div class="card-value" id="c-req">—</div>
-          <div class="card-sub" id="c-compressions">— compressions</div>
-        </div>
-        <div class="card c-orange">
-          <div class="card-label">Est. Cost Saved</div>
-          <div class="card-value" id="c-cost">—</div>
-          <div class="card-sub">@ $3 / MTok</div>
-        </div>
-      </div>
-
-      <div class="cards-grid" style="grid-template-columns:repeat(auto-fit,minmax(200px,1fr))">
-        <div class="card">
-          <div class="card-label">Compression Latency (p50 / p95)</div>
-          <div class="card-value" id="c-latency">—</div>
-          <div class="card-sub" id="c-latency-sub">ms per request</div>
-        </div>
-        <div class="card">
-          <div class="card-label">Expand Rate</div>
-          <div class="card-value" id="c-expand-rate">—</div>
-          <div class="card-sub" id="c-expand-rate-sub">lower is better</div>
-        </div>
-      </div>
-
-      <div class="section">
-        <div class="section-title">Context pressure — last request</div>
-        <div class="bar-row">
-          <span class="bar-label">Before compression</span>
-          <div class="bar-track"><div class="bar-fill" id="bar-msg" style="width:0%"></div></div>
-          <span class="bar-val" id="pct-msg">0%</span>
-        </div>
-        <div class="bar-row">
-          <span class="bar-label">After compression</span>
-          <div class="bar-track"><div class="bar-fill" id="bar-out" style="width:0%"></div></div>
-          <span class="bar-val" id="pct-out">0%</span>
-        </div>
-        <div class="bar-row" style="margin-bottom:0">
-          <span class="bar-label">Session cache hits</span>
-          <div class="bar-track"><div class="bar-fill" id="bar-cache" style="width:0%;background:var(--purple)"></div></div>
-          <span class="bar-val" id="pct-cache">0</span>
-        </div>
-      </div>
-
-      <div class="section">
-        <div class="section-title">Activity — tokens saved per request <span style="font-weight:400;text-transform:none;letter-spacing:0">(last 60)</span></div>
-        <canvas id="sparkline"></canvas>
-      </div>
-
-      <div class="section">
-        <div class="section-title">By tool</div>
-        <table>
-          <thead>
-            <tr>
-              <th>Tool</th>
-              <th class="td-right">Calls</th>
-              <th class="td-right">Tokens saved</th>
-              <th>Savings</th>
-            </tr>
-          </thead>
-          <tbody id="tools-body">
-            <tr><td colspan="4" style="color:var(--muted);padding:14px 8px;text-align:center">No data yet…</td></tr>
-          </tbody>
-        </table>
-      </div>
-
-      <div class="cache-row">
-        <div class="cache-card">
-          <div class="cache-label">Session cache</div>
-          <div class="cache-val" id="c-scache">—</div>
-        </div>
-        <div class="cache-card">
-          <div class="cache-label">Expand store</div>
-          <div class="cache-val" id="c-expand">—</div>
-        </div>
-        <div class="cache-card">
-          <div class="cache-label">LRU cache</div>
-          <div class="cache-val" id="c-lru">—</div>
-        </div>
-        <div class="cache-card">
-          <div class="cache-label">Pattern hits</div>
-          <div class="cache-val" id="c-patterns">—</div>
-        </div>
-      </div>
-
-      <!-- Savings breakdown -->
-      <div class="section">
-        <div class="section-title">Savings Breakdown</div>
-        <div class="cache-grid" style="grid-template-columns:1fr 1fr 1fr">
-          <div class="cache-item">
-            <div class="cache-label">Deterministic</div>
-            <div class="cache-val" id="bd-det" style="color:var(--green)">—</div>
-          </div>
-          <div class="cache-item">
-            <div class="cache-label">AI compression</div>
-            <div class="cache-val" id="bd-ai" style="color:var(--blue)">—</div>
-          </div>
-          <div class="cache-item">
-            <div class="cache-label">Read dedup</div>
-            <div class="cache-val" id="bd-dedup" style="color:var(--purple)">—</div>
-          </div>
-          <div class="cache-item">
-            <div class="cache-label">System prompt</div>
-            <div class="cache-val" id="bd-sysprompt">—</div>
-          </div>
-          <div class="cache-item">
-            <div class="cache-label">Tag overhead</div>
-            <div class="cache-val" id="bd-overhead" style="color:var(--muted)">—</div>
-          </div>
-          <div class="cache-item">
-            <div class="cache-label">AI calls</div>
-            <div class="cache-val" id="bd-aicalls" style="color:var(--muted)">—</div>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- ─── Projects ──────────────────────────────────────────────────────── -->
-    <div class="page" id="page-projects">
-      <div class="section" style="margin-bottom:0">
-        <div class="section-title" id="projects-section-title">All projects — this session + history</div>
-        <table class="project-table">
-          <thead>
-            <tr>
-              <th>Project</th>
-              <th class="td-right">Sessions</th>
-              <th class="td-right">Requests</th>
-              <th class="td-right">Tokens saved</th>
-              <th class="td-right">Last seen</th>
-            </tr>
-          </thead>
-          <tbody id="projects-body">
-            <tr><td colspan="5" style="color:var(--muted);padding:20px 8px;text-align:center">Loading…</td></tr>
-          </tbody>
-        </table>
-      </div>
-    </div>
-
-    <!-- ─── History ───────────────────────────────────────────────────────── -->
-    <div class="page" id="page-history">
-      <div id="hist-layout">
-        <div id="hist-projects">
-          <div style="padding:10px 14px;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;font-weight:600;border-bottom:1px solid var(--border)">Projects</div>
-          <div id="hist-proj-list"></div>
-        </div>
-        <div id="hist-sessions">
-          <div class="hist-sessions-header" id="hist-sessions-header">Select a project</div>
-          <div id="hist-sessions-list"><div class="empty-msg">Select a project on the left to view sessions.</div></div>
-        </div>
-      </div>
-    </div>
-
-    <!-- ─── Limits ───────────────────────────────────────────────────────── -->
-    <div class="page" id="page-limits">
-
-      <!-- Anthropic -->
-      <div class="limits-cli-section" id="lim-anthropic">
-        <div class="limits-cli-header">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" style="color:var(--orange)">
-            <path d="M13.83 2.34a2.09 2.09 0 0 0-3.66 0L1.13 18.9A2.09 2.09 0 0 0 2.96 22h18.08a2.09 2.09 0 0 0 1.83-3.1L13.83 2.34ZM12 8a1 1 0 0 1 1 1v5a1 1 0 0 1-2 0V9a1 1 0 0 1 1-1Zm0 10a1 1 0 1 1 0-2 1 1 0 0 1 0 2Z"/>
-          </svg>
-          <svg width="16" height="16" fill="var(--text)" viewBox="0 0 16 16" style="vertical-align:middle;margin-right:6px"><path d="m3.127 10.604 3.135-1.76.053-.153-.053-.085H6.11l-.525-.032-1.791-.048-1.554-.065-1.505-.08-.38-.081L0 7.832l.036-.234.32-.214.455.04 1.009.069 1.513.105 1.097.064 1.626.17h.259l.036-.105-.089-.065-.068-.064-1.566-1.062-1.695-1.121-.887-.646-.48-.327-.243-.306-.104-.67.435-.48.585.04.15.04.593.456 1.267.981 1.654 1.218.242.202.097-.068.012-.049-.109-.181-.9-1.626-.96-1.655-.428-.686-.113-.411a2 2 0 0 1-.068-.484l.496-.674L4.446 0l.662.089.279.242.411.94.666 1.48 1.033 2.014.302.597.162.553.06.17h.105v-.097l.085-1.134.157-1.392.154-1.792.052-.504.25-.605.497-.327.387.186.319.456-.045.294-.19 1.23-.37 1.93-.243 1.29h.142l.161-.16.654-.868 1.097-1.372.484-.545.565-.601.363-.287h.686l.505.751-.226.775-.707.895-.585.759-.839 1.13-.524.904.048.072.125-.012 1.897-.403 1.024-.186 1.223-.21.553.258.06.263-.218.536-1.307.323-1.533.307-2.284.54-.028.02.032.04 1.029.098.44.024h1.077l2.005.15.525.346.315.424-.053.323-.807.411-3.631-.863-.872-.218h-.12v.073l.726.71 1.331 1.202 1.667 1.55.084.383-.214.302-.226-.032-1.464-1.101-.565-.497-1.28-1.077h-.084v.113l.295.432 1.557 2.34.08.718-.112.234-.404.141-.444-.08-.911-1.28-.94-1.44-.759-1.291-.093.053-.448 4.821-.21.246-.484.186-.403-.307-.214-.496.214-.98.258-1.28.21-1.016.19-1.263.112-.42-.008-.028-.092.012-.953 1.307-1.448 1.957-1.146 1.227-.274.109-.477-.247.045-.44.266-.39 1.586-2.018.956-1.25.617-.723-.004-.105h-.036l-4.212 2.736-.75.096-.324-.302.04-.496.154-.162 1.267-.871z"/></svg><span class="limits-cli-name">Anthropic · Claude Code</span>
-          <span class="limits-cli-badge none" id="ant-badge">no data yet</span>
-        </div>
-        <div class="limits-gauge-grid">
-          <div class="limits-gauge">
-            <div class="limits-gauge-label">
-              <span id="ant-tok-label">Tokens / minute</span>
-              <span id="ant-tok-pct" style="color:var(--muted)">—</span>
-            </div>
-            <div class="limits-gauge-bar"><div class="limits-gauge-fill" id="ant-tok-fill" style="width:0%"></div></div>
-            <div class="limits-gauge-bottom">
-              <span class="limits-gauge-remaining" id="ant-tok-rem">—</span>
-              <span class="limits-gauge-reset" id="ant-tok-reset"></span>
-            </div>
-          </div>
-          <div class="limits-gauge">
-            <div class="limits-gauge-label">
-              <span id="ant-req-label">Requests / minute</span>
-              <span id="ant-req-pct" style="color:var(--muted)">—</span>
-            </div>
-            <div class="limits-gauge-bar"><div class="limits-gauge-fill" id="ant-req-fill" style="width:0%"></div></div>
-            <div class="limits-gauge-bottom">
-              <span class="limits-gauge-remaining" id="ant-req-rem">—</span>
-              <span class="limits-gauge-reset" id="ant-req-reset"></span>
-            </div>
-          </div>
-          <div class="limits-gauge">
-            <div class="limits-gauge-label">
-              <span id="ant-inp-label">Input tokens / minute</span>
-              <span id="ant-inp-pct" style="color:var(--muted)">—</span>
-            </div>
-            <div class="limits-gauge-bar"><div class="limits-gauge-fill" id="ant-inp-fill" style="width:0%"></div></div>
-            <div class="limits-gauge-bottom">
-              <span class="limits-gauge-remaining" id="ant-inp-rem">—</span>
-              <span class="limits-gauge-reset" id="ant-inp-reset"></span>
-            </div>
-          </div>
-          <div class="limits-gauge">
-            <div class="limits-gauge-label">
-              <span id="ant-out-label">Output tokens / minute</span>
-              <span id="ant-out-pct" style="color:var(--muted)">—</span>
-            </div>
-            <div class="limits-gauge-bar"><div class="limits-gauge-fill" id="ant-out-fill" style="width:0%"></div></div>
-            <div class="limits-gauge-bottom">
-              <span class="limits-gauge-remaining" id="ant-out-rem">—</span>
-              <span class="limits-gauge-reset" id="ant-out-reset"></span>
-            </div>
-          </div>
-        </div>
-        <div class="limits-usage-row">
-          <div class="limits-usage-item">Session input: <span id="ant-u-inp-s">—</span></div>
-          <div class="limits-usage-item">Session output: <span id="ant-u-out-s">—</span></div>
-          <div class="limits-usage-item">Today input: <span id="ant-u-inp-d">—</span></div>
-          <div class="limits-usage-item">Today output: <span id="ant-u-out-d">—</span></div>
-          <div class="limits-usage-item" style="margin-left:auto">
-            <a href="https://console.anthropic.com/settings/usage" target="_blank" style="color:var(--muted);font-size:11px">View billing ↗</a>
-          </div>
-        </div>
-      </div>
-
-      <!-- OpenAI -->
-      <div class="limits-cli-section" id="lim-openai">
-        <div class="limits-cli-header">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" style="color:var(--text)">
-            <path d="M22.28 9.27a6.17 6.17 0 0 0-.53-5.06 6.24 6.24 0 0 0-6.7-2.99A6.23 6.23 0 0 0 10.36 0a6.24 6.24 0 0 0-5.95 4.32 6.23 6.23 0 0 0-4.16 3.02 6.24 6.24 0 0 0 .77 7.32 6.17 6.17 0 0 0 .53 5.06 6.24 6.24 0 0 0 6.7 2.99A6.23 6.23 0 0 0 13.64 24a6.25 6.25 0 0 0 5.96-4.33 6.23 6.23 0 0 0 4.15-3.02 6.24 6.24 0 0 0-.77-7.31l.3-.07ZM13.64 22.5a4.63 4.63 0 0 1-2.97-1.08l.15-.08 4.93-2.85a.82.82 0 0 0 .41-.71v-6.96l2.08 1.2a.08.08 0 0 1 .04.06v5.76a4.65 4.65 0 0 1-4.64 4.66Zm-9.95-4.27a4.63 4.63 0 0 1-.55-3.12l.14.09 4.93 2.85a.82.82 0 0 0 .82 0l6.02-3.47v2.4a.08.08 0 0 1-.03.06L10.06 20a4.65 4.65 0 0 1-6.37-1.77Zm-1.28-10.8a4.63 4.63 0 0 1 2.42-2.04v5.88a.82.82 0 0 0 .41.71l6.01 3.47-2.08 1.2a.08.08 0 0 1-.08 0L4.22 13.7a4.65 4.65 0 0 1-.81-6.27Zm17.09 3.99-6.02-3.48L15.56 7a.08.08 0 0 1 .08 0l4.87 2.81a4.64 4.64 0 0 1-.72 8.38v-5.88a.82.82 0 0 0-.39-.69Zm2.07-3.14-.14-.09-4.92-2.87a.82.82 0 0 0-.83 0L9.67 9.79V7.4a.08.08 0 0 1 .03-.06L14.6 4.5a4.64 4.64 0 0 1 6.9 4.81l.07-.03Zm-13.03 4.28-2.08-1.2a.08.08 0 0 1-.04-.06V5.5a4.64 4.64 0 0 1 7.62-3.56l-.15.08L7.9 4.87a.82.82 0 0 0-.41.71l-.01 6.98Zm1.13-2.43 2.68-1.55 2.68 1.55v3.1l-2.68 1.54-2.68-1.54v-3.1Z"/>
-          </svg>
-          <svg width="16" height="16" fill="var(--text)" viewBox="0 0 16 16" style="vertical-align:middle;margin-right:6px"><path d="M14.949 6.547a3.94 3.94 0 0 0-.348-3.273 4.11 4.11 0 0 0-4.4-1.934A4.1 4.1 0 0 0 8.423.2 4.15 4.15 0 0 0 6.305.086a4.1 4.1 0 0 0-1.891.948 4.04 4.04 0 0 0-1.158 1.753 4.1 4.1 0 0 0-1.563.679A4 4 0 0 0 .554 4.72a3.99 3.99 0 0 0 .502 4.731 3.94 3.94 0 0 0 .346 3.274 4.11 4.11 0 0 0 4.402 1.933c.382.425.852.764 1.377.995.526.231 1.095.35 1.67.346 1.78.002 3.358-1.132 3.901-2.804a4.1 4.1 0 0 0 1.563-.68 4 4 0 0 0 1.14-1.253 3.99 3.99 0 0 0-.506-4.716m-6.097 8.406a3.05 3.05 0 0 1-1.945-.694l.096-.054 3.23-1.838a.53.53 0 0 0 .265-.455v-4.49l1.366.778q.02.011.025.035v3.722c-.003 1.653-1.361 2.992-3.037 2.996m-6.53-2.75a2.95 2.95 0 0 1-.36-2.01l.095.057 3.233 1.84a.53.53 0 0 0 .527 0l3.949-2.246v1.555a.05.05 0 0 1-.022.041L6.473 13.3c-1.454.826-3.311.335-4.15-1.098m-.85-6.94A3.02 3.02 0 0 1 3.07 3.949v3.785a.51.51 0 0 0 .262.451l3.93 2.237-1.366.779a.05.05 0 0 1-.048 0L2.585 9.342a2.98 2.98 0 0 1-1.113-4.094zm11.216 2.571L8.747 5.576l1.362-.776a.05.05 0 0 1 .048 0l3.265 1.86a3 3 0 0 1 1.173 1.207 2.96 2.96 0 0 1-.27 3.2 3.05 3.05 0 0 1-1.36.997V8.279a.52.52 0 0 0-.276-.445m1.36-2.015-.097-.057-3.226-1.855a.53.53 0 0 0-.53 0L6.249 6.153V4.598a.04.04 0 0 1 .019-.04L9.533 2.7a3.07 3.07 0 0 1 3.257.139c.474.325.843.778 1.066 1.303.223.526.289 1.103.191 1.664zM5.503 8.575 4.139 7.8a.05.05 0 0 1-.026-.037V4.049c0-.57.166-1.127.476-1.607s.752-.864 1.275-1.105a3.08 3.08 0 0 1 3.234.41l-.096.054-3.23 1.838a.53.53 0 0 0-.265.455zm.742-1.577 1.758-1 1.762 1v2l-1.755 1-1.762-1z"/></svg><span class="limits-cli-name">OpenAI · Codex</span>
-          <span class="limits-cli-badge none" id="oai-badge">no data yet</span>
-        </div>
-        <div class="limits-gauge-grid">
-          <div class="limits-gauge">
-            <div class="limits-gauge-label">
-              <span id="oai-tok-label">Session window</span>
-              <span id="oai-tok-pct" style="color:var(--muted)">—</span>
-            </div>
-            <div class="limits-gauge-bar"><div class="limits-gauge-fill" id="oai-tok-fill" style="width:0%"></div></div>
-            <div class="limits-gauge-bottom">
-              <span class="limits-gauge-remaining" id="oai-tok-rem">—</span>
-              <span class="limits-gauge-reset" id="oai-tok-reset"></span>
-            </div>
-          </div>
-          <div class="limits-gauge">
-            <div class="limits-gauge-label">
-              <span id="oai-req-label">Weekly window</span>
-              <span id="oai-req-pct" style="color:var(--muted)">—</span>
-            </div>
-            <div class="limits-gauge-bar"><div class="limits-gauge-fill" id="oai-req-fill" style="width:0%"></div></div>
-            <div class="limits-gauge-bottom">
-              <span class="limits-gauge-remaining" id="oai-req-rem">—</span>
-              <span class="limits-gauge-reset" id="oai-req-reset"></span>
-            </div>
-          </div>
-        </div>
-        <div class="limits-billing-row" id="oai-billing-row" style="display:none">
-          <div class="limits-credit-card">
-            <div class="limits-credit-label">Credits remaining</div>
-            <div class="limits-credit-val" id="oai-credits">—</div>
-          </div>
-          <div class="limits-credit-card">
-            <div class="limits-credit-label">Hard limit</div>
-            <div class="limits-credit-val" style="color:var(--yellow)" id="oai-hard-lim">—</div>
-          </div>
-        </div>
-        <div class="limits-usage-row">
-          <div class="limits-usage-item">Session input: <span id="oai-u-inp-s">—</span></div>
-          <div class="limits-usage-item">Session output: <span id="oai-u-out-s">—</span></div>
-          <div class="limits-usage-item">Today input: <span id="oai-u-inp-d">—</span></div>
-          <div class="limits-usage-item">Today output: <span id="oai-u-out-d">—</span></div>
-          <div class="limits-usage-item" style="margin-left:auto">
-            <a href="https://platform.openai.com/usage" target="_blank" style="color:var(--muted);font-size:11px">View billing ↗</a>
-          </div>
-        </div>
-      </div>
-
-      <!-- Gemini -->
-      <div class="limits-cli-section" id="lim-gemini">
-        <div class="limits-cli-header">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" style="color:var(--blue)">
-            <path d="M12 0C5.37 0 0 5.37 0 12s5.37 12 12 12 12-5.37 12-12S18.63 0 12 0zm0 22C6.49 22 2 17.51 2 12S6.49 2 12 2s10 4.49 10 10-4.49 10-10 10zm-1-14h2v7h-2zm0 9h2v2h-2z"/>
-          </svg>
-          <svg width="16" height="16" fill="var(--text)" viewBox="0 0 16 16" style="vertical-align:middle;margin-right:6px"><path d="M15.545 6.558a9.4 9.4 0 0 1 .139 1.626c0 2.434-.87 4.492-2.384 5.885h.002C11.978 15.292 10.158 16 8 16A8 8 0 1 1 8 0a7.7 7.7 0 0 1 5.352 2.082l-2.284 2.284A4.35 4.35 0 0 0 8 3.166c-2.087 0-3.86 1.408-4.492 3.304a4.8 4.8 0 0 0 0 3.063h.003c.635 1.893 2.405 3.301 4.492 3.301 1.078 0 2.004-.276 2.722-.764h-.003a3.7 3.7 0 0 0 1.599-2.431H8v-3.08z"/></svg><span class="limits-cli-name">Google · Gemini CLI</span>
-          <span class="limits-cli-badge warn" id="gem-badge">only on 429 errors</span>
-        </div>
-        <div id="gem-nodata" class="limits-no-data">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="margin-bottom:6px;display:block;margin-inline:auto;opacity:.4">
-            <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
-          </svg>
-          Google does not expose quota headers on successful responses.<br>
-          Data appears here only after a 429 rate-limit error.<br>
-          <a href="https://aistudio.google.com/app/usage" target="_blank" style="margin-top:8px;display:inline-block">View quotas in AI Studio ↗</a>
-        </div>
-        <div id="gem-data" style="display:none">
-          <div class="limits-gauge-grid">
-            <div class="limits-gauge">
-              <div class="limits-gauge-label"><span>Last known token limit</span></div>
-              <div class="limits-gauge-bottom">
-                <span class="limits-gauge-remaining" id="gem-tok-lim">—</span>
-                <span class="limits-gauge-reset" id="gem-errors">0 errors</span>
-              </div>
-            </div>
-          </div>
-        </div>
-        <div class="limits-usage-row">
-          <div class="limits-usage-item">Session input: <span id="gem-u-inp-s">—</span></div>
-          <div class="limits-usage-item">Session output: <span id="gem-u-out-s">—</span></div>
-          <div class="limits-usage-item">Today input: <span id="gem-u-inp-d">—</span></div>
-          <div class="limits-usage-item">Today output: <span id="gem-u-out-d">—</span></div>
-          <div class="limits-usage-item" style="margin-left:auto">
-            <a href="https://aistudio.google.com/app/usage" target="_blank" style="color:var(--muted);font-size:11px">View quotas ↗</a>
-          </div>
-        </div>
-      </div>
-
-      <!-- Personal budget -->
-      <div class="limits-cli-section" style="margin-bottom:0">
-        <div class="limits-cli-header">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
-            <circle cx="12" cy="12" r="10"/>
-            <path d="M12 8v4l3 3"/>
-          </svg>
-          <span class="limits-cli-name">Personal daily budget</span>
-          <span class="limits-cli-badge none">optional</span>
-        </div>
-        <div class="limits-budget-row">
-          <input class="limits-budget-input" id="budget-input" type="number" placeholder="e.g. 5000000" min="0">
-          <span class="limits-budget-label">tokens / day</span>
-          <button class="btn-save" id="budget-save" style="padding:4px 12px;font-size:11px;border-radius:6px;border:1px solid var(--border);background:var(--bg3);color:var(--muted);cursor:pointer;transition:all .15s" onmouseover="this.style.borderColor='var(--blue)';this.style.color='var(--text)'" onmouseout="this.style.borderColor='var(--border)';this.style.color='var(--muted)'">Save</button>
-        </div>
-        <div id="budget-bar-wrap" style="margin-top:10px;display:none">
-          <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-bottom:5px">
-            <span>Tokens used today through Squeezr</span>
-            <span id="budget-pct-label">0%</span>
-          </div>
-          <div class="limits-gauge-bar" style="height:10px">
-            <div class="limits-gauge-fill" id="budget-bar" style="width:0%"></div>
-          </div>
-          <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-top:4px">
-            <span id="budget-used-label">0 used</span>
-            <span id="budget-limit-label">of —</span>
-          </div>
-        </div>
-      </div>
-
-    </div>
-
-    <!-- ─── Settings ─────────────────────────────────────────────────────── -->
-    <div class="page" id="page-settings">
-      <div class="section" style="margin-bottom:14px">
-        <div class="section-title">Compression mode</div>
-        <div class="mode-btns">
-          <button class="mode-btn" data-mode="soft">
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
-              <path d="M9.59 4.59A2 2 0 1 1 11 8H2m10.59 11.41A2 2 0 1 0 14 16H2m15.73-8.27A2.5 2.5 0 1 1 19.5 12H2"/>
-            </svg>
-            Soft
-          </button>
-          <button class="mode-btn active" data-mode="normal">
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/>
-              <line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/>
-              <line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/>
-              <line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/>
-              <line x1="17" y1="16" x2="23" y2="16"/>
-            </svg>
-            Normal
-          </button>
-          <button class="mode-btn" data-mode="aggressive">
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
-            </svg>
-            Aggressive
-          </button>
-          <button class="mode-btn" data-mode="critical">
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
-              <line x1="12" y1="9" x2="12" y2="13"/>
-              <line x1="12" y1="17" x2="12.01" y2="17"/>
-            </svg>
-            Critical
-          </button>
-        </div>
-        <div id="mode-desc">Normal — threshold 800 chars, last 3 results uncompressed</div>
-      </div>
-
-      <div class="section">
-        <div class="section-title">Configuration</div>
-        <div id="config-rows">
-          <div class="config-row"><span class="config-key">Mode</span><span class="config-val" id="cfg-mode">—</span></div>
-          <div class="config-row"><span class="config-key">Port</span><span class="config-val" id="cfg-port">—</span></div>
-          <div class="config-row"><span class="config-key">Dry-run</span><span class="config-val" id="cfg-dryrun">—</span></div>
-          <div class="config-row"><span class="config-key">LRU cache entries</span><span class="config-val" id="cfg-lru">—</span></div>
-          <div class="config-row"><span class="config-key">Session cache entries</span><span class="config-val" id="cfg-scache">—</span></div>
-          <div class="config-row"><span class="config-key">Version</span><span class="config-val" id="cfg-version">—</span></div>
-        </div>
-      </div>
-
-      <div class="section" style="margin-bottom:0">
-        <div class="section-title">Links</div>
-        <div style="display:flex;gap:16px;flex-wrap:wrap;font-size:12px">
-          <a href="/squeezr/stats" target="_blank">/squeezr/stats JSON</a>
-          <a href="/squeezr/history" target="_blank">/squeezr/history JSON</a>
-          <a href="/squeezr/projects" target="_blank">/squeezr/projects JSON</a>
-          <a href="https://github.com/sergioramosv/Squeezr" target="_blank">GitHub</a>
-        </div>
-      </div>
-    </div>
-
-  </div><!-- /pages -->
-
-  <div id="footer">
-    <span>Squeezr v<span id="f-version">—</span></span>
-    <span id="f-mode">mode: active</span>
-    <span id="f-port"></span>
-    <span id="conn-status" style="margin-left:auto;color:var(--green)">● connected</span>
-  </div>
-</div><!-- /content -->
-
-</div><!-- /app -->
-
 <script>
-// ── Sparkline ────────────────────────────────────────────────────────────────
-const MAX_PTS = 60
-const sparkData = []
-let lastTokens = 0
-function pushSpark(t) {
-  sparkData.push(Math.max(0, t - lastTokens))
-  lastTokens = t
-  if (sparkData.length > MAX_PTS) sparkData.shift()
-}
-function drawSpark() {
-  const cv = document.getElementById('sparkline')
-  if (!cv) return
-  const dpr = window.devicePixelRatio || 1
-  const r = cv.getBoundingClientRect()
-  cv.width = r.width * dpr; cv.height = r.height * dpr
-  const ctx = cv.getContext('2d')
-  ctx.scale(dpr, dpr)
-  const w = r.width, h = r.height
-  const mx = Math.max(...sparkData, 1)
-  ctx.clearRect(0, 0, w, h)
-  if (sparkData.length < 2) return
-  const step = w / (MAX_PTS - 1)
-  ctx.beginPath(); ctx.moveTo(0, h)
-  sparkData.forEach((v, i) => ctx.lineTo(i * step, h - (v / mx) * (h - 4)))
-  ctx.lineTo((sparkData.length - 1) * step, h)
-  ctx.closePath()
-  const g = ctx.createLinearGradient(0, 0, 0, h)
-  g.addColorStop(0, 'rgba(63,185,80,.3)'); g.addColorStop(1, 'rgba(63,185,80,0)')
-  ctx.fillStyle = g; ctx.fill()
-  ctx.beginPath()
-  sparkData.forEach((v, i) => {
-    const x = i * step, y = h - (v / mx) * (h - 4)
-    i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y)
-  })
-  ctx.strokeStyle = '#3fb950'; ctx.lineWidth = 1.5; ctx.stroke()
-}
-window.addEventListener('resize', drawSpark)
+// ── Theme ──────────────────────────────────────────────────────────────────
+(function(){
+  var saved = localStorage.getItem('sq-theme') || 'dark';
+  applyTheme(saved);
+})();
 
-// ── Helpers ──────────────────────────────────────────────────────────────────
-function fmtN(n) {
-  if (n >= 1e6) return (n / 1e6).toFixed(1) + 'M'
-  if (n >= 1e3) return (n / 1e3).toFixed(1) + 'K'
-  return String(n)
+function applyTheme(t) {
+  if (t === 'dark') {
+    document.documentElement.classList.add('dark');
+    var btn = document.getElementById('theme-btn');
+    if (btn) {
+      document.getElementById('theme-icon').textContent = '☀️';
+      document.getElementById('theme-label').textContent = 'Light mode';
+    }
+  } else {
+    document.documentElement.classList.remove('dark');
+    var btn = document.getElementById('theme-btn');
+    if (btn) {
+      document.getElementById('theme-icon').textContent = '🌙';
+      document.getElementById('theme-label').textContent = 'Dark mode';
+    }
+  }
+  localStorage.setItem('sq-theme', t);
 }
-function fmtCost(tok) {
-  const u = (tok / 1e6) * 3
-  return u < 0.01 ? '<$0.01' : u < 1 ? '$' + u.toFixed(3) : '$' + u.toFixed(2)
+
+function toggleTheme() {
+  var isDark = document.documentElement.classList.contains('dark');
+  applyTheme(isDark ? 'light' : 'dark');
 }
+
+// ── Navigation ─────────────────────────────────────────────────────────────
+var currentPage = 'home';
+
+function navigate(page) {
+  currentPage = page;
+  document.querySelectorAll('.nav-item').forEach(function(el) {
+    el.classList.toggle('active', el.dataset.page === page);
+  });
+  document.getElementById('page-home').style.display = page === 'home' ? '' : 'none';
+  document.getElementById('page-settings').style.display = page === 'settings' ? '' : 'none';
+}
+
+// ── Formatting helpers ─────────────────────────────────────────────────────
+function fmtNum(n) {
+  if (n == null) return '—';
+  if (n >= 1e9) return (n / 1e9).toFixed(1) + 'B';
+  if (n >= 1e6) return (n / 1e6).toFixed(1) + 'M';
+  if (n >= 1e3) return (n / 1e3).toFixed(1) + 'K';
+  return String(n);
+}
+
+function fmtRatio(r) {
+  if (r == null) return '—';
+  return Math.round(r * 100) + '%';
+}
+
+function fmtUsd(v) {
+  if (v == null) return '—';
+  return '$' + Number(v).toFixed(2);
+}
+
 function fmtUptime(s) {
-  if (s < 60) return s + 's'
-  if (s < 3600) return Math.floor(s / 60) + 'm ' + (s % 60) + 's'
-  return Math.floor(s / 3600) + 'h ' + Math.floor((s % 3600) / 60) + 'm'
-}
-function fmtTs(ms) {
-  if (!ms) return '—'
-  const d = new Date(ms)
-  return d.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})
-}
-function fmtTime(ms) {
-  if (!ms) return '—'
-  const d = new Date(ms)
-  return d.toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false})
-}
-function fmtDur(startMs, endMs) {
-  const s = Math.round((endMs - startMs) / 1000)
-  if (s < 60) return s + 's'
-  if (s < 3600) return Math.floor(s / 60) + 'm ' + (s % 60) + 's'
-  return Math.floor(s / 3600) + 'h ' + Math.floor((s % 3600) / 60) + 'm'
-}
-function timeAgo(ms) {
-  if (!ms) return ''
-  const diff = Math.round((Date.now() - ms) / 1000)
-  if (diff < 60) return 'just now'
-  if (diff < 3600) return Math.floor(diff / 60) + 'm ago'
-  if (diff < 86400) return Math.floor(diff / 3600) + 'h ago'
-  if (diff < 172800) return 'yesterday'
-  return Math.floor(diff / 86400) + 'd ago'
-}
-function barColor(p) {
-  if (p >= 90) return 'var(--red)'
-  if (p >= 75) return 'var(--yellow)'
-  if (p >= 50) return 'var(--orange)'
-  return 'var(--blue)'
-}
-function setBar(bid, vid, pct, label, noColor) {
-  const b = document.getElementById(bid), v = document.getElementById(vid)
-  b.style.width = Math.min(pct, 100) + '%'
-  if (!noColor) b.style.background = barColor(pct)
-  v.textContent = label
-}
-const PROJECT_COLORS = ['#58a6ff','#3fb950','#ffa657','#bc8cff','#d29922','#f85149','#79c0ff','#56d364']
-function projectColor(name) {
-  let h = 0; for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) & 0xffff
-  return PROJECT_COLORS[h % PROJECT_COLORS.length]
+  if (s == null) return '—';
+  var d = Math.floor(s / 86400);
+  var h = Math.floor((s % 86400) / 3600);
+  var m = Math.floor((s % 3600) / 60);
+  var sec = s % 60;
+  if (d > 0) return d + 'd ' + h + 'h ' + m + 'm';
+  if (h > 0) return h + 'h ' + m + 'm ' + sec + 's';
+  if (m > 0) return m + 'm ' + sec + 's';
+  return sec + 's';
 }
 
-// ── Overview render ──────────────────────────────────────────────────────────
-function renderOverview(d) {
-  document.getElementById('c-tokens').textContent = fmtN(d.total_saved_tokens)
-  document.getElementById('c-chars').textContent = (d.total_saved_chars || 0).toLocaleString() + ' chars'
-  document.getElementById('c-pct').textContent = (d.savings_pct || 0) + '%'
-  document.getElementById('c-req').textContent = fmtN(d.requests || 0)
-  document.getElementById('c-compressions').textContent = (d.compressions || 0) + ' compressions'
-  document.getElementById('c-cost').textContent = fmtCost(d.total_saved_tokens || 0)
-  document.getElementById('f-version').textContent = d.version || '—'
-  document.getElementById('sb-ver').textContent = 'v' + (d.version || '—')
-  document.getElementById('f-mode').textContent = 'mode: ' + (d.dry_run ? 'dry-run' : 'active')
-  document.getElementById('f-port').textContent = 'port: ' + (d.port || '—')
-  // uptime removed from UI
+// ── Render stats ───────────────────────────────────────────────────────────
+var lastStats = null;
 
-  // Project badge
-  const proj = d.current_project
-  const badge = document.getElementById('project-badge')
-  if (proj && proj !== 'unknown') {
-    badge.textContent = proj
-    badge.style.display = ''
-    badge.style.borderColor = projectColor(proj)
-    badge.style.color = projectColor(proj)
-  } else {
-    badge.style.display = 'none'
+function renderStats(d) {
+  if (!d) return;
+  lastStats = d;
+
+  // version in sidebar
+  if (d.version) {
+    document.getElementById('sb-version').textContent = 'v' + d.version;
   }
 
-  // Pressure bars
-  const msgPct = Math.min(Math.round((d.last_original_chars || 0) / 80), 100)
-  const outPct = Math.min(Math.round((d.last_compressed_chars || 0) / 80), 100)
-  const ch = d.session_cache_hits || 0
-  const cachePct = Math.round((ch / Math.max(ch + (d.compressions || 1), 1)) * 100)
-  setBar('bar-msg', 'pct-msg', msgPct, msgPct + '%')
-  setBar('bar-out', 'pct-out', outPct, outPct + '%')
-  setBar('bar-cache', 'pct-cache', cachePct, ch, true)
+  // Hero cards
+  document.getElementById('s-tokens-saved').textContent = fmtNum(d.tokens_saved);
+  document.getElementById('s-tokens-in').textContent = fmtNum(d.tokens_in);
+  document.getElementById('s-ratio').textContent = fmtRatio(d.compression_ratio);
+  document.getElementById('s-cost').textContent = fmtUsd(d.cost_saved_usd);
+  document.getElementById('s-requests').textContent = fmtNum(d.total_requests);
+  document.getElementById('s-compressed').textContent = fmtNum(d.compressed);
 
-  // Sparkline
-  pushSpark(d.total_saved_tokens || 0)
-  drawSpark()
+  // Latency
+  document.getElementById('l-p50').textContent = d.latency_p50 != null ? d.latency_p50 : '—';
+  document.getElementById('l-p95').textContent = d.latency_p95 != null ? d.latency_p95 : '—';
+  document.getElementById('l-p99').textContent = d.latency_p99 != null ? d.latency_p99 : '—';
 
-  // Tool table
-  const bt = d.by_tool || {}
-  const rows = Object.entries(bt).sort((a, b) => b[1].saved_tokens - a[1].saved_tokens)
-  const maxSaved = rows[0]?.[1]?.saved_tokens || 1
-  const tbody = document.getElementById('tools-body')
-  if (rows.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="4" style="color:var(--muted);padding:14px 8px;text-align:center">No tool results compressed yet…</td></tr>'
-  } else {
-    tbody.innerHTML = rows.map(([tool, t]) => {
-      const bw = Math.round((t.saved_tokens / maxSaved) * 72)
-      return \`<tr>
-        <td><code class="tag">\${tool}</code></td>
-        <td class="td-right" style="color:var(--muted)">\${t.count}</td>
-        <td class="td-right">\${fmtN(t.saved_tokens)}</td>
-        <td><span class="mini-bar" style="width:\${bw}px;background:var(--green)"></span>\${t.avg_pct}%</td>
-      </tr>\`
-    }).join('')
-  }
+  // Cache
+  var hits = d.cache_hits || 0;
+  var miss = d.cache_miss || 0;
+  var total = hits + miss;
+  document.getElementById('c-hits').textContent = fmtNum(hits);
+  document.getElementById('c-miss').textContent = fmtNum(miss);
+  document.getElementById('c-rate').textContent = total > 0 ? Math.round(hits / total * 100) + '%' : '—';
 
-  // Cache stats
-  document.getElementById('c-scache').textContent = d.session_cache_size ?? '—'
-  document.getElementById('c-expand').textContent = d.expand_store_size ?? '—'
-  document.getElementById('c-lru').textContent = d.cache?.size ?? '—'
-  document.getElementById('c-patterns').textContent = d.pattern_hits
-    ? Object.values(d.pattern_hits).reduce((s, v) => s + v, 0).toLocaleString()
-    : '—'
+  // Tools chart
+  renderTools(d.tools);
 
-  // Settings config panel
-  document.getElementById('cfg-mode').textContent = d.mode || '—'
-  document.getElementById('cfg-port').textContent = d.port || '—'
-  document.getElementById('cfg-dryrun').textContent = d.dry_run ? 'yes' : 'no'
-  document.getElementById('cfg-lru').textContent = d.cache?.size ?? '—'
-  document.getElementById('cfg-scache').textContent = d.session_cache_size ?? '—'
-  document.getElementById('cfg-version').textContent = d.version || '—'
+  // Mode badge + buttons
+  var mode = d.mode || 'normal';
+  var bypassed = !!d.bypass;
+  updateModeUI(mode, bypassed);
 
-  // Sync active mode button
-  document.querySelectorAll('.mode-btn').forEach(b => {
-    b.classList.toggle('active', b.dataset.mode === d.mode)
-  })
-  const modeMap = {
-    soft: 'Soft — threshold 3000 chars, last 10 results uncompressed, no AI',
-    normal: 'Normal — threshold 800 chars, last 3 results uncompressed',
-    aggressive: 'Aggressive — threshold 200 chars, last 1 result uncompressed',
-    critical: 'Critical — threshold 50 chars, everything compressed'
-  }
-  document.getElementById('mode-desc').textContent = modeMap[d.mode] || ''
+  // Settings page
+  if (d.version) document.getElementById('cfg-version').innerHTML = '<code>' + d.version + '</code>';
+  if (d.uptime_seconds != null) document.getElementById('cfg-uptime').textContent = fmtUptime(d.uptime_seconds);
+  document.getElementById('cfg-mode').innerHTML = '<code>' + mode + '</code>';
+  document.getElementById('cfg-bypass').innerHTML = '<code>' + (bypassed ? 'enabled' : 'disabled') + '</code>';
 
-  // Savings breakdown
-  const bd = d.breakdown
-  if (bd) {
-    const fmtC = (n) => n > 0 ? '-' + fmtN(n) : '0'
-    document.getElementById('bd-det').textContent = fmtC(bd.deterministic)
-    document.getElementById('bd-ai').textContent = fmtC(bd.ai_compression)
-    document.getElementById('bd-dedup').textContent = fmtC(bd.read_dedup)
-    document.getElementById('bd-sysprompt').textContent = fmtC(bd.system_prompt)
-    document.getElementById('bd-overhead').textContent = bd.overhead > 0 ? '+' + fmtN(bd.overhead) : '0'
-    document.getElementById('bd-aicalls').textContent = bd.ai_calls > 0 ? bd.ai_calls + ' calls' : '0'
-  }
-
-  // ── Resilience indicators ──────────────────────────────────────────────────
-
-  // Latency card
-  const lat = d.latency?.total
-  if (lat && lat.count > 0) {
-    document.getElementById('c-latency').textContent = lat.p50 + ' / ' + lat.p95
-    document.getElementById('c-latency-sub').textContent = lat.count + ' samples, avg ' + lat.avg + 'ms'
-  } else {
-    document.getElementById('c-latency').textContent = '—'
-    document.getElementById('c-latency-sub').textContent = 'no data yet'
-  }
-
-  // Expand rate card
-  const exp = d.expand
-  if (exp && exp.calls > 0) {
-    const rateColor = exp.rate_pct > 25 ? 'var(--red)' : exp.rate_pct > 10 ? 'var(--yellow)' : 'var(--green)'
-    document.getElementById('c-expand-rate').textContent = exp.rate_pct + '%'
-    document.getElementById('c-expand-rate').style.color = rateColor
-    document.getElementById('c-expand-rate-sub').textContent = exp.calls + ' expand calls / ' + (d.compressions || 0) + ' compressions'
-  } else {
-    document.getElementById('c-expand-rate').textContent = '0%'
-    document.getElementById('c-expand-rate').style.color = 'var(--green)'
-    document.getElementById('c-expand-rate-sub').textContent = 'no expand calls (good)'
-  }
-
-  // Circuit breaker indicator (sidebar)
-  const cb = d.circuit_breaker
-  if (cb) {
-    const cbEl = document.getElementById('cb-indicator')
-    const icons = { closed: '🟢 Circuit OK', open: '🔴 Circuit OPEN', 'half-open': '🟡 Probing…' }
-    cbEl.textContent = icons[cb.state] || cb.state
-    if (cb.total_trips > 0) cbEl.textContent += ' (' + cb.total_trips + ' trip' + (cb.total_trips > 1 ? 's' : '') + ')'
-  }
-
-  // Bypass toggle (sidebar)
-  const bypassLabel = document.getElementById('bypass-label')
-  if (d.bypassed) {
-    bypassLabel.textContent = '⏸️ Bypass ON'
-    bypassLabel.style.color = 'var(--yellow)'
-  } else {
-    bypassLabel.textContent = '▶️ Compression ON'
-    bypassLabel.style.color = 'var(--green)'
+  if (d.circuit_breaker) {
+    var cb = d.circuit_breaker;
+    document.getElementById('cfg-cb').innerHTML =
+      '<code>' + cb.state + (cb.total_trips != null ? ' · ' + cb.total_trips + ' trips' : '') + '</code>';
   }
 }
 
-// ── Projects page ────────────────────────────────────────────────────────────
-async function loadProjects() {
-  try {
-    const r = await fetch('/squeezr/projects')
-    const { projects } = await r.json()
-    const tbody = document.getElementById('projects-body')
-    const entries = Object.entries(projects).sort((a, b) => b[1].savedTokens - a[1].savedTokens)
-    if (entries.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="5" style="color:var(--muted);padding:20px 8px;text-align:center">No project data yet — start making requests.</td></tr>'
-      return
+function updateModeUI(mode, bypassed) {
+  // badge
+  var mb = document.getElementById('mode-badge');
+  mb.textContent = mode;
+  mb.className = 'mode-badge' + (mode === 'off' ? ' off' : '');
+
+  var bb = document.getElementById('bypass-badge');
+  bb.textContent = bypassed ? 'on' : 'off';
+  bb.className = 'mode-badge' + (bypassed ? ' bypassed' : '');
+
+  // mode buttons
+  document.querySelectorAll('.mode-btn').forEach(function(btn) {
+    btn.className = 'mode-btn';
+    if (btn.dataset.mode === mode) {
+      btn.className = 'mode-btn ' + (mode === 'off' ? 'active-off' : 'active');
     }
-    tbody.innerHTML = entries.map(([name, p]) => \`<tr>
-      <td><span class="project-dot" style="background:\${projectColor(name)}"></span><code>\${name}</code></td>
-      <td class="td-right" style="color:var(--muted)">\${p.sessions}</td>
-      <td class="td-right">\${p.requests}</td>
-      <td class="td-right" style="color:var(--green)">\${fmtN(p.savedTokens)}</td>
-      <td class="td-right" style="color:var(--muted);font-size:11px">\${p.lastSeen ? fmtTs(p.lastSeen) : '—'}</td>
-    </tr>\`).join('')
-  } catch {
-    document.getElementById('projects-body').innerHTML = '<tr><td colspan="5" style="color:var(--muted);padding:20px 8px;text-align:center">Failed to load projects.</td></tr>'
-  }
+  });
+
+  // bypass button
+  document.getElementById('bypass-btn').className = 'bypass-btn' + (bypassed ? ' active' : '');
 }
 
-// ── History page ─────────────────────────────────────────────────────────────
-let histData = null
-let selectedHistProj = '__all__'
-
-async function loadHistory() {
-  try {
-    const r = await fetch('/squeezr/history')
-    histData = await r.json()
-    renderHistProjects()
-    renderHistSessions()
-  } catch {
-    document.getElementById('hist-proj-list').innerHTML = '<div class="empty-msg">Failed to load history.</div>'
+// ── Tools bar chart ────────────────────────────────────────────────────────
+function renderTools(tools) {
+  var container = document.getElementById('tools-list');
+  if (!tools || typeof tools !== 'object') {
+    container.innerHTML = '<span style="color:var(--muted);font-size:12px">No tool data available</span>';
+    return;
   }
+
+  var entries = Object.entries(tools)
+    .filter(function(e) { return e[1] > 0; })
+    .sort(function(a, b) { return b[1] - a[1]; })
+    .slice(0, 5);
+
+  if (entries.length === 0) {
+    container.innerHTML = '<span style="color:var(--muted);font-size:12px">No tools recorded yet</span>';
+    return;
+  }
+
+  var max = entries[0][1];
+  container.innerHTML = entries.map(function(e) {
+    var pct = max > 0 ? Math.round(e[1] / max * 100) : 0;
+    return '<div class="tool-row">' +
+      '<span class="tool-name">' + escHtml(e[0]) + '</span>' +
+      '<div class="tool-bar-wrap"><div class="tool-bar" style="width:' + pct + '%"></div></div>' +
+      '<span class="tool-count">' + fmtNum(e[1]) + '</span>' +
+      '</div>';
+  }).join('');
 }
 
-function renderHistProjects() {
-  if (!histData) return
-  const all = [...histData.sessions]
-  if (histData.current && histData.current.requests > 0) {
-    const idx = all.findIndex(s => s.id === histData.current.id)
-    if (idx >= 0) all[idx] = histData.current; else all.push(histData.current)
-  }
-
-  // Group by project
-  const byProj = {}
-  for (const s of all) {
-    if (!byProj[s.project]) byProj[s.project] = 0
-    byProj[s.project]++
-  }
-
-  const list = document.getElementById('hist-proj-list')
-  let html = \`<div class="hist-proj-item\${selectedHistProj === '__all__' ? ' active' : ''}" data-proj="__all__">
-    <span>All projects</span>
-    <span class="hist-proj-count">\${all.length}</span>
-  </div>\`
-  for (const [name, cnt] of Object.entries(byProj).sort((a, b) => b[1] - a[1])) {
-    const active = selectedHistProj === name ? ' active' : ''
-    html += \`<div class="hist-proj-item\${active}" data-proj="\${name}">
-      <span><span class="project-dot" style="background:\${projectColor(name)}"></span>\${name}</span>
-      <span class="hist-proj-count">\${cnt}</span>
-    </div>\`
-  }
-  list.innerHTML = html
-
-  list.querySelectorAll('.hist-proj-item').forEach(el => {
-    el.addEventListener('click', () => {
-      selectedHistProj = el.dataset.proj
-      list.querySelectorAll('.hist-proj-item').forEach(x => x.classList.remove('active'))
-      el.classList.add('active')
-      renderHistSessions()
-    })
-  })
+function escHtml(s) {
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
 }
 
-function renderHistSessions() {
-  if (!histData) return
-  let sessions = [...histData.sessions]
-  if (histData.current && histData.current.requests > 0) {
-    const idx = sessions.findIndex(s => s.id === histData.current.id)
-    if (idx >= 0) sessions[idx] = histData.current; else sessions.push(histData.current)
-  }
-  // Filter empty sessions and sort newest first
-  sessions = sessions.filter(s => s.requests > 0)
-  sessions.sort((a, b) => b.startTime - a.startTime)
-
-  if (selectedHistProj !== '__all__') {
-    sessions = sessions.filter(s => s.project === selectedHistProj)
-  }
-
-  const header = document.getElementById('hist-sessions-header')
-  header.textContent = selectedHistProj === '__all__'
-    ? \`All sessions (\${sessions.length})\`
-    : \`\${selectedHistProj} — \${sessions.length} session\${sessions.length !== 1 ? 's' : ''}\`
-
-  const list = document.getElementById('hist-sessions-list')
-  if (sessions.length === 0) {
-    list.innerHTML = '<div class="empty-msg">No sessions found.</div>'
-    return
-  }
-
-  // Group by day
-  const byDay = {}
-  for (const s of sessions) {
-    const day = new Date(s.startTime).toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric',year:'numeric'})
-    if (!byDay[day]) byDay[day] = []
-    byDay[day].push(s)
-  }
-
-  let html = ''
-  for (const [day, daySessions] of Object.entries(byDay)) {
-    html += \`<div style="padding:8px 16px;font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;background:var(--bg3);border-bottom:1px solid var(--border)">\${day}</div>\`
-    for (const s of daySessions) {
-      const isCurrent = s.id === histData.current?.id
-      const projBadge = selectedHistProj === '__all__' ? \`<span class="session-project-badge">\${s.project}</span>\` : ''
-      html += \`<div class="session-card">
-        <div class="session-date">
-          \${fmtTime(s.startTime)} → \${fmtTime(s.endTime)}
-          <span style="color:var(--muted);font-weight:400"> (\${fmtDur(s.startTime, s.endTime)})</span>
-          <span style="color:var(--muted);font-weight:400;margin-left:6px">\${timeAgo(s.endTime)}</span>
-          \${isCurrent ? '<span style="font-size:10px;color:var(--green);margin-left:8px">● active</span>' : ''}
-          \${projBadge}
-        </div>
-        <div class="session-stats">
-          <div class="session-stat">Requests: <span>\${s.requests}</span></div>
-          <div class="session-stat">Tokens saved: <span style="color:var(--green)">\${fmtN(s.savedTokens)}</span></div>
-          <div class="session-stat">Compressions: <span>\${s.compressions}</span></div>
-        </div>
-      </div>\`
-    }
-  }
-  list.innerHTML = html
-}
-
-// ── Limits page ─────────────────────────────────────────────────────────────
-let limitsCountdownTimer = null
-
-function fmtTokens(n) {
-  if (!n && n !== 0) return '—'
-  if (n >= 1e6) return (n / 1e6).toFixed(2) + 'M'
-  if (n >= 1e3) return (n / 1e3).toFixed(1) + 'K'
-  return String(n)
-}
-
-function gaugeColor(pct) {
-  if (pct >= 90) return 'var(--red)'
-  if (pct >= 70) return 'var(--yellow)'
-  if (pct >= 40) return 'var(--orange)'
-  return 'var(--green)'
-}
-
-function fillGauge(fillId, pctId, remId, resetId, remaining, limit, resetEpoch) {
-  if (!limit) {
-    document.getElementById(fillId).style.width = '0%'
-    document.getElementById(pctId).textContent = '—'
-    document.getElementById(remId).textContent = '—'
-    if (resetId) document.getElementById(resetId).textContent = ''
-    return
-  }
-  const used = limit - remaining
-  const pct = Math.max(0, Math.min(100, Math.round((used / limit) * 100)))
-  const fill = document.getElementById(fillId)
-  fill.style.width = pct + '%'
-  fill.style.background = gaugeColor(pct)
-  document.getElementById(pctId).textContent = pct + '% used'
-  document.getElementById(pctId).style.color = gaugeColor(pct)
-  document.getElementById(remId).textContent = fmtTokens(remaining) + ' remaining'
-  if (resetId && resetEpoch) {
-    const secs = Math.max(0, Math.round((resetEpoch - Date.now()) / 1000))
-    document.getElementById(resetId).textContent = secs > 0 ? 'resets in ' + secs + 's' : ''
-  }
-}
-
-function formatResetCountdown(resetEpoch) {
-  const secs = resetEpoch > 0 ? Math.max(0, Math.round((resetEpoch - Date.now()) / 1000)) : 0
-  if (secs <= 0) return ''
-  if (secs >= 86400) return Math.floor(secs / 86400) + 'd ' + Math.floor((secs % 86400) / 3600) + 'h'
-  if (secs >= 3600) return Math.floor(secs / 3600) + 'h ' + Math.floor((secs % 3600) / 60) + 'm'
-  if (secs >= 60) return Math.floor(secs / 60) + 'm'
-  return secs + 's'
-}
-
-function fillPercentGauge(fillId, pctId, remId, resetId, usedPercent, resetEpoch) {
-  if (usedPercent == null) {
-    document.getElementById(fillId).style.width = '0%'
-    document.getElementById(pctId).textContent = 'â€”'
-    document.getElementById(remId).textContent = 'â€”'
-    if (resetId) document.getElementById(resetId).textContent = ''
-    return
-  }
-  const pct = Math.max(0, Math.min(100, Math.round(usedPercent || 0)))
-  const fill = document.getElementById(fillId)
-  fill.style.width = pct + '%'
-  fill.style.background = gaugeColor(pct)
-  document.getElementById(pctId).textContent = pct + '%'
-  document.getElementById(pctId).style.color = gaugeColor(pct)
-  document.getElementById(remId).textContent = pct >= 80 ? pct + '% used' : (100 - pct) + '% free'
-  const resetStr = formatResetCountdown(resetEpoch)
-  if (resetId) document.getElementById(resetId).textContent = resetStr ? 'resets in ' + resetStr : ''
-}
-
-function renderLimits(d) {
-  if (!d) return
-  const { anthropic, openai, gemini } = d
-
-  // ── Anthropic ──
-  const arl = anthropic?.rl
-  const au = anthropic?.usage
-  const antHasUsage = au && (au.inputSession > 0 || au.outputSession > 0)
-  if (anthropic?.unified?.hasData) {
-    // Subscription (OAuth): unified rate limits with 5h/7d windows
-    const u = anthropic.unified
-    document.getElementById('ant-badge').className = 'limits-cli-badge live'
-    document.getElementById('ant-badge').textContent = 'subscription'
-    // Relabel gauges for subscription windows
-    document.getElementById('ant-tok-label').textContent = '5-hour window'
-    document.getElementById('ant-req-label').textContent = '7-day window'
-    document.getElementById('ant-inp-label').textContent = 'Session input'
-    document.getElementById('ant-out-label').textContent = 'Session output'
-    // 5-hour window
-    const pct5h = Math.round(u.fiveHourUtilization * 100)
-    document.getElementById('ant-tok-fill').style.width = pct5h + '%'
-    document.getElementById('ant-tok-fill').style.background = gaugeColor(pct5h)
-    document.getElementById('ant-tok-pct').textContent = pct5h + '%'
-    document.getElementById('ant-tok-pct').style.color = gaugeColor(pct5h)
-    const secs5h = u.fiveHourResetEpoch > 0 ? Math.max(0, Math.round((u.fiveHourResetEpoch - Date.now()) / 1000)) : 0
-    const resetStr5h = secs5h > 3600 ? Math.floor(secs5h/3600) + 'h ' + Math.floor((secs5h%3600)/60) + 'm'
-                     : secs5h > 60 ? Math.floor(secs5h/60) + 'm'
-                     : secs5h > 0 ? secs5h + 's' : ''
-    document.getElementById('ant-tok-rem').textContent = u.fiveHourStatus === 'allowed'
-      ? (pct5h >= 80 ? pct5h + '% used' : (100-pct5h) + '% free')
-      : 'throttled — resets in ' + resetStr5h
-    document.getElementById('ant-tok-reset').textContent = resetStr5h ? 'resets in ' + resetStr5h : ''
-    // 7-day window
-    const pct7d = Math.round(u.sevenDayUtilization * 100)
-    document.getElementById('ant-req-fill').style.width = pct7d + '%'
-    document.getElementById('ant-req-fill').style.background = gaugeColor(pct7d)
-    document.getElementById('ant-req-pct').textContent = pct7d + '%'
-    document.getElementById('ant-req-pct').style.color = gaugeColor(pct7d)
-    const secs7d = u.sevenDayResetEpoch > 0 ? Math.max(0, Math.round((u.sevenDayResetEpoch - Date.now()) / 1000)) : 0
-    const resetStr7d = secs7d > 86400 ? Math.floor(secs7d/86400) + 'd ' + Math.floor((secs7d%86400)/3600) + 'h'
-                     : secs7d > 3600 ? Math.floor(secs7d/3600) + 'h ' + Math.floor((secs7d%3600)/60) + 'm'
-                     : secs7d > 0 ? Math.floor(secs7d/60) + 'm' : ''
-    document.getElementById('ant-req-rem').textContent = u.sevenDayStatus === 'allowed'
-      ? (pct7d >= 80 ? pct7d + '% used' : (100-pct7d) + '% free')
-      : 'throttled — resets in ' + resetStr7d
-    document.getElementById('ant-req-reset').textContent = resetStr7d ? 'resets in ' + resetStr7d : ''
-    // Input/output: show session totals
-    document.getElementById('ant-inp-pct').textContent = fmtTokens(au?.inputSession || 0)
-    document.getElementById('ant-inp-rem').textContent = 'session input'
-    document.getElementById('ant-out-pct').textContent = fmtTokens(au?.outputSession || 0)
-    document.getElementById('ant-out-rem').textContent = 'session output'
-  } else if (arl?.hasData) {
-    document.getElementById('ant-badge').className = 'limits-cli-badge live'
-    document.getElementById('ant-badge').textContent = 'live'
-    fillGauge('ant-tok-fill','ant-tok-pct','ant-tok-rem','ant-tok-reset', arl.tokensRemaining, arl.tokensLimit, arl.tokensResetEpoch)
-    fillGauge('ant-req-fill','ant-req-pct','ant-req-rem','ant-req-reset', arl.requestsRemaining, arl.requestsLimit, arl.requestsResetEpoch)
-    fillGauge('ant-inp-fill','ant-inp-pct','ant-inp-rem','ant-inp-reset', arl.inputTokensRemaining, arl.inputTokensLimit, arl.tokensResetEpoch)
-    fillGauge('ant-out-fill','ant-out-pct','ant-out-rem','ant-out-reset', arl.outputTokensRemaining, arl.outputTokensLimit, arl.tokensResetEpoch)
-  } else if (antHasUsage) {
-    // Fallback: no rate limit headers at all, but usage is tracked
-    document.getElementById('ant-badge').className = 'limits-cli-badge live'
-    document.getElementById('ant-badge').textContent = 'tracking'
-    document.getElementById('ant-tok-pct').textContent = fmtTokens((au?.inputSession || 0) + (au?.outputSession || 0))
-    document.getElementById('ant-tok-rem').textContent = 'session total'
-    document.getElementById('ant-req-pct').textContent = (au?.requestsSession || 0) + ' reqs'
-    document.getElementById('ant-req-rem').textContent = 'session total'
-    document.getElementById('ant-inp-pct').textContent = fmtTokens(au?.inputSession || 0)
-    document.getElementById('ant-inp-rem').textContent = 'session input'
-    document.getElementById('ant-out-pct').textContent = fmtTokens(au?.outputSession || 0)
-    document.getElementById('ant-out-rem').textContent = 'session output'
-  }
-  if (au) {
-    document.getElementById('ant-u-inp-s').textContent = fmtTokens(au.inputSession)
-    document.getElementById('ant-u-out-s').textContent = fmtTokens(au.outputSession)
-    document.getElementById('ant-u-inp-d').textContent = fmtTokens(au.inputToday)
-    document.getElementById('ant-u-out-d').textContent = fmtTokens(au.outputToday)
-  }
-
-  // ── OpenAI ──
-  const os = openai?.session
-  const orl = openai?.rl
-  const ou = openai?.usage
-  const oaiHasUsage = ou && (ou.inputSession > 0 || ou.outputSession > 0)
-  if (os?.hasData) {
-    document.getElementById('oai-badge').className = 'limits-cli-badge live'
-    document.getElementById('oai-badge').textContent = os.planType || 'session'
-    document.getElementById('oai-tok-label').textContent = (os.primary?.windowDurationMins || 300) >= 300 ? '5-hour window' : 'session window'
-    document.getElementById('oai-req-label').textContent = (os.secondary?.windowDurationMins || 0) >= 10080 ? '7-day window' : 'weekly window'
-    fillPercentGauge('oai-tok-fill','oai-tok-pct','oai-tok-rem','oai-tok-reset', os.primary?.usedPercent, os.primary?.resetsAt || 0)
-    fillPercentGauge('oai-req-fill','oai-req-pct','oai-req-rem','oai-req-reset', os.secondary?.usedPercent, os.secondary?.resetsAt || 0)
-  } else if (orl?.hasData) {
-    document.getElementById('oai-badge').className = 'limits-cli-badge live'
-    document.getElementById('oai-badge').textContent = 'live'
-    document.getElementById('oai-tok-label').textContent = 'tokens / minute'
-    document.getElementById('oai-req-label').textContent = 'requests / minute'
-    fillGauge('oai-tok-fill','oai-tok-pct','oai-tok-rem','oai-tok-reset', orl.tokensRemaining, orl.tokensLimit, orl.tokensResetEpoch)
-    fillGauge('oai-req-fill','oai-req-pct','oai-req-rem','oai-req-reset', orl.requestsRemaining, orl.requestsLimit, orl.requestsResetEpoch)
-  } else if (oaiHasUsage) {
-    document.getElementById('oai-badge').className = 'limits-cli-badge live'
-    document.getElementById('oai-badge').textContent = 'tracking'
-    document.getElementById('oai-tok-label').textContent = 'session total'
-    document.getElementById('oai-req-label').textContent = 'session requests'
-    document.getElementById('oai-tok-pct').textContent = fmtTokens(ou.inputSession + ou.outputSession)
-    document.getElementById('oai-tok-rem').textContent = 'session total'
-    document.getElementById('oai-req-pct').textContent = ou.requestsSession + ' reqs'
-    document.getElementById('oai-req-rem').textContent = 'session total'
-  }
-  const ob = openai?.billing
-  if (ob?.hardLimitUsd > 0) {
-    document.getElementById('oai-billing-row').style.display = 'flex'
-    document.getElementById('oai-credits').textContent = '$' + (ob.creditBalanceUsd || 0).toFixed(2)
-    document.getElementById('oai-hard-lim').textContent = '$' + ob.hardLimitUsd.toFixed(2)
-  }
-  if (ou) {
-    document.getElementById('oai-u-inp-s').textContent = fmtTokens(ou.inputSession)
-    document.getElementById('oai-u-out-s').textContent = fmtTokens(ou.outputSession)
-    document.getElementById('oai-u-inp-d').textContent = fmtTokens(ou.inputToday)
-    document.getElementById('oai-u-out-d').textContent = fmtTokens(ou.outputToday)
-  }
-
-  // ── Gemini ──
-  const ge = gemini?.errors
-  const gu = gemini?.usage
-  const gemHasUsage = gu && (gu.inputSession > 0 || gu.outputSession > 0)
-  if (ge?.hasData) {
-    document.getElementById('gem-nodata').style.display = 'none'
-    document.getElementById('gem-data').style.display = 'block'
-    document.getElementById('gem-tok-lim').textContent = fmtTokens(gemini.rl?.tokensLimit)
-    document.getElementById('gem-errors').textContent = ge.errorCount429 + ' rate-limit errors'
-    document.getElementById('gem-badge').className = 'limits-cli-badge error'
-    document.getElementById('gem-badge').textContent = ge.errorCount429 + ' 429 errors'
-  } else if (gemHasUsage) {
-    document.getElementById('gem-nodata').style.display = 'none'
-    document.getElementById('gem-data').style.display = 'block'
-    document.getElementById('gem-badge').className = 'limits-cli-badge live'
-    document.getElementById('gem-badge').textContent = 'tracking'
-  }
-  if (gu) {
-    document.getElementById('gem-u-inp-s').textContent = fmtTokens(gu.inputSession)
-    document.getElementById('gem-u-out-s').textContent = fmtTokens(gu.outputSession)
-    document.getElementById('gem-u-inp-d').textContent = fmtTokens(gu.inputToday)
-    document.getElementById('gem-u-out-d').textContent = fmtTokens(gu.outputToday)
-  }
-
-  // ── Budget ──
-  updateBudgetBar(au, ou, gu)
-}
-
-// Countdown ticker — updates reset countdowns every second without SSE
-function startLimitsCountdown(limitsData) {
-  if (limitsCountdownTimer) clearInterval(limitsCountdownTimer)
-  limitsCountdownTimer = setInterval(() => {
-    const updateReset = (id, resetEpoch) => {
-      if (!resetEpoch) return
-      const el = document.getElementById(id)
-      if (!el) return
-      const secs = Math.max(0, Math.round((resetEpoch - Date.now()) / 1000))
-      el.textContent = secs > 0 ? 'resets in ' + secs + 's' : ''
-    }
-    const d = limitsData
-    if (d?.anthropic?.rl?.hasData) {
-      updateReset('ant-tok-reset', d.anthropic.rl.tokensResetEpoch)
-      updateReset('ant-req-reset', d.anthropic.rl.requestsResetEpoch)
-      updateReset('ant-inp-reset', d.anthropic.rl.tokensResetEpoch)
-      updateReset('ant-out-reset', d.anthropic.rl.tokensResetEpoch)
-    }
-    if (d?.openai?.rl?.hasData) {
-      updateReset('oai-tok-reset', d.openai.rl.tokensResetEpoch)
-      updateReset('oai-req-reset', d.openai.rl.requestsResetEpoch)
-    }
-    if (d?.openai?.session?.hasData) {
-      const tok = d.openai.session.primary?.resetsAt || 0
-      const req = d.openai.session.secondary?.resetsAt || 0
-      updateReset('oai-tok-reset', tok)
-      updateReset('oai-req-reset', req)
-    }
-  }, 1000)
-}
-
-// ── Budget logic ─────────────────────────────────────────────────────────────
-let dailyBudget = parseInt(localStorage.getItem('squeezr_budget') || '0')
-
-function updateBudgetBar(au, ou, gu) {
-  const budget = dailyBudget
-  const budgetInput = document.getElementById('budget-input')
-  if (budgetInput && !budgetInput.value) budgetInput.value = budget || ''
-
-  const wrap = document.getElementById('budget-bar-wrap')
-  if (!budget) { wrap.style.display = 'none'; return }
-  wrap.style.display = 'block'
-
-  const totalToday = ((au?.inputToday || 0) + (au?.outputToday || 0) +
-                      (ou?.inputToday || 0) + (ou?.outputToday || 0) +
-                      (gu?.inputToday || 0) + (gu?.outputToday || 0))
-  const pct = Math.min(100, Math.round((totalToday / budget) * 100))
-  const fill = document.getElementById('budget-bar')
-  fill.style.width = pct + '%'
-  fill.style.background = gaugeColor(pct)
-  document.getElementById('budget-pct-label').textContent = pct + '%'
-  document.getElementById('budget-pct-label').style.color = gaugeColor(pct)
-  document.getElementById('budget-used-label').textContent = fmtTokens(totalToday) + ' used today'
-  document.getElementById('budget-limit-label').textContent = 'of ' + fmtTokens(budget) + ' / day'
-}
-
-document.getElementById('budget-save').addEventListener('click', () => {
-  const val = parseInt(document.getElementById('budget-input').value || '0')
-  dailyBudget = val
-  localStorage.setItem('squeezr_budget', String(val))
-  document.getElementById('budget-save').textContent = '✓ Saved'
-  setTimeout(() => document.getElementById('budget-save').textContent = 'Save', 2000)
-  // Re-render budget bar with latest limits data
-  if (lastLimitsData) {
-    const u = lastLimitsData.usage
-    updateBudgetBar(u?.anthropic, u?.openai, u?.gemini)
-  }
-})
-
-// Restore budget from localStorage on load
-const savedBudget = localStorage.getItem('squeezr_budget')
-if (savedBudget) document.getElementById('budget-input').value = savedBudget
-
-// ── Navigation ────────────────────────────────────────────────────────────────
-const pageTitles = { overview: 'Overview', projects: 'Projects', history: 'History', limits: 'Limits', settings: 'Settings' }
-
-document.querySelectorAll('.nav-item').forEach(item => {
-  item.addEventListener('click', () => {
-    const page = item.dataset.page
-    document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'))
-    document.querySelectorAll('.page').forEach(p => p.classList.remove('active'))
-    item.classList.add('active')
-    document.getElementById('page-' + page).classList.add('active')
-    document.getElementById('page-title').textContent = pageTitles[page] || page
-    if (page === 'projects') loadProjects()
-    if (page === 'history') loadHistory()
-    if (page === 'limits') {
-      if (lastLimitsData) {
-        renderLimits(lastLimitsData)
-        startLimitsCountdown(lastLimitsData)
+// ── Mode / Bypass controls ─────────────────────────────────────────────────
+function setMode(mode) {
+  fetch('/squeezr/config', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ mode: mode })
+  }).then(function(r) {
+    if (r.ok) {
+      if (lastStats) {
+        lastStats.mode = mode;
+        updateModeUI(mode, !!(lastStats && lastStats.bypass));
       }
     }
-    if (page !== 'limits' && limitsCountdownTimer) {
-      clearInterval(limitsCountdownTimer)
-      limitsCountdownTimer = null
-    }
-  })
-})
+  }).catch(function(e) { console.error('setMode failed', e); });
+}
 
-// ── Mode selector ─────────────────────────────────────────────────────────────
-document.querySelectorAll('.mode-btn[data-mode]').forEach(btn => {
-  btn.addEventListener('click', async () => {
-    const mode = btn.dataset.mode
-    if (!mode) return
-    const prevActive = document.querySelector('.mode-btn.active')
-    document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'))
-    btn.classList.add('active')
-    try {
-      const res = await fetch('/squeezr/config', {
-        method: 'POST',
-        headers: {'content-type':'application/json'},
-        body: JSON.stringify({ mode })
-      })
-      if (!res.ok) throw new Error('HTTP ' + res.status)
-    } catch(e) {
-      // Revert to previous mode on failure
-      btn.classList.remove('active')
-      if (prevActive) prevActive.classList.add('active')
-      console.error('mode update failed', e)
-    }
-  })
-})
+function toggleBypass() {
+  fetch('/squeezr/bypass', { method: 'POST' })
+    .then(function(r) {
+      if (r.ok) refreshStats();
+    })
+    .catch(function(e) { console.error('toggleBypass failed', e); });
+}
 
-// ── Bypass toggle ────────────────────────────────────────────────────────────
-document.getElementById('bypass-toggle').addEventListener('click', async () => {
-  try {
-    await fetch('/squeezr/bypass', { method: 'POST', headers: {'content-type':'application/json'}, body: '{}' })
-  } catch(e) {
-    console.error('bypass toggle failed', e)
+// ── SSE + polling fallback ─────────────────────────────────────────────────
+var pollTimer = null;
+var sseActive = false;
+
+function refreshStats() {
+  fetch('/squeezr/stats')
+    .then(function(r) { return r.json(); })
+    .then(renderStats)
+    .catch(function(e) { console.error('stats poll failed', e); });
+}
+
+function setConnected(ok) {
+  var dot = document.getElementById('conn-dot');
+  var label = document.getElementById('conn-label');
+  if (ok) {
+    dot.className = 'conn-dot online';
+    label.textContent = 'Connected';
+  } else {
+    dot.className = 'conn-dot offline';
+    label.textContent = 'Offline';
   }
-})
+}
 
-// ── SSE ───────────────────────────────────────────────────────────────────────
-const dot = document.getElementById('status-dot')
-const statusText = document.getElementById('status-text')
-const connPill = document.getElementById('conn-pill')
-const connStatus = document.getElementById('conn-status')
-let lastLimitsData = null
+function startPolling() {
+  if (pollTimer) return;
+  pollTimer = setInterval(refreshStats, 5000);
+  refreshStats();
+}
+
+function stopPolling() {
+  if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+}
 
 function connect() {
-  const es = new EventSource('/squeezr/events')
-  es.onmessage = e => {
+  var es;
+  try {
+    es = new EventSource('/squeezr/events');
+  } catch(e) {
+    setConnected(false);
+    startPolling();
+    return;
+  }
+
+  var timeout = setTimeout(function() {
+    // SSE hasn't fired in 6s — fall back to polling
+    if (!sseActive) {
+      es.close();
+      setConnected(false);
+      startPolling();
+    }
+  }, 6000);
+
+  es.onopen = function() {
+    clearTimeout(timeout);
+    sseActive = true;
+    stopPolling();
+    setConnected(true);
+  };
+
+  es.onmessage = function(ev) {
+    clearTimeout(timeout);
+    if (!sseActive) {
+      sseActive = true;
+      stopPolling();
+      setConnected(true);
+    }
     try {
-      const d = JSON.parse(e.data)
-      renderOverview(d)
-      if (d.limits) {
-        lastLimitsData = d.limits
-        // Only render limits page if it's currently visible
-        const limPage = document.getElementById('page-limits')
-        if (limPage && limPage.classList.contains('active')) {
-          renderLimits(d.limits)
-          if (!limitsCountdownTimer) startLimitsCountdown(d.limits)
-          else { /* update the data reference for the countdown */ lastLimitsData = d.limits }
-        }
-      }
-    } catch(err) { console.error(err) }
-  }
-  es.onopen = () => {
-    dot.classList.remove('off')
-    statusText.textContent = 'Connected'
-    connPill.className = ''
-    connPill.textContent = '● live'
-    connStatus.style.color = 'var(--green)'
-    connStatus.textContent = '● connected'
-  }
-  es.onerror = () => {
-    dot.classList.add('off')
-    statusText.textContent = 'Reconnecting…'
-    connPill.className = 'err'
-    connPill.textContent = '● offline'
-    connStatus.style.color = 'var(--red)'
-    connStatus.textContent = '● reconnecting…'
-    es.close()
-    setTimeout(connect, 3000)
-  }
+      var data = JSON.parse(ev.data);
+      renderStats(data);
+    } catch(e) { /* ignore malformed */ }
+  };
+
+  es.addEventListener('stats', function(ev) {
+    try {
+      var data = JSON.parse(ev.data);
+      renderStats(data);
+    } catch(e) {}
+  });
+
+  es.onerror = function() {
+    clearTimeout(timeout);
+    sseActive = false;
+    es.close();
+    setConnected(false);
+    startPolling();
+    // retry SSE after 10s
+    setTimeout(connect, 10000);
+  };
 }
-connect()
+
+// Initial load
+refreshStats();
+connect();
 </script>
 </body>
-</html>`
-
+</html>`;

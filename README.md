@@ -4,16 +4,18 @@
 
 [![npm](https://img.shields.io/npm/v/squeezr-ai)](https://www.npmjs.com/package/squeezr-ai) [![license](https://img.shields.io/npm/l/squeezr-ai)](LICENSE)
 
-## Supported CLIs
+## Supported CLIs & apps
 
-| CLI | Protocol | Proxy method |
-|-----|----------|--------------|
+| Client | Protocol | Proxy method |
+|--------|----------|--------------|
 | Claude Code | HTTP to Anthropic API | `ANTHROPIC_BASE_URL=http://localhost:8080` |
+| **Claude Desktop** | **HTTP to Anthropic API** | **Windows: `setx ANTHROPIC_BASE_URL` (set by `squeezr setup`); macOS: `launchctl setenv`; Linux: `~/.config/environment.d/`** |
 | Aider | HTTP to Anthropic/OpenAI API | `ANTHROPIC_BASE_URL` / `openai_base_url` |
 | OpenCode | HTTP to Anthropic/OpenAI API | `ANTHROPIC_BASE_URL` / `openai_base_url` |
 | Gemini CLI | HTTP to Gemini API | `GEMINI_API_BASE_URL=http://localhost:8080` |
 | Ollama | HTTP (local) | Transparent via dummy API key detection |
-| **Codex** | **WebSocket to chatgpt.com** | **TLS-terminating MITM proxy on :8081** |
+| **Codex Desktop** | **HTTP to OpenAI API** | **`~/.codex/config.toml` → `openai_base_url` (set by `squeezr setup`)** |
+| **Codex CLI** | **WebSocket to chatgpt.com** | **TLS-terminating MITM proxy on :8081** |
 | **Cursor IDE** | **ConnectRPC/HTTP2 to api2.cursor.sh** | **`squeezr cursor` — MITM proxy on :8082** |
 | Continue (VS Code) | HTTP to OpenAI-compat | `apiBase: http://localhost:8080/v1` |
 
