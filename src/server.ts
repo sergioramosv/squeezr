@@ -221,6 +221,7 @@ app.post('/v1/messages', async (c) => {
     ?? ''
 
   const clientId = detectAnthropicClient(c.req.header('user-agent') ?? '')
+  const modelId  = String(body.model ?? 'unknown')
 
   // Extract project name BEFORE compressing system prompt (compression destroys <cwd> tags)
   const project = extractProjectName(body)
@@ -247,7 +248,7 @@ app.post('/v1/messages', async (c) => {
 
   // Bypass mode: skip all compression, still record request stats
   if (isBypassed()) {
-    stats.recordWithProject(project, originalChars, originalChars, emptySavings(), undefined, clientId)
+    stats.recordWithProject(project, originalChars, originalChars, emptySavings(), undefined, clientId, modelId)
     recordRequest(project, 0, 0, [])
     storeKey('anthropic', apiKey)
     const fwdHeaders = forwardHeaders(c.req.raw.headers)
@@ -313,7 +314,7 @@ app.post('/v1/messages', async (c) => {
 
   // Inject expand tool
   injectExpandToolAnthropic(body)
-  stats.recordWithProject(project, originalChars, estimateChars(compressedMsgs), savings, compLatency, clientId)
+  stats.recordWithProject(project, originalChars, estimateChars(compressedMsgs), savings, compLatency, clientId, modelId)
   recordRequest(project, savings.savedChars, savings.compressed, savings.byTool)
 
   storeKey('anthropic', apiKey)
@@ -399,6 +400,7 @@ app.post('/v1/chat/completions', async (c) => {
   const upstream = isLocal ? `${config.localUpstreamUrl.replace(/\/$/, '')}/v1/chat/completions` : `${OPENAI_API}/v1/chat/completions`
 
   const oaiClientId = detectOpenAIClient(c.req.header('user-agent') ?? '')
+  const oaiModelId  = String(body.model ?? 'unknown')
 
   // Extract project name BEFORE compressing system prompt
   const oaiProject = extractProjectName(body)
@@ -408,7 +410,7 @@ app.post('/v1/chat/completions', async (c) => {
 
   // Bypass mode: skip all compression, still record request stats
   if (isBypassed()) {
-    stats.recordWithProject(oaiProject, originalChars, originalChars, emptySavings(), undefined, oaiClientId)
+    stats.recordWithProject(oaiProject, originalChars, originalChars, emptySavings(), undefined, oaiClientId, oaiModelId)
     recordRequest(oaiProject, 0, 0, [])
     if (!isLocal) storeKey('openai', openAIKey)
     const fwdHeaders = forwardHeaders(c.req.raw.headers)
@@ -463,7 +465,7 @@ app.post('/v1/chat/completions', async (c) => {
   body.messages = compressedMsgs
 
   if (!isLocal) injectExpandToolOpenAI(body)
-  stats.recordWithProject(oaiProject, originalChars, estimateChars(compressedMsgs), savings, oaiCompLatency, oaiClientId)
+  stats.recordWithProject(oaiProject, originalChars, estimateChars(compressedMsgs), savings, oaiCompLatency, oaiClientId, oaiModelId)
   recordRequest(oaiProject, savings.savedChars, savings.compressed, savings.byTool)
 
   if (!isLocal) storeKey('openai', openAIKey)
@@ -544,10 +546,12 @@ app.post('/v1beta/models/*', async (c) => {
   const contents = (body.contents ?? []) as unknown[]
   const originalChars = estimateChars(contents)
   const geminiProject = extractProjectName(body)
+  // Gemini model is in the URL path: /v1beta/models/gemini-2.5-pro:generateContent
+  const geminiModelId = modelPath.split(':')[0] || 'gemini'
 
   // Bypass mode: skip all compression, still record request stats
   if (isBypassed()) {
-    stats.recordWithProject(geminiProject, originalChars, originalChars, emptySavings(), undefined, 'gemini')
+    stats.recordWithProject(geminiProject, originalChars, originalChars, emptySavings(), undefined, 'gemini', geminiModelId)
     recordRequest(geminiProject, 0, 0, [])
     const targetUrl = `${GOOGLE_API}/v1beta/models/${modelPath}`
     const fwdHeaders = forwardHeaders(c.req.raw.headers)
@@ -574,7 +578,7 @@ app.post('/v1beta/models/*', async (c) => {
   const gemCompLatency: LatencyInfo = { totalMs: Date.now() - gemCompT0, detMs: savings.detMs, aiMs: savings.aiMs }
   body.contents = compressedContents
 
-  stats.recordWithProject(geminiProject, originalChars, estimateChars(compressedContents), savings, gemCompLatency, 'gemini')
+  stats.recordWithProject(geminiProject, originalChars, estimateChars(compressedContents), savings, gemCompLatency, 'gemini', geminiModelId)
   recordRequest(geminiProject, savings.savedChars, savings.compressed, savings.byTool)
 
   const targetUrl = `${GOOGLE_API}/v1beta/models/${modelPath}`

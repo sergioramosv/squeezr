@@ -453,6 +453,14 @@ code{font-family:'Cascadia Code','SF Mono',Consolas,monospace;font-size:.9em}
         </div>
       </div>
 
+      <!-- Model breakdown -->
+      <div class="section">
+        <div class="section-head"><span class="section-title">By model</span><span style="font-size:11px;color:var(--text3)">real pricing per model</span></div>
+        <div class="section-body" id="model-body">
+          <div style="font-size:13px;color:var(--text3)">No model data yet.</div>
+        </div>
+      </div>
+
       <!-- Savings by client -->
       <div class="section">
         <div class="section-head"><span class="section-title">Savings by client</span></div>
@@ -503,6 +511,14 @@ code{font-family:'Cascadia Code','SF Mono',Consolas,monospace;font-size:.9em}
         <div class="section-head"><span class="section-title" id="savings-chart-title">Daily breakdown</span></div>
         <div class="section-body" id="savings-chart">
           <div class="sk" style="height:80px"></div>
+        </div>
+      </div>
+
+      <!-- By model -->
+      <div class="section">
+        <div class="section-head"><span class="section-title">By model</span><span style="font-size:11px;color:var(--text3)">real pricing per model</span></div>
+        <div class="section-body" id="model-body-savings">
+          <div style="font-size:13px;color:var(--text3)">No model data yet.</div>
         </div>
       </div>
 
@@ -784,18 +800,33 @@ function render(d) {
   // Limits
   renderLimits(d.limits);
 
-  // Cost comparison (#7)
-  var PRICE_PER_TOKEN = 0.000003; // $3 / 1M tokens (Sonnet input)
+  // Cost comparison (#7) — weighted by actual models used
+  var modelCosts = calcCostFromModels(d.by_model, true);
   var actualTokens = tokensIn - tokensSaved;
-  var costWithout  = tokensIn * PRICE_PER_TOKEN;
-  var costWith     = actualTokens * PRICE_PER_TOKEN;
-  var costSaved    = tokensSaved * PRICE_PER_TOKEN;
-  document.getElementById('sp-without').textContent     = costWithout > 0 ? fmtUsd(costWithout) : '—';
-  document.getElementById('sp-without-tok').textContent = tokensIn > 0 ? '~' + fmt(tokensIn) + ' tokens' : '—';
-  document.getElementById('sp-with').textContent        = costWith > 0 ? fmtUsd(costWith) : '—';
-  document.getElementById('sp-with-tok').textContent    = actualTokens > 0 ? '~' + fmt(actualTokens) + ' tokens' : '—';
-  document.getElementById('sp-saved').textContent       = costSaved > 0 ? fmtUsd(costSaved) : '—';
-  document.getElementById('sp-saved-pct').textContent   = ratioPct != null ? Math.round(ratioPct) + '% less' : '—';
+  var costSaved, costWithout, costWith, priceNote;
+  if (modelCosts && modelCosts.totalCost > 0) {
+    // Precise: model-weighted pricing
+    costSaved   = modelCosts.savedCost;
+    costWithout = modelCosts.totalCost;
+    costWith    = modelCosts.totalCost - modelCosts.savedCost;
+    priceNote   = 'model-weighted pricing';
+  } else {
+    // Fallback: flat $3/1M
+    var flat = 0.000003;
+    costSaved   = tokensSaved * flat;
+    costWithout = tokensIn * flat;
+    costWith    = actualTokens * flat;
+    priceNote   = 'est. $3/1M (no model data)';
+  }
+  var setTxt = function(id, v){ var e = document.getElementById(id); if(e) e.textContent = v; };
+  setTxt('sp-without',     costWithout > 0 ? fmtUsd(costWithout) : '—');
+  setTxt('sp-without-tok', tokensIn > 0 ? '~' + fmt(tokensIn) + ' tokens' : '—');
+  setTxt('sp-with',        costWith > 0 ? fmtUsd(costWith) : '—');
+  setTxt('sp-with-tok',    actualTokens > 0 ? '~' + fmt(actualTokens) + ' tokens' : '—');
+  setTxt('sp-saved',       costSaved > 0 ? fmtUsd(costSaved) : '—');
+  setTxt('sp-saved-pct',   (ratioPct != null ? Math.round(ratioPct) + '% · ' : '') + priceNote);
+  // Model breakdown section
+  renderModelBreakdown(d.by_model);
 
   // CLI breakdown (#8)
   renderClientBreakdown(d.by_client);
@@ -931,6 +962,115 @@ function limRow(name, pct, cls, label) {
     '<span class="lim-name">'+esc(name)+'</span>'+
     '<div class="lim-track"><div class="lim-fill '+cls+'" style="width:'+pct+'%"></div></div>'+
     '<span class="lim-text">'+esc(label)+'</span></div>';
+}
+
+// ── Pricing table ($/1M tokens) ───────────────────────────────────────────
+var PRICING = {
+  // ── Claude ──
+  'claude-opus-4':            { input: 15,   output: 75   },
+  'claude-opus-4-5':          { input: 15,   output: 75   },
+  'claude-opus-3':            { input: 15,   output: 75   },
+  'claude-sonnet-4':          { input: 3,    output: 15   },
+  'claude-sonnet-4-5':        { input: 3,    output: 15   },
+  'claude-3-7-sonnet':        { input: 3,    output: 15   },
+  'claude-3-5-sonnet':        { input: 3,    output: 15   },
+  'claude-3-sonnet':          { input: 3,    output: 15   },
+  'claude-haiku-3-5':         { input: 0.8,  output: 4    },
+  'claude-3-5-haiku':         { input: 0.8,  output: 4    },
+  'claude-3-haiku':           { input: 0.25, output: 1.25 },
+  // ── OpenAI ──
+  'gpt-4o':                   { input: 2.5,  output: 10   },
+  'gpt-4o-mini':              { input: 0.15, output: 0.6  },
+  'gpt-4-turbo':              { input: 10,   output: 30   },
+  'gpt-4':                    { input: 30,   output: 60   },
+  'o1':                       { input: 15,   output: 60   },
+  'o1-mini':                  { input: 3,    output: 12   },
+  'o1-pro':                   { input: 150,  output: 600  },
+  'o3':                       { input: 10,   output: 40   },
+  'o3-mini':                  { input: 1.1,  output: 4.4  },
+  'o4-mini':                  { input: 1.1,  output: 4.4  },
+  'codex-mini-latest':        { input: 1.5,  output: 6    },
+  // ── Gemini ──
+  'gemini-2.5-pro':           { input: 1.25, output: 10   },
+  'gemini-2.5-flash':         { input: 0.075,output: 0.3  },
+  'gemini-2.0-flash':         { input: 0.1,  output: 0.4  },
+  'gemini-2.0-flash-lite':    { input: 0.075,output: 0.3  },
+  'gemini-1.5-pro':           { input: 1.25, output: 5    },
+  'gemini-1.5-flash':         { input: 0.075,output: 0.3  },
+};
+var DEFAULT_PRICE_INPUT = 3; // Claude Sonnet fallback
+
+function getModelPrice(model) {
+  if (!model) return DEFAULT_PRICE_INPUT;
+  var m = model.toLowerCase();
+  // exact match first
+  if (PRICING[m]) return PRICING[m].input;
+  // prefix match (handles date-stamped variants like claude-sonnet-4-5-20251101)
+  for (var key in PRICING) {
+    if (m.startsWith(key) || m.includes(key)) return PRICING[key].input;
+  }
+  return DEFAULT_PRICE_INPUT;
+}
+
+function calcCostFromModels(byModel, getOriginal) {
+  // If we have per-model breakdown, weight by actual model price
+  if (!byModel || !Object.keys(byModel).length) return null;
+  var totalCost = 0;
+  var savedCost = 0;
+  for (var model in byModel) {
+    var data = byModel[model];
+    var price = getModelPrice(model) / 1000000; // $/token
+    var origTok = getOriginal ? data.original_tokens : 0;
+    var savedTok = data.saved_tokens || 0;
+    totalCost += origTok * price;
+    savedCost += savedTok * price;
+  }
+  return { totalCost: totalCost, savedCost: savedCost };
+}
+
+// ── Model breakdown ────────────────────────────────────────────────────────
+function renderModelBreakdown(byModel) {
+  var el = document.getElementById('model-body');
+  var elSav = document.getElementById('model-body-savings');
+  var noData = '<span style="font-size:13px;color:var(--text3)">No model data yet — appears after first request.</span>';
+  if (!byModel || !Object.keys(byModel).length) {
+    if (el) el.innerHTML = noData;
+    if (elSav) elSav.innerHTML = noData;
+    return;
+  }
+  var rows = Object.entries(byModel)
+    .filter(function(e){ return e[1].requests > 0; })
+    .sort(function(a,b){ return b[1].saved_tokens - a[1].saved_tokens; });
+  if (!rows.length) { if (el) el.innerHTML = noData; if (elSav) elSav.innerHTML = noData; return; }
+
+  var maxSaved = rows[0][1].saved_tokens || 1;
+  var html = rows.map(function(e){
+    var model = e[0];
+    var data  = e[1];
+    var priceIn = getModelPrice(model);
+    var savedCost = data.saved_tokens * priceIn / 1000000;
+    var origCost  = data.original_tokens * priceIn / 1000000;
+    var pct = Math.round((data.saved_tokens / maxSaved) * 100);
+    var priceLabel = priceIn === DEFAULT_PRICE_INPUT ? '$' + priceIn + '/1M (est.)' : '$' + priceIn + '/1M input';
+    return '<div style="margin-bottom:14px">' +
+      '<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px">' +
+        '<span style="font-size:13px;font-weight:600;color:var(--text);font-family:\'Cascadia Code\',monospace">' + esc(model) + '</span>' +
+        '<span style="font-size:12px;color:var(--text3)">' + priceLabel + '</span>' +
+      '</div>' +
+      '<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:5px">' +
+        '<span style="font-size:12px;color:var(--text2)">' + fmt(data.saved_tokens) + ' tokens saved · ' + data.savings_pct + '%</span>' +
+        '<span style="font-size:12px;color:var(--brand2);font-weight:600">' + fmtUsd(savedCost) + ' saved</span>' +
+      '</div>' +
+      '<div style="height:6px;background:var(--surface3);border-radius:3px;overflow:hidden;margin-bottom:3px">' +
+        '<div style="height:100%;width:' + pct + '%;background:var(--brand);border-radius:3px;transition:width .4s"></div>' +
+      '</div>' +
+      '<div style="font-size:11px;color:var(--text3)">' +
+        data.requests + ' req · without Squeezr: ' + fmtUsd(origCost) + ' · with: ' + fmtUsd(origCost - savedCost) +
+      '</div>' +
+    '</div>';
+  }).join('');
+  if (el) el.innerHTML = html;
+  if (elSav) elSav.innerHTML = html;
 }
 
 // ── Client breakdown (#8) ──────────────────────────────────────────────────

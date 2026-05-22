@@ -57,8 +57,10 @@ export class Stats {
   private byProject: Record<string, {
     requests: number; savedChars: number; savedTokens: number
   }> = {}
-  // Per-client tracking: 'claude' | 'openai' | 'gemini' | 'mitm'
+  // Per-client tracking: 'claude_code' | 'codex_desktop' | 'gemini' | etc.
   private byClient: Record<string, { requests: number; originalChars: number; savedChars: number }> = {}
+  // Per-model tracking with original/saved chars
+  private byModel: Record<string, { requests: number; originalChars: number; savedChars: number }> = {}
   private currentProject = 'unknown'
   private sessionStart = Date.now()
   private lastOriginalChars = 0
@@ -128,7 +130,7 @@ export class Stats {
   }
 
   /** Call instead of record() when a project name is known. */
-  recordWithProject(project: string, originalChars: number, compressedChars: number, savings: Savings, latency?: LatencyInfo, client?: string): void {
+  recordWithProject(project: string, originalChars: number, compressedChars: number, savings: Savings, latency?: LatencyInfo, client?: string, model?: string): void {
     if (project !== 'unknown') this.currentProject = project
     this.record(originalChars, compressedChars, savings, latency)
 
@@ -146,6 +148,14 @@ export class Stats {
       this.byClient[client].requests++
       this.byClient[client].originalChars += originalChars
       this.byClient[client].savedChars += saved
+    }
+
+    // Per-model tracking
+    if (model) {
+      if (!this.byModel[model]) this.byModel[model] = { requests: 0, originalChars: 0, savedChars: 0 }
+      this.byModel[model].requests++
+      this.byModel[model].originalChars += originalChars
+      this.byModel[model].savedChars += saved
     }
   }
 
@@ -213,6 +223,20 @@ export class Stats {
           ? Math.round((this.expandCalls / this.totalCompressions) * 1000) / 10
           : 0,
       },
+      // Per-model breakdown: tokens saved per model used
+      by_model: Object.fromEntries(
+        Object.entries(this.byModel).map(([model, data]) => [
+          model,
+          {
+            requests: data.requests,
+            original_tokens: Math.round(data.originalChars / CHARS_PER_TOKEN),
+            saved_tokens: Math.round(data.savedChars / CHARS_PER_TOKEN),
+            savings_pct: data.originalChars > 0
+              ? Math.round((data.savedChars / data.originalChars) * 1000) / 10
+              : 0,
+          },
+        ])
+      ),
       // Per-client breakdown: tokens saved by Claude Code/Desktop, Codex, Gemini, etc.
       by_client: Object.fromEntries(
         Object.entries(this.byClient).map(([client, data]) => [
