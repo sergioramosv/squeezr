@@ -317,6 +317,12 @@ code{font-family:'Cascadia Code','SF Mono',Consolas,monospace;font-size:.9em}
         </svg>
         Overview
       </div>
+      <div class="nb-tab" data-page="savings" onclick="go('savings')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>
+        </svg>
+        Savings
+      </div>
       <div class="nb-tab" data-page="settings" onclick="go('settings')">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
           <circle cx="12" cy="12" r="3"/>
@@ -391,9 +397,16 @@ code{font-family:'Cascadia Code','SF Mono',Consolas,monospace;font-size:.9em}
         </div>
       </div>
 
+      <!-- Rate Limits — moved here, right after controls -->
+      <div class="section">
+        <div class="section-head"><span class="section-title">Rate Limits</span></div>
+        <div class="section-body" id="limits-body">
+          <div class="lim-nodata">Loading…</div>
+        </div>
+      </div>
+
       <!-- Two-col grid -->
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
-
         <!-- Tools -->
         <div class="section" style="margin:0">
           <div class="section-head"><span class="section-title">Top Tools</span></div>
@@ -403,48 +416,14 @@ code{font-family:'Cascadia Code','SF Mono',Consolas,monospace;font-size:.9em}
             <div class="sk" style="height:14px;width:65%"></div>
           </div>
         </div>
-
         <!-- Cache -->
         <div class="section" style="margin:0">
           <div class="section-head"><span class="section-title">Cache</span></div>
           <div class="section-body">
             <div class="cache-row">
-              <div class="cache-card">
-                <div class="cache-label">Hits</div>
-                <div class="cache-val" id="c-hits">—</div>
-              </div>
-              <div class="cache-card">
-                <div class="cache-label">Misses</div>
-                <div class="cache-val" id="c-miss">—</div>
-              </div>
-              <div class="cache-card">
-                <div class="cache-label">Rate</div>
-                <div class="cache-val" id="c-rate">—</div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Latency -->
-      <div class="section">
-        <div class="section-head"><span class="section-title">Latency</span></div>
-        <div class="section-body">
-          <div class="lat-row">
-            <div class="lat-pill">
-              <span class="lat-label">p50</span>
-              <span class="lat-val" id="l-50">—</span>
-              <span class="lat-unit"> ms</span>
-            </div>
-            <div class="lat-pill">
-              <span class="lat-label">p95</span>
-              <span class="lat-val" id="l-95">—</span>
-              <span class="lat-unit"> ms</span>
-            </div>
-            <div class="lat-pill">
-              <span class="lat-label">p99</span>
-              <span class="lat-val" id="l-99">—</span>
-              <span class="lat-unit"> ms</span>
+              <div class="cache-card"><div class="cache-label">Hits</div><div class="cache-val" id="c-hits">—</div></div>
+              <div class="cache-card"><div class="cache-label">Misses</div><div class="cache-val" id="c-miss">—</div></div>
+              <div class="cache-card"><div class="cache-label">Rate</div><div class="cache-val" id="c-rate">—</div></div>
             </div>
           </div>
         </div>
@@ -454,7 +433,7 @@ code{font-family:'Cascadia Code','SF Mono',Consolas,monospace;font-size:.9em}
       <div class="section">
         <div class="section-head"><span class="section-title">Cost Comparison</span><span style="font-size:11px;color:var(--text3)">est. at $3/1M tokens</span></div>
         <div class="section-body">
-          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px" id="spend-grid">
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px">
             <div style="text-align:center">
               <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;color:var(--text3);margin-bottom:6px">Without Squeezr</div>
               <div style="font-size:24px;font-weight:700;color:var(--text)" id="sp-without">—</div>
@@ -481,12 +460,57 @@ code{font-family:'Cascadia Code','SF Mono',Consolas,monospace;font-size:.9em}
           <div style="font-size:13px;color:var(--text3)">No data yet — starts after first request.</div>
         </div>
       </div>
+    </div>
 
-      <!-- Rate Limits -->
+    <!-- ── Savings page ── -->
+    <div id="page-savings" style="display:none">
+
+      <!-- Period selector -->
+      <div style="display:flex;gap:8px;margin-bottom:20px;align-items:center">
+        <span style="font-size:13px;color:var(--text2);font-weight:500">Period:</span>
+        <button class="mode-btn active" id="period-day"   onclick="setSavingsPeriod('day')">Today</button>
+        <button class="mode-btn"        id="period-week"  onclick="setSavingsPeriod('week')">7 days</button>
+        <button class="mode-btn"        id="period-month" onclick="setSavingsPeriod('month')">30 days</button>
+        <button class="mode-btn"        id="period-all"   onclick="setSavingsPeriod('all')">All time</button>
+      </div>
+
+      <!-- Period hero -->
+      <div class="hero-grid" id="savings-hero">
+        <div class="hero-card accent">
+          <div class="hc-label">Tokens Saved</div>
+          <div class="hc-val" id="sv-tokens">—</div>
+          <div class="hc-sub" id="sv-tokens-sub">—</div>
+        </div>
+        <div class="hero-card">
+          <div class="hc-label">Est. Cost Saved</div>
+          <div class="hc-val" id="sv-cost">—</div>
+          <div class="hc-sub">at $3/1M tokens</div>
+        </div>
+        <div class="hero-card">
+          <div class="hc-label">Sessions</div>
+          <div class="hc-val" id="sv-sessions">—</div>
+          <div class="hc-sub" id="sv-requests">—</div>
+        </div>
+        <div class="hero-card">
+          <div class="hc-label">Avg Saving</div>
+          <div class="hc-val" id="sv-pct">—</div>
+          <div class="hc-sub">per session</div>
+        </div>
+      </div>
+
+      <!-- Daily breakdown chart (bar chart) -->
       <div class="section">
-        <div class="section-head"><span class="section-title">Rate Limits</span></div>
-        <div class="section-body" id="limits-body">
-          <div class="lim-nodata">No rate limit data yet — limits appear after the first API response.</div>
+        <div class="section-head"><span class="section-title" id="savings-chart-title">Daily breakdown</span></div>
+        <div class="section-body" id="savings-chart">
+          <div class="sk" style="height:80px"></div>
+        </div>
+      </div>
+
+      <!-- By client -->
+      <div class="section">
+        <div class="section-head"><span class="section-title">By client (current session)</span></div>
+        <div class="section-body" id="client-body-savings">
+          <div style="font-size:13px;color:var(--text3)">No client data yet.</div>
         </div>
       </div>
     </div>
@@ -537,17 +561,23 @@ code{font-family:'Cascadia Code','SF Mono',Consolas,monospace;font-size:.9em}
           <span class="s-key">Mode</span>
           <span class="s-val"><code id="cfg-mode">—</code></span>
         </div>
-        <div class="settings-row">
-          <span class="s-key" title="Bypass: when ON, requests pass through uncompressed. Useful to temporarily disable Squeezr without stopping the proxy. Resets on restart.">
-            Bypass <span style="font-size:10px;color:var(--text3);cursor:help" title="When ON, requests pass through uncompressed. Useful to debug issues. Resets on restart.">ⓘ</span>
-          </span>
-          <span class="s-val"><code id="cfg-bypass">—</code></span>
+        <div class="settings-row" style="flex-direction:column;align-items:flex-start;gap:4px">
+          <div style="display:flex;justify-content:space-between;width:100%;align-items:center">
+            <span class="s-key">Bypass</span>
+            <span class="s-val"><code id="cfg-bypass">—</code></span>
+          </div>
+          <div style="font-size:12px;color:var(--text3);line-height:1.4">
+            When <strong style="color:var(--text2)">enabled</strong>, all requests pass through to the API <em>without compression</em> — useful to check if Squeezr is causing any issue. Stats are still logged. Resets automatically when the proxy restarts.
+          </div>
         </div>
-        <div class="settings-row">
-          <span class="s-key" title="Circuit Breaker: if the AI compression model fails repeatedly, it auto-disables AI compression to avoid latency. Returns to normal automatically.">
-            Circuit Breaker <span style="font-size:10px;color:var(--text3);cursor:help" title="Auto-disables AI compression if the local model fails repeatedly. Prevents latency spikes.">ⓘ</span>
-          </span>
-          <span class="s-val"><code id="cfg-cb">—</code></span>
+        <div class="settings-row" style="flex-direction:column;align-items:flex-start;gap:4px">
+          <div style="display:flex;justify-content:space-between;width:100%;align-items:center">
+            <span class="s-key">Circuit Breaker</span>
+            <span class="s-val"><code id="cfg-cb">—</code></span>
+          </div>
+          <div style="font-size:12px;color:var(--text3);line-height:1.4">
+            Protects against latency spikes. If the local AI compression model (Ollama) fails <strong style="color:var(--text2)">3 times in a row</strong>, it auto-disables AI compression and falls back to deterministic rules only. Returns to normal after 60s without errors. Deterministic compression always stays active.
+          </div>
         </div>
       </div>
 
@@ -656,7 +686,9 @@ function go(page) {
     el.classList.toggle('active', el.dataset.page === page);
   });
   document.getElementById('page-overview').style.display = page === 'overview' ? '' : 'none';
+  document.getElementById('page-savings').style.display  = page === 'savings'  ? '' : 'none';
   document.getElementById('page-settings').style.display = page === 'settings' ? '' : 'none';
+  if (page === 'savings') loadSavings();
   try { localStorage.setItem('sq-page', page); } catch(e) {}
 }
 
@@ -821,37 +853,76 @@ function renderTools(tools) {
 function renderLimits(lim) {
   var el = document.getElementById('limits-body');
   if (!lim || typeof lim !== 'object') {
-    el.innerHTML = '<div class="lim-nodata">No rate limit data yet — appears after the first API response.</div>';
+    el.innerHTML = '<div class="lim-nodata">No limit data yet.</div>';
     return;
   }
   var rows = [];
-  // Claude / Anthropic
-  if (lim.anthropic) {
-    var a = lim.anthropic;
-    if (a.tokens_limit && a.tokens_used != null) {
-      var pct = Math.round(a.tokens_used / a.tokens_limit * 100);
-      var cls = pct > 90 ? 'crit' : pct > 70 ? 'warn' : 'ok';
-      rows.push(limRow('Claude tokens', pct, cls,
-        fmt(a.tokens_used) + ' / ' + fmt(a.tokens_limit)));
+
+  // ── Claude / Anthropic ──────────────────────────────────────────────────
+  var a = lim.anthropic;
+  if (a) {
+    // unified = Claude Code Max / subscription plan rate limits
+    var u = a.unified;
+    if (u && u.hasData) {
+      var p5 = Math.round(u.fiveHourUtilization * 100);
+      var p7 = Math.round(u.sevenDayUtilization * 100);
+      var c5 = p5 > 90 ? 'crit' : p5 > 70 ? 'warn' : 'ok';
+      var c7 = p7 > 90 ? 'crit' : p7 > 70 ? 'warn' : 'ok';
+      var reset5 = u.fiveHourResetEpoch ? new Date(u.fiveHourResetEpoch).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}) : '';
+      var reset7 = u.sevenDayResetEpoch ? new Date(u.sevenDayResetEpoch).toLocaleDateString([], {month:'short',day:'numeric'}) : '';
+      rows.push(limRow('Claude 5h window', p5, c5, p5 + '% used' + (reset5 ? ' · resets ' + reset5 : '')));
+      rows.push(limRow('Claude 7d window', p7, c7, p7 + '% used' + (reset7 ? ' · resets ' + reset7 : '')));
     }
-    if (a.requests_limit && a.requests_used != null) {
-      var pct2 = Math.round(a.requests_used / a.requests_limit * 100);
-      var cls2 = pct2 > 90 ? 'crit' : pct2 > 70 ? 'warn' : 'ok';
-      rows.push(limRow('Claude requests', pct2, cls2,
-        fmt(a.requests_used) + ' / ' + fmt(a.requests_limit)));
+    // rl = standard API rate limit headers (available with API key, not subscription)
+    var rl = a.rl;
+    if (rl && rl.hasData) {
+      if (rl.tokensLimit > 0) {
+        var used = rl.tokensLimit - rl.tokensRemaining;
+        var pp = Math.round(used / rl.tokensLimit * 100);
+        rows.push(limRow('Claude tokens/min', pp, pp > 90 ? 'crit' : pp > 70 ? 'warn' : 'ok',
+          fmt(used) + ' / ' + fmt(rl.tokensLimit)));
+      }
+      if (rl.requestsLimit > 0) {
+        var usedR = rl.requestsLimit - rl.requestsRemaining;
+        var ppR = Math.round(usedR / rl.requestsLimit * 100);
+        rows.push(limRow('Claude req/min', ppR, ppR > 90 ? 'crit' : ppR > 70 ? 'warn' : 'ok',
+          usedR + ' / ' + rl.requestsLimit));
+      }
+    }
+    // usage — actual tokens sent to Anthropic this session
+    if (a.usage && (a.usage.inputSession || a.usage.outputSession)) {
+      rows.push('<div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--border)">' +
+        '<div style="font-size:11px;color:var(--text3);margin-bottom:4px">Actual API tokens this session</div>' +
+        '<div style="font-size:13px;color:var(--text2)">' +
+          'In: <strong style="color:var(--text)">' + fmt(a.usage.inputSession) + '</strong>&ensp;' +
+          'Out: <strong style="color:var(--text)">' + fmt(a.usage.outputSession) + '</strong>' +
+        '</div></div>');
     }
   }
-  // OpenAI / Codex
-  if (lim.openai) {
-    var o = lim.openai;
-    if (o.tokens_limit && o.tokens_used != null) {
-      var pct3 = Math.round(o.tokens_used / o.tokens_limit * 100);
-      rows.push(limRow('OpenAI tokens', pct3, pct3 > 90 ? 'crit' : pct3 > 70 ? 'warn' : 'ok',
-        fmt(o.tokens_used) + ' / ' + fmt(o.tokens_limit)));
+
+  // ── OpenAI / Codex ──────────────────────────────────────────────────────
+  var o = lim.openai;
+  if (o) {
+    var os = o.session;
+    if (os && os.hasData && os.primary) {
+      var pp2 = os.primary.usedPercent || 0;
+      var c2 = pp2 > 90 ? 'crit' : pp2 > 70 ? 'warn' : 'ok';
+      var resetTs = os.primary.resetsAt ? new Date(os.primary.resetsAt * 1000).toLocaleDateString([],{month:'short',day:'numeric'}) : '';
+      rows.push(limRow('Codex ' + (os.primary.windowDurationMins >= 10080 ? '7d' : os.primary.windowDurationMins + 'min'),
+        pp2, c2, pp2 + '% used' + (resetTs ? ' · resets ' + resetTs : '')));
+    }
+    if (o.usage && o.usage.inputSession) {
+      rows.push('<div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--border)">' +
+        '<div style="font-size:11px;color:var(--text3);margin-bottom:4px">Codex tokens this session</div>' +
+        '<div style="font-size:13px;color:var(--text2)">' +
+          'In: <strong style="color:var(--text)">' + fmt(o.usage.inputSession) + '</strong>&ensp;' +
+          'Out: <strong style="color:var(--text)">' + fmt(o.usage.outputSession) + '</strong>' +
+        '</div></div>');
     }
   }
+
   if (!rows.length) {
-    el.innerHTML = '<div class="lim-nodata">Limits not yet reported by the upstream API.</div>';
+    el.innerHTML = '<div class="lim-nodata">No limit data yet — appears after first API call.</div>';
     return;
   }
   el.innerHTML = '<div class="limits-grid">' + rows.join('') + '</div>';
@@ -1062,6 +1133,89 @@ function checkLatestVersion() {
         }
       }).catch(function(){});
   }).catch(function(){});
+}
+
+// ── Savings page ──────────────────────────────────────────────────────────
+var savingsPeriod = 'day';
+var savingsCache = null;
+
+function setSavingsPeriod(p) {
+  savingsPeriod = p;
+  ['day','week','month','all'].forEach(function(k){
+    document.getElementById('period-' + k).className = 'mode-btn' + (k === p ? ' active' : '');
+  });
+  if (savingsCache) renderSavingsData(savingsCache);
+}
+
+function loadSavings() {
+  fetch('/squeezr/history').then(function(r){ return r.json(); }).then(function(d){
+    savingsCache = d;
+    renderSavingsData(d);
+  }).catch(function(){
+    document.getElementById('savings-chart').innerHTML = '<div class="lim-nodata">Could not load history.</div>';
+  });
+}
+
+function renderSavingsData(d) {
+  var sessions = (d.sessions || []).concat(d.current ? [d.current] : []);
+  var now = Date.now();
+  var cutoffs = { day: now - 86400000, week: now - 7*86400000, month: now - 30*86400000, all: 0 };
+  var cutoff = cutoffs[savingsPeriod] || 0;
+  var filtered = sessions.filter(function(s){ return s.startTime >= cutoff && s.savedTokens != null; });
+
+  // Hero stats
+  var totalSaved = 0, totalReqs = 0, totalOrig = 0;
+  filtered.forEach(function(s){ totalSaved += s.savedTokens||0; totalReqs += s.requests||0; totalOrig += (s.savedTokens||0) + Math.round((s.savedChars||0)/3.5); });
+  var avgPct = totalOrig > 0 ? Math.round(totalSaved / (totalSaved + (totalOrig - totalSaved)) * 100) : 0;
+
+  document.getElementById('sv-tokens').textContent    = fmt(totalSaved);
+  document.getElementById('sv-tokens-sub').textContent = '~' + fmt(totalOrig) + ' total tokens';
+  document.getElementById('sv-cost').textContent      = fmtUsd(totalSaved * 0.000003);
+  document.getElementById('sv-sessions').textContent  = String(filtered.length);
+  document.getElementById('sv-requests').textContent  = totalReqs + ' requests';
+  document.getElementById('sv-pct').textContent       = avgPct > 0 ? avgPct + '%' : '—';
+
+  // Chart title
+  var titles = { day: 'Today (by session)', week: 'Last 7 days', month: 'Last 30 days', all: 'All time' };
+  document.getElementById('savings-chart-title').textContent = titles[savingsPeriod] || '';
+
+  // Bar chart: group by day for week/month/all, by session for day
+  renderSavingsChart(filtered, savingsPeriod);
+
+  // Client breakdown mirrors overview
+  var cli = document.getElementById('client-body-savings');
+  var ovCli = document.getElementById('client-body-overview');
+  if (ovCli) cli.innerHTML = ovCli.innerHTML;
+}
+
+function renderSavingsChart(sessions, period) {
+  var el = document.getElementById('savings-chart');
+  if (!sessions.length) { el.innerHTML = '<div class="lim-nodata">No sessions in this period.</div>'; return; }
+
+  var groups = {};
+  sessions.forEach(function(s) {
+    var d = new Date(s.startTime);
+    var key = period === 'day'
+      ? d.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})
+      : d.toLocaleDateString([], {month:'short',day:'numeric'});
+    if (!groups[key]) groups[key] = { saved: 0, reqs: 0 };
+    groups[key].saved += s.savedTokens || 0;
+    groups[key].reqs  += s.requests || 0;
+  });
+
+  var entries = Object.entries(groups).slice(-14); // max 14 bars
+  var maxVal = Math.max.apply(null, entries.map(function(e){ return e[1].saved; })) || 1;
+
+  el.innerHTML = '<div style="display:flex;align-items:flex-end;gap:6px;height:90px;padding-bottom:2px">' +
+    entries.map(function(e){
+      var h = Math.max(4, Math.round((e[1].saved / maxVal) * 80));
+      return '<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;min-width:0">' +
+        '<div style="font-size:9px;color:var(--text3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%;writing-mode:vertical-lr;transform:rotate(180deg);height:28px;line-height:1">' + e[0] + '</div>' +
+        '<div title="' + fmt(e[1].saved) + ' tokens saved" style="width:100%;height:' + h + 'px;background:var(--brand);border-radius:3px 3px 0 0;transition:height .3s;cursor:default"></div>' +
+      '</div>';
+    }).join('') +
+  '</div>' +
+  '<div style="margin-top:6px;font-size:11px;color:var(--text3)">Hover bars for details · ' + sessions.length + ' sessions · ' + fmt(sessions.reduce(function(a,s){return a+(s.savedTokens||0);},0)) + ' total tokens saved</div>';
 }
 
 poll();
