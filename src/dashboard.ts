@@ -59,59 +59,63 @@ html,body{
 code{font-family:'Cascadia Code','SF Mono',Consolas,monospace;font-size:.9em}
 
 /* ── Layout ── */
-#app{display:flex;height:100vh;overflow:hidden}
+#app{display:flex;flex-direction:column;height:100vh;overflow:hidden}
 
-/* ── Sidebar ── */
-#sidebar{
-  width:200px;flex-shrink:0;
+/* ── Top navbar ── */
+#navbar{
+  flex-shrink:0;
+  height:52px;
   background:var(--surface);
-  border-right:1px solid var(--border);
-  display:flex;flex-direction:column;
+  border-bottom:1px solid var(--border);
+  display:flex;align-items:center;
+  padding:0 24px;gap:0;
   transition:background .2s,border-color .2s
 }
 
-.sb-logo{
-  padding:20px 16px 18px;
-  display:flex;align-items:center;gap:10px;
-  border-bottom:1px solid var(--border)
-}
-.sb-logo svg{width:28px;height:28px;flex-shrink:0;color:var(--brand)}
-.sb-logo-name{font-size:15px;font-weight:700;letter-spacing:-.3px;color:var(--text)}
-.sb-logo-ver{font-size:11px;color:var(--text3);margin-top:1px}
-
-nav{flex:1;padding:10px 8px}
-.nav-item{
+/* Logo */
+.nb-brand{
   display:flex;align-items:center;gap:9px;
-  padding:9px 10px;border-radius:8px;
-  color:var(--text2);cursor:pointer;
-  transition:background .12s,color .12s;
-  user-select:none;margin-bottom:1px;font-size:13px;font-weight:500
+  margin-right:24px;flex-shrink:0
 }
-.nav-item:hover{background:var(--surface3);color:var(--text)}
-.nav-item.active{background:var(--brand-dim);color:var(--brand)}
-.nav-item svg{width:15px;height:15px;flex-shrink:0;stroke-width:2}
+.nb-brand svg{width:24px;height:24px;color:var(--brand)}
+.nb-brand-name{font-size:15px;font-weight:700;letter-spacing:-.3px;color:var(--text)}
+.nb-brand-ver{font-size:11px;color:var(--text3);margin-left:6px;margin-top:1px}
 
-#sb-bottom{
-  padding:12px 8px;border-top:1px solid var(--border)
-}
-.conn-row{
+/* Divider */
+.nb-sep{width:1px;height:22px;background:var(--border2);margin-right:20px;flex-shrink:0}
+
+/* Tabs */
+.nb-tabs{display:flex;align-items:stretch;gap:2px;height:100%}
+.nb-tab{
   display:flex;align-items:center;gap:7px;
-  padding:8px 10px;font-size:12px;color:var(--text3);
-  margin-bottom:4px
+  padding:0 16px;
+  font-size:13px;font-weight:500;color:var(--text2);
+  cursor:pointer;user-select:none;
+  border-bottom:2px solid transparent;
+  transition:color .12s,border-color .12s;
+  white-space:nowrap
+}
+.nb-tab:hover{color:var(--text)}
+.nb-tab.active{color:var(--brand);border-bottom-color:var(--brand)}
+.nb-tab svg{width:14px;height:14px;flex-shrink:0;stroke-width:2}
+
+/* Right side */
+.nb-right{
+  margin-left:auto;display:flex;align-items:center;gap:10px
 }
 .conn-dot{
-  width:6px;height:6px;border-radius:50%;background:var(--text3);flex-shrink:0;
+  width:7px;height:7px;border-radius:50%;background:var(--text3);flex-shrink:0;
   transition:background .3s
 }
 .conn-dot.online{background:var(--brand);box-shadow:0 0 6px var(--brand)}
 .conn-dot.offline{background:var(--red)}
+.conn-label{font-size:12px;color:var(--text3)}
 
 .theme-btn{
-  display:flex;align-items:center;gap:8px;
-  width:100%;padding:8px 10px;border-radius:8px;
-  background:none;border:none;cursor:pointer;
-  font-size:12px;color:var(--text2);font-family:inherit;font-weight:500;
-  transition:background .12s,color .12s
+  display:flex;align-items:center;justify-content:center;
+  width:32px;height:32px;border-radius:8px;
+  background:none;border:1px solid var(--border2);cursor:pointer;
+  color:var(--text2);transition:background .12s,color .12s
 }
 .theme-btn:hover{background:var(--surface3);color:var(--text)}
 
@@ -120,10 +124,9 @@ nav{flex:1;padding:10px 8px}
   flex:1;overflow-y:auto;padding:28px 32px;
   background:var(--bg)
 }
-@media(max-width:700px){
-  #sidebar{width:52px}
-  .sb-logo-name,.sb-logo-ver,.nav-label,.conn-label,.theme-label{display:none}
-  #main{padding:16px}
+@media(max-width:600px){
+  .nb-brand-ver{display:none}
+  #main{padding:16px 14px}
 }
 
 .page-header{margin-bottom:24px}
@@ -294,61 +297,54 @@ nav{flex:1;padding:10px 8px}
 <body>
 <div id="app">
 
-  <!-- Sidebar -->
-  <aside id="sidebar">
-    <div class="sb-logo">
+  <!-- Top navbar -->
+  <header id="navbar">
+    <div class="nb-brand">
       <svg viewBox="0 0 427 425" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
         <path d="M354.982 369.122C349.882 371.592 338.752 371.792 330.442 369.562C314.752 365.342 292.762 350.502 274.462 331.772L269.022 326.202L268.322 308.932C267.942 299.432 267.332 289.862 266.972 287.662C266.612 285.462 265.842 280.742 265.252 277.162C261.922 256.872 253.782 233.162 245.022 218.222C241.322 211.902 240.442 208.162 242.662 208.162C246.992 208.162 272.062 220.332 283.912 228.172C307.882 244.042 340.042 276.312 356.142 300.642C361.992 309.492 368.862 323.942 370.862 331.632C372.842 339.222 372.822 343.952 370.782 350.952C368.862 357.572 361.602 365.922 354.982 369.122ZM218.282 179.832C214.632 182.212 211.352 184.162 210.992 184.162C209.782 184.162 209.192 181.162 209.872 178.472C211.522 171.892 223.622 148.592 229.912 139.892C238.462 128.072 255.812 107.752 262.572 101.652C289.962 76.9417 301.752 68.0317 317.642 60.0417C337.182 50.2217 355.782 51.3217 365.342 62.8817C368.722 66.9617 372.412 77.3217 372.412 82.7217C372.412 92.2417 366.082 109.302 358.222 120.942C352.882 128.862 338.112 146.372 331.782 152.282L327.912 155.902L306.412 157.012C275.532 158.602 257.232 162.282 234.992 171.372C229.442 173.642 221.922 177.442 218.282 179.832ZM192.352 192.912C191.862 194.152 190.962 195.162 190.372 195.162C188.672 195.162 180.862 177.712 177.542 166.472C172.022 147.832 170.142 131.892 170.112 103.662C170.072 54.9617 176.632 25.5317 190.962 10.2117C203.612 -3.30832 223.802 -3.41833 235.432 9.97167C246.502 22.7117 252.932 45.4017 254.122 75.8417L254.712 91.0217L243.802 102.342C216.642 130.552 201.082 156.292 194.952 183.172C194.012 187.292 192.842 191.672 192.352 192.912ZM226.572 421.482C220.292 424.892 210.782 425.902 205.022 423.752C191.282 418.632 180.692 404.292 175.412 383.662C172.812 373.502 170.052 347.602 170.692 339.372L171.192 333.072L181.082 322.872C198.422 304.992 208.702 290.782 219.092 270.362C225.192 258.372 231.412 241.452 231.412 236.842C231.412 233.222 233.922 230.432 236.032 231.722C240.442 234.432 249.472 263.122 253.062 285.842C255.302 300.022 255.592 348.712 253.532 363.662C249.272 394.512 240.142 414.092 226.572 421.482ZM182.052 209.772C186.532 217.502 181.062 217.082 163.912 208.392C143.982 198.302 124.292 183.882 105.542 165.662C69.9124 131.042 51.3724 100.292 53.7824 79.7817C54.5824 72.9217 59.4624 62.9817 63.5724 59.8517C83.1924 44.8917 111.392 54.5117 145.162 87.6917L156.412 98.7517L156.422 107.702C156.442 128.452 159.472 151.202 164.592 169.092C169.372 185.812 172.862 193.952 182.052 209.772ZM96.0524 369.042C86.6124 371.962 77.4224 371.862 70.9124 368.772C60.5924 363.872 53.4124 352.582 53.4124 341.252C53.4124 325.142 66.4924 301.572 87.9324 279.062C93.8424 272.852 96.3824 270.182 99.4924 269.032C101.842 268.152 104.522 268.152 109.242 268.152C131.112 268.132 157.482 264.312 174.912 258.642C183.912 255.722 201.562 247.552 208.502 243.102C211.022 241.482 213.612 240.162 214.252 240.162C216.572 240.162 215.322 246.362 211.052 256.062C201.052 278.772 190.362 293.692 165.912 319.032C140.952 344.912 115.702 362.982 96.0524 369.042ZM368.762 251.622C362.292 252.472 351.732 253.162 345.312 253.162H333.622L328.262 247.552C314.672 233.322 289.892 214.982 271.112 205.242C261.472 200.242 244.592 193.972 237.082 192.602C232.942 191.852 231.502 189.962 233.362 187.722C235.062 185.672 250.402 179.462 259.532 177.132C280.552 171.762 296.062 170.162 326.772 170.172C369.092 170.192 394.642 174.902 410.892 185.692C419.312 191.282 423.272 197.242 425.392 207.512C426.482 212.822 426.382 214.032 424.312 220.512C422.492 226.212 420.942 228.802 416.682 233.292C413.742 236.392 408.742 240.302 405.572 241.992C398.302 245.872 383.912 249.632 368.762 251.622ZM146.412 251.272C136.432 253.162 130.742 253.482 103.412 253.742C80.9524 253.952 69.0424 253.652 61.9124 252.682C28.4924 248.142 11.0524 240.212 3.39238 226.092C0.252382 220.292 -0.0776191 218.932 0.0123809 212.162C0.142381 202.882 1.92238 198.622 8.60238 191.562C20.8324 178.622 39.5124 173.102 76.4624 171.502L91.0124 170.862L104.492 182.762C125.782 201.552 128.872 203.902 142.912 211.932C160.322 221.882 182.112 231.162 188.092 231.162C189.152 231.162 190.902 231.842 191.972 232.662C193.862 234.132 193.832 234.242 190.912 236.652C184.902 241.622 167.932 247.202 146.412 251.272Z" fill="currentColor"/>
       </svg>
-      <div>
-        <div class="sb-logo-name">Squeezr</div>
-        <div class="sb-logo-ver" id="sb-ver">—</div>
-      </div>
+      <span class="nb-brand-name">Squeezr</span>
+      <span class="nb-brand-ver" id="sb-ver">—</span>
     </div>
 
-    <nav>
-      <div class="nav-item active" data-page="overview" onclick="go('overview')">
+    <div class="nb-sep"></div>
+
+    <div class="nb-tabs">
+      <div class="nb-tab active" data-page="overview" onclick="go('overview')">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
           <rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/>
           <rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/>
         </svg>
-        <span class="nav-label">Overview</span>
+        Overview
       </div>
-      <div class="nav-item" data-page="settings" onclick="go('settings')">
+      <div class="nb-tab" data-page="settings" onclick="go('settings')">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
           <circle cx="12" cy="12" r="3"/>
           <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
         </svg>
-        <span class="nav-label">Settings</span>
+        Settings
       </div>
-    </nav>
+    </div>
 
-    <div id="sb-bottom">
-      <div class="conn-row">
-        <div class="conn-dot" id="conn-dot"></div>
-        <span class="conn-label" id="conn-label">Connecting…</span>
-      </div>
-      <button class="theme-btn" onclick="toggleTheme()">
-        <svg id="theme-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+    <div class="nb-right">
+      <div class="conn-dot" id="conn-dot"></div>
+      <span class="conn-label" id="conn-label">Connecting…</span>
+      <button class="theme-btn" onclick="toggleTheme()" title="Toggle theme">
+        <svg id="theme-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
           <circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/>
           <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/>
           <line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/>
           <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
         </svg>
-        <span class="theme-label">Light mode</span>
       </button>
     </div>
-  </aside>
+  </header>
 
   <!-- Main -->
   <main id="main">
 
     <!-- ── Overview page ── -->
     <div id="page-overview">
-      <div class="page-header">
-        <div class="page-title">Overview</div>
-        <div class="page-sub">Live — updates via server-sent events</div>
-      </div>
 
       <!-- Hero stats -->
       <div class="hero-grid">
@@ -474,10 +470,6 @@ nav{flex:1;padding:10px 8px}
         <button class="action-btn" onclick="runAction('update')" style="border-color:rgba(251,191,36,.4);color:#fbbf24">Update now</button>
       </div>
 
-      <div class="page-header">
-        <div class="page-title">Settings</div>
-        <div class="page-sub">Proxy configuration and environment</div>
-      </div>
 
       <div class="settings-block">
         <div class="settings-head">Proxy</div>
@@ -597,7 +589,7 @@ function toggleTheme() {
 
 // ── Navigation ─────────────────────────────────────────────────────────────
 function go(page) {
-  document.querySelectorAll('.nav-item').forEach(function(el) {
+  document.querySelectorAll('.nb-tab').forEach(function(el) {
     el.classList.toggle('active', el.dataset.page === page);
   });
   document.getElementById('page-overview').style.display = page === 'overview' ? '' : 'none';
