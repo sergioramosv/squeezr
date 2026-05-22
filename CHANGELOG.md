@@ -2,6 +2,13 @@
 
 All notable changes to Squeezr will be documented here.
 
+## [1.28.0] - 2026-05-22
+### Added
+- **Token savings by client** — Settings page shows a collapsible breakdown of tokens saved per client protocol: `claude` (Claude Code, Claude Desktop, Aider), `openai` (Codex Desktop, Continue, Cline), `gemini` (Gemini CLI). Each row has a bar chart, saved tokens, savings %, and request count. Tracked server-side in `stats.ts` via new `by_client` map populated from which endpoint handled the request.
+- **Cost Comparison in Overview** — New section showing "Without Squeezr / With Squeezr / Saved" in estimated USD at $3/1M tokens. Makes the token savings immediately tangible.
+### Fixed
+- **chars/token ratio inconsistency** — Dashboard was dividing `total_original_chars` by 4 to estimate tokens, but `stats.ts` uses 3.5. Now both use 3.5 for consistent numbers.
+
 ## [1.27.0] - 2026-05-22
 ### Fixed
 - **Dashboard: wrong API field names** — Stats showed `—` everywhere because the render function read `tokens_saved`, `compression_ratio`, `total_requests`, `latency_p50`, `cache_hits` but the proxy returns `total_saved_tokens`, `savings_pct`, `requests`, `latency.total.p50`, `cache.hits`. Now normalizes all field names.
