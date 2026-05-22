@@ -597,8 +597,8 @@ code{font-family:'Cascadia Code','SF Mono',Consolas,monospace;font-size:.9em}
           <div style="display:flex;align-items:center;justify-content:space-between;width:100%;gap:12px">
             <span class="s-key" style="flex-shrink:0">Ports</span>
             <div style="display:flex;align-items:center;gap:8px;flex:1;justify-content:flex-end">
-              <input id="port-http" type="text" placeholder="HTTP port" style="width:100px;padding:5px 10px;border-radius:7px;border:1px solid var(--border2);background:var(--surface2);color:var(--text);font-size:12px;font-family:inherit">
-              <input id="port-mitm" type="text" placeholder="MITM port" style="width:100px;padding:5px 10px;border-radius:7px;border:1px solid var(--border2);background:var(--surface2);color:var(--text);font-size:12px;font-family:inherit">
+                <input id="inp-http-port" type="number" placeholder="HTTP" style="width:80px;padding:5px 10px;border-radius:7px;border:1px solid var(--border2);background:var(--surface2);color:var(--text);font-size:12px;font-family:inherit">
+              <input id="inp-mitm-port" type="number" placeholder="MITM" style="width:80px;padding:5px 10px;border-radius:7px;border:1px solid var(--border2);background:var(--surface2);color:var(--text);font-size:12px;font-family:inherit">
               <button class="action-btn" onclick="runAction('ports')">Apply</button>
             </div>
           </div>
@@ -752,13 +752,18 @@ function render(d) {
   // Mode & bypass
   updateMode(mode, byp);
 
-  // Settings page
-  var port = window.location.port || '8080';
-  var mitmPort = d.mitm_port || (parseInt(port) + 1);
-  document.getElementById('cfg-url-val').textContent  = 'http://localhost:' + port;
-  document.getElementById('cfg-oai-val').textContent  = 'http://localhost:' + port + '/v1';
-  document.getElementById('cfg-gem-val').textContent  = 'http://localhost:' + port;
+  // Settings page — ports come from health endpoint (d.port / d.mitm_port)
+  var httpPort = d.port || window.location.port || '8080';
+  var mitmPort = d.mitm_port || (parseInt(String(httpPort)) + 1);
+  document.getElementById('cfg-url-val').textContent  = 'http://localhost:' + httpPort;
+  document.getElementById('cfg-oai-val').textContent  = 'http://localhost:' + httpPort + '/v1';
+  document.getElementById('cfg-gem-val').textContent  = 'http://localhost:' + httpPort;
   document.getElementById('cfg-mitm-val').textContent = 'http://localhost:' + mitmPort;
+  // Store for port inputs
+  if (!document.getElementById('inp-http-port').value)
+    document.getElementById('inp-http-port').value = String(httpPort);
+  if (!document.getElementById('inp-mitm-port').value)
+    document.getElementById('inp-mitm-port').value = String(mitmPort);
   if (d.version) document.getElementById('cfg-ver').textContent = d.version;
   if (d.uptime_seconds != null) document.getElementById('cfg-uptime').textContent = fmtUptime(d.uptime_seconds);
   document.getElementById('cfg-mode').textContent   = mode;
@@ -978,7 +983,29 @@ function runAction(action) {
   } else if (action === 'update') {
     showResult('update', 'ok', 'Run in terminal: squeezr update');
   } else if (action === 'ports') {
-    showResult('ports', 'ok', 'Edit squeezr.toml to change ports');
+    var httpVal = document.getElementById('inp-http-port').value.trim();
+    var mitmVal = document.getElementById('inp-mitm-port').value.trim();
+    var httpN = parseInt(httpVal);
+    var mitmN = parseInt(mitmVal);
+    if (!httpN || httpN < 1024 || httpN > 65535 || !mitmN || mitmN < 1024 || mitmN > 65535) {
+      showResult('ports', 'err', 'Invalid ports — must be between 1024 and 65535');
+      return;
+    }
+    if (httpN === mitmN) {
+      showResult('ports', 'err', 'HTTP and MITM ports must be different');
+      return;
+    }
+    fetch('/squeezr/ports', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ port: httpN, mitm_port: mitmN })
+    }).then(function(r) {
+      if (r.ok) {
+        showResult('ports', 'ok', 'Ports saved to squeezr.toml — restart Squeezr to apply (squeezr stop && squeezr start)');
+      } else {
+        r.text().then(function(t) { showResult('ports', 'err', 'Failed: ' + t); });
+      }
+    }).catch(function(e) { showResult('ports', 'err', e.message); });
   }
 }
 

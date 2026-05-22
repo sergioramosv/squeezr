@@ -1,6 +1,6 @@
-import { readFileSync } from 'node:fs'
+import { readFileSync, writeFileSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
-import { homedir } from 'node:os'
+import { homedir, platform } from 'node:os'
 import { Hono, type Context } from 'hono'
 import { stream, streamSSE } from 'hono/streaming'
 import { config, applyMode, runtimeOverrides } from './config.js'
@@ -626,6 +626,34 @@ app.get('/squeezr/stats', (c) => {
   return buildStatsPayload().then(d => c.json(d))
 })
 
+// ── POST /squeezr/ports — write port config to squeezr.toml ─────────────────
+app.post('/squeezr/ports', async (c) => {
+  const body = await c.req.json<{ port?: number; mitm_port?: number }>()
+  const { port: newPort, mitm_port: newMitm } = body
+  if (!newPort || !newMitm || newPort < 1024 || newMitm < 1024 || newPort === newMitm) {
+    return c.text('Invalid ports', 400)
+  }
+  try {
+    // Find squeezr.toml — same logic as config.ts
+    const globalPath = join(__dirname, '..', '..', 'squeezr.toml')
+    const tomlPath = existsSync(globalPath) ? globalPath : join(process.cwd(), 'squeezr.toml')
+    let content = existsSync(tomlPath) ? readFileSync(tomlPath, 'utf-8') : '[proxy]\n'
+
+    // Update or insert [proxy] port and mitm_port
+    const updateKey = (src: string, key: string, val: number): string => {
+      const re = new RegExp(`^(\\s*${key}\\s*=\\s*)\\d+`, 'm')
+      return re.test(src) ? src.replace(re, `$1${val}`) : src.replace(/(\[proxy\][^\[]*)/s, `$1${key} = ${val}\n`)
+    }
+    if (!content.includes('[proxy]')) content = '[proxy]\n' + content
+    content = updateKey(content, 'port', newPort)
+    content = updateKey(content, 'mitm_port', newMitm)
+    writeFileSync(tomlPath, content, 'utf-8')
+    return c.json({ ok: true, port: newPort, mitm_port: newMitm, toml: tomlPath })
+  } catch (err: any) {
+    return c.text('Failed to write squeezr.toml: ' + err.message, 500)
+  }
+})
+
 app.get('/squeezr/health', (c) => {
   const cb = circuitBreaker.snapshot()
   const s = stats.summary()
@@ -655,6 +683,8 @@ app.get('/squeezr/health', (c) => {
       requests: s.requests,
       savings_pct: s.savings_pct,
     },
+    port: config.port,
+    mitm_port: config.mitmPort,
   })
 })
 
