@@ -48,6 +48,7 @@ class LatencyTracker {
 }
 
 export class Stats {
+  // All fields declared with initializers — no bare type declarations to avoid ES2022 native field defineProperty issues
   private requests = 0
   private totalOriginalChars = 0
   private totalCompressedChars = 0
@@ -57,15 +58,12 @@ export class Stats {
   private byProject: Record<string, {
     requests: number; savedChars: number; savedTokens: number
   }> = {}
-  // Per-client tracking: 'claude_code' | 'codex_desktop' | 'gemini' | etc.
-  private byClient: Record<string, { requests: number; originalChars: number; savedChars: number }> = {}
-  // Per-model tracking with original/saved chars
-  private byModel: Record<string, { requests: number; originalChars: number; savedChars: number }> = {}
+  private byClient: Record<string, { requests: number; originalChars: number; savedChars: number }> = Stats.loadPersistedByClient()
+  private byModel: Record<string, { requests: number; originalChars: number; savedChars: number }> = Stats.loadPersistedByModel()
   private currentProject = 'unknown'
   private sessionStart = Date.now()
   private lastOriginalChars = 0
   private lastCompressedChars = 0
-
   // Breakdown counters for honest reporting
   private totalDetSaved = 0
   private totalDedupSaved = 0
@@ -292,6 +290,26 @@ export class Stats {
       }
       existing.by_tool = bt
 
+      // By-model: write cumulative snapshot (byModel is pre-loaded from disk at startup
+      // so it already includes historical data — just overwrite with current state)
+      existing.by_model = Object.fromEntries(
+        Object.entries(this.byModel).map(([model, data]) => [model, {
+          requests: data.requests,
+          originalChars: data.originalChars,
+          savedChars: data.savedChars,
+        }])
+      )
+
+      // By-client: same pattern — pre-loaded from disk so this overwrite is a
+      // cumulative snapshot, not a session-only blow-away.
+      existing.by_client = Object.fromEntries(
+        Object.entries(this.byClient).map(([client, data]) => [client, {
+          requests: data.requests,
+          originalChars: data.originalChars,
+          savedChars: data.savedChars,
+        }])
+      )
+
       writeFileSync(STATS_FILE, JSON.stringify(existing))
     } catch { /* ignore */ }
   }
@@ -299,6 +317,26 @@ export class Stats {
   static loadGlobal(): Record<string, unknown> {
     try {
       if (existsSync(STATS_FILE)) return JSON.parse(readFileSync(STATS_FILE, 'utf-8'))
+    } catch { /* ignore */ }
+    return {}
+  }
+
+  static loadPersistedByModel(): Record<string, { requests: number; originalChars: number; savedChars: number }> {
+    try {
+      const data = Stats.loadGlobal()
+      if (data.by_model && typeof data.by_model === 'object') {
+        return data.by_model as Record<string, { requests: number; originalChars: number; savedChars: number }>
+      }
+    } catch { /* ignore */ }
+    return {}
+  }
+
+  static loadPersistedByClient(): Record<string, { requests: number; originalChars: number; savedChars: number }> {
+    try {
+      const data = Stats.loadGlobal()
+      if (data.by_client && typeof data.by_client === 'object') {
+        return data.by_client as Record<string, { requests: number; originalChars: number; savedChars: number }>
+      }
     } catch { /* ignore */ }
     return {}
   }

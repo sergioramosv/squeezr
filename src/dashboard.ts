@@ -282,6 +282,11 @@ code{font-family:'Cascadia Code','SF Mono',Consolas,monospace;font-size:.9em}
 }
 .chip-dot{width:5px;height:5px;border-radius:50%;background:var(--brand);flex-shrink:0}
 
+/* ── Chart ── */
+.chart-bar rect.bar{transition:opacity .15s,filter .15s}
+.chart-bar:hover rect.bar{opacity:.85;filter:brightness(1.15)}
+.chart-wrap{background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:16px 12px 8px}
+
 /* ── Skeleton ── */
 .sk{
   background:linear-gradient(90deg,var(--surface2) 25%,var(--surface3) 50%,var(--surface2) 75%);
@@ -473,13 +478,18 @@ code{font-family:'Cascadia Code','SF Mono',Consolas,monospace;font-size:.9em}
     <!-- ── Savings page ── -->
     <div id="page-savings" style="display:none">
 
-      <!-- Period selector -->
-      <div style="display:flex;gap:8px;margin-bottom:20px;align-items:center">
-        <span style="font-size:13px;color:var(--text2);font-weight:500">Period:</span>
-        <button class="mode-btn active" id="period-day"   onclick="setSavingsPeriod('day')">Today</button>
-        <button class="mode-btn"        id="period-week"  onclick="setSavingsPeriod('week')">7 days</button>
-        <button class="mode-btn"        id="period-month" onclick="setSavingsPeriod('month')">30 days</button>
+      <!-- Period selector + navigation -->
+      <div style="display:flex;gap:8px;margin-bottom:20px;align-items:center;flex-wrap:wrap">
+        <span style="font-size:13px;color:var(--text2);font-weight:500">View:</span>
+        <button class="mode-btn active" id="period-day"   onclick="setSavingsPeriod('day')">Day</button>
+        <button class="mode-btn"        id="period-week"  onclick="setSavingsPeriod('week')">Week</button>
+        <button class="mode-btn"        id="period-month" onclick="setSavingsPeriod('month')">Month</button>
         <button class="mode-btn"        id="period-all"   onclick="setSavingsPeriod('all')">All time</button>
+        <div style="flex:1"></div>
+        <button class="mode-btn" onclick="navigatePeriod(-1)" title="Previous">◀</button>
+        <span id="period-label" style="font-size:13px;color:var(--text);font-weight:600;min-width:160px;text-align:center">—</span>
+        <button class="mode-btn" onclick="navigatePeriod(1)" title="Next">▶</button>
+        <button class="mode-btn" onclick="navigatePeriod(0)" title="Today">Today</button>
       </div>
 
       <!-- Period hero -->
@@ -492,7 +502,7 @@ code{font-family:'Cascadia Code','SF Mono',Consolas,monospace;font-size:.9em}
         <div class="hero-card">
           <div class="hc-label">Est. Cost Saved</div>
           <div class="hc-val" id="sv-cost">—</div>
-          <div class="hc-sub">at $3/1M tokens</div>
+          <div class="hc-sub" id="sv-cost-note">per-model pricing</div>
         </div>
         <div class="hero-card">
           <div class="hc-label">Sessions</div>
@@ -593,6 +603,30 @@ code{font-family:'Cascadia Code','SF Mono',Consolas,monospace;font-size:.9em}
           </div>
           <div style="font-size:12px;color:var(--text3);line-height:1.4">
             Protects against latency spikes. If the local AI compression model (Ollama) fails <strong style="color:var(--text2)">3 times in a row</strong>, it auto-disables AI compression and falls back to deterministic rules only. Returns to normal after 60s without errors. Deterministic compression always stays active.
+          </div>
+        </div>
+        <div class="settings-row" style="flex-direction:column;align-items:flex-start;gap:8px">
+          <div style="display:flex;justify-content:space-between;width:100%;align-items:center;flex-wrap:wrap;gap:6px">
+            <span class="s-key">Compression backend</span>
+            <div style="display:flex;gap:4px;flex-wrap:wrap">
+              <button class="mode-btn" data-backend="auto"         onclick="setBackend('auto')">Auto</button>
+              <button class="mode-btn" data-backend="local"        onclick="setBackend('local')">squeezr-1B</button>
+              <button class="mode-btn" data-backend="haiku"        onclick="setBackend('haiku')">Haiku</button>
+              <button class="mode-btn" data-backend="gpt-mini"     onclick="setBackend('gpt-mini')">GPT-4o-mini</button>
+              <button class="mode-btn" data-backend="gemini-flash" onclick="setBackend('gemini-flash')">Gemini Flash</button>
+            </div>
+          </div>
+          <div style="font-size:12px;color:var(--text3);line-height:1.4">
+            Modelo que comprime los tool results y mensajes históricos. <strong style="color:var(--text2)">Auto</strong> usa el modelo de la API que recibe la request (Haiku para Claude, GPT-mini para OpenAI, Flash para Gemini). <strong style="color:var(--text2)">squeezr-1B</strong> es el modelo local (gratis, sin red, requiere Ollama). El resto fuerza ese modelo para todas las requests.
+          </div>
+        </div>
+        <div class="settings-row" style="flex-direction:column;align-items:flex-start;gap:8px">
+          <div style="display:flex;justify-content:space-between;width:100%;align-items:center">
+            <span class="s-key">Anthropic Native Compact <span style="font-size:10px;background:var(--brand-dim);color:var(--brand2);padding:1px 6px;border-radius:3px;margin-left:4px">beta</span></span>
+            <button class="mode-btn" id="native-compact-btn" onclick="toggleNativeCompact()" style="min-width:80px">—</button>
+          </div>
+          <div style="font-size:12px;color:var(--text3);line-height:1.4">
+            Activa el header <code style="font-size:11px">anthropic-beta: compact-2026-01-12</code>. Cuando el contexto excede el threshold, Anthropic <strong style="color:var(--text2)">resume tu conversación automáticamente en sus servidores</strong>. Stacks con la compresión de Squeezr — comprimes primero, ellos resumen lo que queda. <strong>Solo Claude</strong> (no afecta OpenAI/Gemini). Reseteable.
           </div>
         </div>
       </div>
@@ -760,7 +794,9 @@ function render(d) {
                   : tokensSaved > 0 ? tokensSaved * 0.000003 : null;
   // requests
   var reqs        = d.requests != null ? d.requests : (d.total_requests || 0);
-  var comps       = d.compressions != null ? d.compressions : (d.compressed || 0);
+  var aiComps     = d.compressions != null ? d.compressions : (d.compressed || 0);
+  var cacheHitsAi = (d.session_cache_hits != null ? d.session_cache_hits : 0);
+  var comps       = aiComps + cacheHitsAi; // AI calls + session cache reuses
   // latency: nested object { total: { p50, p95, p99 } } or flat
   var lat         = (d.latency && d.latency.total) ? d.latency.total : d.latency || {};
   var p50         = lat.p50 != null ? lat.p50 : d.latency_p50;
@@ -776,11 +812,16 @@ function render(d) {
   // Sidebar version
   if (d.version) document.getElementById('sb-ver').textContent = 'v' + d.version;
 
+  // Cost comparison (#7) — weighted by actual models used (computed first so hero card can use it)
+  var modelCosts = calcCostFromModels(d.by_model, true);
+
   // Hero cards
   document.getElementById('h-saved').textContent = fmt(tokensSaved);
   document.getElementById('h-in').textContent    = fmt(tokensIn);
   document.getElementById('h-ratio').textContent = ratioPct != null ? Math.round(ratioPct) + '%' : '—';
-  document.getElementById('h-cost').textContent  = fmtUsd(costUsd);
+  // Hero cost: use model-weighted price when available, fall back to flat $3/1M
+  var heroCost = (modelCosts && modelCosts.savedCost > 0) ? modelCosts.savedCost : costUsd;
+  document.getElementById('h-cost').textContent  = fmtUsd(heroCost);
   document.getElementById('h-reqs').textContent  = fmt(reqs);
   document.getElementById('h-comp').textContent  = fmt(comps);
 
@@ -799,9 +840,6 @@ function render(d) {
 
   // Limits
   renderLimits(d.limits);
-
-  // Cost comparison (#7) — weighted by actual models used
-  var modelCosts = calcCostFromModels(d.by_model, true);
   var actualTokens = tokensIn - tokensSaved;
   var costSaved, costWithout, costWith, priceNote;
   if (modelCosts && modelCosts.totalCost > 0) {
@@ -849,6 +887,16 @@ function render(d) {
   if (d.uptime_seconds != null) document.getElementById('cfg-uptime').textContent = fmtUptime(d.uptime_seconds);
   document.getElementById('cfg-mode').textContent   = mode;
   document.getElementById('cfg-bypass').textContent = byp ? 'enabled' : 'disabled';
+  // Backend selector state
+  if (d.compression_backend) updateBackendButtons(d.compression_backend);
+  // Native compact toggle state
+  var ncBtn = document.getElementById('native-compact-btn');
+  if (ncBtn) {
+    var ncOn = !!d.anthropic_native_compact;
+    ncBtn.textContent = ncOn ? 'ON' : 'OFF';
+    ncBtn.style.background = ncOn ? 'var(--brand)' : '';
+    ncBtn.style.color = ncOn ? 'white' : '';
+  }
   if (d.circuit_breaker) {
     var cb = d.circuit_breaker;
     document.getElementById('cfg-cb').textContent = cb.state + (cb.total_trips ? ' · ' + cb.total_trips + ' trips' : '');
@@ -981,29 +1029,44 @@ function limRow(name, pct, cls, label) {
 
 // ── Pricing table ($/1M tokens) ───────────────────────────────────────────
 var PRICING = {
-  // ── Claude ──
-  'claude-opus-4':            { input: 15,   output: 75   },
-  'claude-opus-4-5':          { input: 15,   output: 75   },
-  'claude-opus-3':            { input: 15,   output: 75   },
-  'claude-sonnet-4':          { input: 3,    output: 15   },
+  // ── Claude (verified May 2026 — claude.com/pricing) ──
+  'claude-opus-4-7':          { input: 5,    output: 25   }, // current flagship, Apr 2026
+  'claude-opus-4-6':          { input: 5,    output: 25   },
+  'claude-opus-4-5':          { input: 5,    output: 25   },
+  'claude-opus-4-1':          { input: 15,   output: 75   }, // legacy
+  'claude-opus-4':            { input: 15,   output: 75   }, // legacy
+  'claude-opus-3':            { input: 15,   output: 75   }, // legacy
+  'claude-sonnet-4-6':        { input: 3,    output: 15   },
   'claude-sonnet-4-5':        { input: 3,    output: 15   },
+  'claude-sonnet-4':          { input: 3,    output: 15   },
   'claude-3-7-sonnet':        { input: 3,    output: 15   },
   'claude-3-5-sonnet':        { input: 3,    output: 15   },
   'claude-3-sonnet':          { input: 3,    output: 15   },
+  'claude-haiku-4-5':         { input: 1,    output: 5    }, // current
   'claude-haiku-3-5':         { input: 0.8,  output: 4    },
   'claude-3-5-haiku':         { input: 0.8,  output: 4    },
   'claude-3-haiku':           { input: 0.25, output: 1.25 },
-  // ── OpenAI ──
+  // ── OpenAI (verified May 2026 — openai.com/api/pricing) ──
+  'gpt-5-5-pro':              { input: 30,   output: 180  }, // research-grade
+  'gpt-5-5':                  { input: 5,    output: 30   }, // current flagship
+  'gpt-5-4-pro':              { input: 30,   output: 180  },
+  'gpt-5-4':                  { input: 2.5,  output: 15   }, // production workhorse
+  'gpt-5-4-mini':             { input: 0.75, output: 4.5  },
+  'gpt-5-4-nano':             { input: 0.20, output: 1.25 },
+  'gpt-5-3-codex':            { input: 2.5,  output: 15   },
   'gpt-4o':                   { input: 2.5,  output: 10   },
   'gpt-4o-mini':              { input: 0.15, output: 0.6  },
+  'gpt-4-1':                  { input: 2,    output: 8    },
+  'gpt-4-1-mini':             { input: 0.40, output: 1.6  },
+  'gpt-4-1-nano':             { input: 0.10, output: 0.4  },
   'gpt-4-turbo':              { input: 10,   output: 30   },
   'gpt-4':                    { input: 30,   output: 60   },
-  'o1':                       { input: 15,   output: 60   },
-  'o1-mini':                  { input: 3,    output: 12   },
-  'o1-pro':                   { input: 150,  output: 600  },
-  'o3':                       { input: 10,   output: 40   },
+  'o3':                       { input: 2,    output: 8    }, // cut from $10 to $2 in 2026
   'o3-mini':                  { input: 1.1,  output: 4.4  },
   'o4-mini':                  { input: 1.1,  output: 4.4  },
+  'o1':                       { input: 15,   output: 60   }, // legacy
+  'o1-mini':                  { input: 3,    output: 12   },
+  'o1-pro':                   { input: 150,  output: 600  },
   'codex-mini-latest':        { input: 1.5,  output: 6    },
   // ── Gemini ──
   'gemini-2.5-pro':           { input: 1.25, output: 10   },
@@ -1105,6 +1168,40 @@ var CLIENT_LABELS = {
   mitm:           'Codex CLI',
 };
 
+function setBackend(name) {
+  fetch('/squeezr/backend', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ backend: name }),
+  })
+    .then(function(r){ return r.json(); })
+    .then(function(d){ updateBackendButtons(d.backend); })
+    .catch(function(){});
+}
+
+function updateBackendButtons(active) {
+  var btns = document.querySelectorAll('button[data-backend]');
+  for (var i = 0; i < btns.length; i++) {
+    var b = btns[i];
+    var isActive = b.getAttribute('data-backend') === active;
+    b.className = 'mode-btn' + (isActive ? ' active' : '');
+  }
+}
+
+function toggleNativeCompact() {
+  fetch('/squeezr/native-compact', { method: 'POST' })
+    .then(function(r){ return r.json(); })
+    .then(function(d){
+      var btn = document.getElementById('native-compact-btn');
+      if (btn) {
+        btn.textContent = d.enabled ? 'ON' : 'OFF';
+        btn.style.background = d.enabled ? 'var(--brand)' : '';
+        btn.style.color = d.enabled ? 'white' : '';
+      }
+    })
+    .catch(function(){});
+}
+
 function toggleClientBreakdown() {
   clientOpen = !clientOpen;
   document.getElementById('cli-breakdown').style.display = clientOpen ? '' : 'none';
@@ -1182,7 +1279,13 @@ function toggleBypass() {
 var pollTimer = null, sseOk = false;
 
 function poll() {
-  fetch('/squeezr/stats').then(function(r){ return r.json(); }).then(render).catch(function(){});
+  fetch('/squeezr/stats')
+    .then(function(r){ return r.json(); })
+    .then(function(d){
+      setConn(true);
+      try { render(d); } catch(e){ console.error('[squeezr] render error:', e); }
+    })
+    .catch(function(){ setConn(false); });
 }
 
 function setConn(ok) {
@@ -1273,13 +1376,31 @@ function runAction(action) {
 }
 
 // ── Version check ──────────────────────────────────────────────────────────
+// Returns 1 if a > b, -1 if a < b, 0 if equal. Compares numeric major.minor.patch;
+// any non-numeric prerelease tail makes the version "lower" (so 1.46.0 > 1.46.0-rc.1).
+function compareSemver(a, b) {
+  function parse(v) {
+    var m = String(v || '').match(/^(\d+)\.(\d+)\.(\d+)(?:-(.+))?/);
+    if (!m) return [0, 0, 0, ''];
+    return [parseInt(m[1], 10), parseInt(m[2], 10), parseInt(m[3], 10), m[4] || ''];
+  }
+  var pa = parse(a), pb = parse(b);
+  for (var i = 0; i < 3; i++) {
+    if (pa[i] > pb[i]) return 1;
+    if (pa[i] < pb[i]) return -1;
+  }
+  if (pa[3] && !pb[3]) return -1;
+  if (!pa[3] && pb[3]) return 1;
+  return 0;
+}
+
 function checkLatestVersion() {
   fetch('/squeezr/health').then(function(r) { return r.json(); }).then(function(h) {
     var current = h.version;
     fetch('https://registry.npmjs.org/squeezr-ai/latest')
       .then(function(r) { return r.json(); }).then(function(npm) {
         var latest = npm.version;
-        if (latest && current && latest !== current) {
+        if (latest && current && compareSemver(latest, current) > 0) {
           var banner = document.getElementById('update-banner');
           document.getElementById('update-text').textContent = 'v' + current + ' → v' + latest;
           banner.style.display = 'flex';
@@ -1290,14 +1411,52 @@ function checkLatestVersion() {
 
 // ── Savings page ──────────────────────────────────────────────────────────
 var savingsPeriod = 'day';
+var savingsOffset = 0; // 0 = current period, -1 = previous, +1 = next
 var savingsCache = null;
 
 function setSavingsPeriod(p) {
   savingsPeriod = p;
+  savingsOffset = 0; // reset to current when changing scale
   ['day','week','month','all'].forEach(function(k){
     document.getElementById('period-' + k).className = 'mode-btn' + (k === p ? ' active' : '');
   });
   if (savingsCache) renderSavingsData(savingsCache);
+}
+
+function navigatePeriod(dir) {
+  if (dir === 0) { savingsOffset = 0; }
+  else { savingsOffset += dir; if (savingsOffset > 0) savingsOffset = 0; }
+  if (savingsCache) renderSavingsData(savingsCache);
+}
+
+// Get [start, end] timestamps for the selected period+offset
+function getPeriodRange() {
+  var now = new Date();
+  var start, end, label;
+  if (savingsPeriod === 'day') {
+    var d = new Date(now); d.setDate(d.getDate() + savingsOffset);
+    start = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+    end = start + 86400000;
+    label = d.toLocaleDateString([], {weekday:'short', day:'numeric', month:'short'});
+    if (savingsOffset === 0) label = 'Today · ' + label;
+    else if (savingsOffset === -1) label = 'Yesterday · ' + label;
+  } else if (savingsPeriod === 'week') {
+    var d = new Date(now); d.setDate(d.getDate() - d.getDay() + (savingsOffset * 7));
+    start = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+    end = start + 7 * 86400000;
+    var endDate = new Date(end - 1);
+    label = new Date(start).toLocaleDateString([], {day:'numeric', month:'short'}) + ' – ' + endDate.toLocaleDateString([], {day:'numeric', month:'short'});
+  } else if (savingsPeriod === 'month') {
+    var d = new Date(now.getFullYear(), now.getMonth() + savingsOffset, 1);
+    start = d.getTime();
+    end = new Date(d.getFullYear(), d.getMonth() + 1, 1).getTime();
+    label = d.toLocaleDateString([], {month:'long', year:'numeric'});
+  } else { // all
+    start = 0;
+    end = Number.MAX_SAFE_INTEGER;
+    label = 'All time';
+  }
+  return { start: start, end: end, label: label };
 }
 
 function loadSavings() {
@@ -1310,20 +1469,46 @@ function loadSavings() {
 }
 
 function renderSavingsData(d) {
-  var sessions = (d.sessions || []).concat(d.current ? [d.current] : []);
-  var now = Date.now();
-  var cutoffs = { day: now - 86400000, week: now - 7*86400000, month: now - 30*86400000, all: 0 };
-  var cutoff = cutoffs[savingsPeriod] || 0;
-  var filtered = sessions.filter(function(s){ return s.startTime >= cutoff && s.savedTokens != null; });
+  var sessions = (d.sessions || []).slice();
+  if (d.current && d.current.requests > 0) sessions.push(d.current);
+  var range = getPeriodRange();
+  var labelEl = document.getElementById('period-label');
+  if (labelEl) labelEl.textContent = range.label;
+  var filtered = sessions.filter(function(s){ return s.startTime >= range.start && s.startTime < range.end && s.savedTokens != null; });
 
   // Hero stats
-  var totalSaved = 0, totalReqs = 0, totalOrig = 0;
-  filtered.forEach(function(s){ totalSaved += s.savedTokens||0; totalReqs += s.requests||0; totalOrig += (s.savedTokens||0) + Math.round((s.savedChars||0)/3.5); });
+  var totalSaved = 0, totalReqs = 0, totalOrig = 0, hasOrigData = true;
+  filtered.forEach(function(s){
+    totalSaved += s.savedTokens||0;
+    totalReqs  += s.requests||0;
+    if (s.originalChars) {
+      totalOrig += Math.round(s.originalChars / 3.5);
+    } else {
+      hasOrigData = false; // at least one session without original data
+    }
+  });
   var avgPct = totalOrig > 0 ? Math.round(totalSaved / (totalSaved + (totalOrig - totalSaved)) * 100) : 0;
 
+  // Cost: use model-weighted if available from current stats, else flat $3/1M
+  var svModelCosts = (lastStats && lastStats.by_model) ? calcCostFromModels(lastStats.by_model, true) : null;
+  var svCost, svCostNote;
+  if (svModelCosts && svModelCosts.savedCost > 0) {
+    // Scale model costs proportionally if period ≠ all-time
+    var allSaved = 0;
+    sessions.forEach(function(s){ allSaved += s.savedTokens||0; });
+    var scale = allSaved > 0 ? totalSaved / allSaved : 1;
+    svCost = svModelCosts.savedCost * scale;
+    svCostNote = 'model-weighted pricing';
+  } else {
+    svCost = totalSaved * 0.000003;
+    svCostNote = 'est. at $3/1M tokens';
+  }
   document.getElementById('sv-tokens').textContent    = fmt(totalSaved);
-  document.getElementById('sv-tokens-sub').textContent = '~' + fmt(totalOrig) + ' total tokens';
-  document.getElementById('sv-cost').textContent      = fmtUsd(totalSaved * 0.000003);
+  document.getElementById('sv-tokens-sub').textContent = hasOrigData && totalOrig > 0
+    ? 'of ~' + fmt(totalOrig) + ' processed'
+    : 'tokens saved';
+  document.getElementById('sv-cost').textContent      = fmtUsd(svCost);
+  var svCostNoteEl = document.getElementById('sv-cost-note'); if(svCostNoteEl) svCostNoteEl.textContent = svCostNote;
   document.getElementById('sv-sessions').textContent  = String(filtered.length);
   document.getElementById('sv-requests').textContent  = totalReqs + ' requests';
   document.getElementById('sv-pct').textContent       = avgPct > 0 ? avgPct + '%' : '—';
@@ -1341,34 +1526,132 @@ function renderSavingsData(d) {
   if (ovCli) cli.innerHTML = ovCli.innerHTML;
 }
 
+function fmtY(v) {
+  if (v >= 1000000) return (v/1000000).toFixed(1).replace(/\.0$/,'') + 'M';
+  if (v >= 1000) return Math.round(v/1000) + 'k';
+  return String(Math.round(v));
+}
+
 function renderSavingsChart(sessions, period) {
   var el = document.getElementById('savings-chart');
-  if (!sessions.length) { el.innerHTML = '<div class="lim-nodata">No sessions in this period.</div>'; return; }
 
-  var groups = {};
+  // Build empty buckets covering the full range (even if no sessions)
+  var range = getPeriodRange();
+  var entries = [];
+  if (period === 'day') {
+    // 5-hour windows (matches Claude Code's 5h rate limit window)
+    var windows = [
+      { start: 0,  end: 5,  label: '00–05' },
+      { start: 5,  end: 10, label: '05–10' },
+      { start: 10, end: 15, label: '10–15' },
+      { start: 15, end: 20, label: '15–20' },
+      { start: 20, end: 24, label: '20–24' },
+    ];
+    windows.forEach(function(w, i) {
+      var t = range.start + w.start * 3600000;
+      entries.push({ key: i, saved: 0, reqs: 0, label: w.label, start: t, end: range.start + w.end * 3600000 });
+    });
+  } else if (period === 'week') {
+    // 7 days
+    for (var i = 0; i < 7; i++) {
+      var t = range.start + i * 86400000;
+      var d = new Date(t);
+      entries.push({ key: i, saved: 0, reqs: 0, label: d.toLocaleDateString([], {weekday:'short', day:'numeric'}), start: t, end: t + 86400000 });
+    }
+  } else if (period === 'month') {
+    // All days in the month
+    var startD = new Date(range.start);
+    var endD = new Date(range.end);
+    var cursor = new Date(startD);
+    while (cursor < endD) {
+      var t = cursor.getTime();
+      var nextDay = new Date(cursor); nextDay.setDate(nextDay.getDate() + 1);
+      entries.push({ key: cursor.getDate(), saved: 0, reqs: 0, label: String(cursor.getDate()), start: t, end: nextDay.getTime() });
+      cursor = nextDay;
+    }
+  } else { // all time → group by month, span from first session to current
+    var minTs = sessions.length ? Math.min.apply(null, sessions.map(function(s){return s.startTime;})) : Date.now();
+    var startD = new Date(new Date(minTs).getFullYear(), new Date(minTs).getMonth(), 1);
+    var endD = new Date();
+    var cursor = new Date(startD);
+    while (cursor <= endD) {
+      var t = cursor.getTime();
+      var nextMonth = new Date(cursor.getFullYear(), cursor.getMonth() + 1, 1);
+      entries.push({ key: cursor.getFullYear() + '-' + cursor.getMonth(), saved: 0, reqs: 0, label: cursor.toLocaleDateString([], {month:'short', year:'2-digit'}), start: t, end: nextMonth.getTime() });
+      cursor = nextMonth;
+    }
+  }
+
+  // Fill buckets with session data
   sessions.forEach(function(s) {
-    var d = new Date(s.startTime);
-    var key = period === 'day'
-      ? d.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})
-      : d.toLocaleDateString([], {month:'short',day:'numeric'});
-    if (!groups[key]) groups[key] = { saved: 0, reqs: 0 };
-    groups[key].saved += s.savedTokens || 0;
-    groups[key].reqs  += s.requests || 0;
+    for (var i = 0; i < entries.length; i++) {
+      if (s.startTime >= entries[i].start && s.startTime < entries[i].end) {
+        entries[i].saved += s.savedTokens || 0;
+        entries[i].reqs  += s.requests || 0;
+        break;
+      }
+    }
   });
 
-  var entries = Object.entries(groups).slice(-14); // max 14 bars
-  var maxVal = Math.max.apply(null, entries.map(function(e){ return e[1].saved; })) || 1;
+  var maxVal = Math.max.apply(null, entries.map(function(e){ return e.saved; })) || 1;
+  var totalSaved = entries.reduce(function(a,e){ return a + e.saved; }, 0);
+  var totalReqs = entries.reduce(function(a,e){ return a + e.reqs; }, 0);
+  var n = entries.length;
+  var chartH = 110;
 
-  el.innerHTML = '<div style="display:flex;align-items:flex-end;gap:6px;height:90px;padding-bottom:2px">' +
-    entries.map(function(e){
-      var h = Math.max(4, Math.round((e[1].saved / maxVal) * 80));
-      return '<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;min-width:0">' +
-        '<div style="font-size:9px;color:var(--text3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%;writing-mode:vertical-lr;transform:rotate(180deg);height:28px;line-height:1">' + e[0] + '</div>' +
-        '<div title="' + fmt(e[1].saved) + ' tokens saved" style="width:100%;height:' + h + 'px;background:var(--brand);border-radius:3px 3px 0 0;transition:height .3s;cursor:default"></div>' +
-      '</div>';
-    }).join('') +
-  '</div>' +
-  '<div style="margin-top:6px;font-size:11px;color:var(--text3)">Hover bars for details · ' + sessions.length + ' sessions · ' + fmt(sessions.reduce(function(a,s){return a+(s.savedTokens||0);},0)) + ' total tokens saved</div>';
+  if (totalSaved === 0 && totalReqs === 0) {
+    el.innerHTML = '<div class="lim-nodata">No data in this period.</div>';
+    return;
+  }
+
+  // Y-axis ticks
+  var yTicks = [0.25, 0.5, 0.75, 1.0];
+
+  // Build grid + bars as nested HTML
+  var gridLines = yTicks.map(function(t){
+    var pct = (1 - t) * 100;
+    return '<div style="position:absolute;left:38px;right:0;top:' + pct + '%;height:1px;border-top:1px dashed var(--border);pointer-events:none">' +
+      '<span style="position:absolute;right:calc(100% + 4px);transform:translateY(-50%);font-size:9px;color:var(--text3);white-space:nowrap">' + fmtY(t * maxVal) + '</span>' +
+    '</div>';
+  }).join('');
+
+  // Baseline
+  gridLines += '<div style="position:absolute;left:38px;right:0;bottom:0;height:1px;background:var(--border2)"></div>';
+
+  var bars = entries.map(function(data) {
+    var ratio = data.saved / maxVal;
+    var hPct = Math.max(2, Math.round(ratio * 100));
+    var isMax = data.saved === maxVal;
+    var color = isMax ? 'var(--brand)' : 'rgba(22,163,74,0.35)';
+    var tip = data.label + ' · ' + fmt(data.saved) + ' tokens saved · ' + data.reqs + ' req';
+    return '<div style="flex:1;min-width:0;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;gap:0;height:' + chartH + 'px;position:relative" title="' + esc(tip) + '">' +
+      (isMax ? '<div style="font-size:9px;color:var(--brand2);font-weight:700;margin-bottom:2px;white-space:nowrap">' + fmtY(data.saved) + '</div>' : '') +
+      '<div class="bar" style="width:calc(100% - 2px);height:' + hPct + '%;background:' + color + ';border-radius:3px 3px 0 0;transition:background .15s,opacity .15s"></div>' +
+    '</div>';
+  }).join('');
+
+  // Smart label spacing: show every N-th label to avoid clutter
+  var labelEvery = n <= 12 ? 1 : n <= 24 ? 2 : n <= 31 ? 5 : Math.ceil(n / 12);
+  var labels = entries.map(function(data, i) {
+    var show = i % labelEvery === 0 || i === n - 1;
+    var content = show ? esc(data.label) : '';
+    return '<div style="flex:1;min-width:0;text-align:center;font-size:9px;color:var(--text3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:0 1px">' + content + '</div>';
+  }).join('');
+
+  var unitLabel = period === 'day' ? '5h windows' : period === 'week' || period === 'month' ? 'days' : 'months';
+
+  el.innerHTML =
+    '<div class="chart-wrap" style="padding:12px 12px 8px">' +
+      '<div style="position:relative;height:' + chartH + 'px;margin-left:38px">' +
+        gridLines +
+        '<div style="position:absolute;inset:0;display:flex;gap:3px;align-items:flex-end">' + bars + '</div>' +
+      '</div>' +
+      '<div style="display:flex;gap:3px;margin-left:38px;margin-top:4px">' + labels + '</div>' +
+      '<div style="margin-top:6px;font-size:11px;color:var(--text3);display:flex;justify-content:space-between">' +
+        '<span>' + totalReqs + ' request' + (totalReqs !== 1 ? 's' : '') + ' across ' + n + ' ' + unitLabel + '</span>' +
+        '<span style="color:var(--brand2);font-weight:600">' + fmtY(totalSaved) + ' tokens saved</span>' +
+      '</div>' +
+    '</div>';
 }
 
 poll();

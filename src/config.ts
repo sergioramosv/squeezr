@@ -1,9 +1,16 @@
-import { readFileSync, existsSync } from 'fs'
+import { readFileSync, existsSync, writeFileSync, mkdirSync } from 'fs'
 import { join, dirname } from 'path'
 import { fileURLToPath } from 'url'
+import { homedir } from 'os'
 import { parse } from 'smol-toml'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
+// User-overridable config lives in ~/.squeezr/squeezr.toml so that an
+// `npm install -g squeezr-ai@latest` (which wipes the package directory)
+// does NOT erase the user's port and customisation choices. The bundled
+// squeezr.toml inside the package now serves as factory defaults only.
+export const USER_CONFIG_DIR = join(homedir(), '.squeezr')
+export const USER_CONFIG_PATH = join(USER_CONFIG_DIR, 'squeezr.toml')
 
 interface TomlConfig {
   proxy?: { port?: number; mitm_port?: number }
@@ -13,6 +20,10 @@ interface TomlConfig {
     disabled?: boolean
     compress_system_prompt?: boolean
     compress_conversation?: boolean
+    keep_recent_assistant?: number
+    assistant_threshold?: number
+    anthropic_native_compact?: boolean  // anthropic-beta: compact-2026-01-12
+    backend?: string  // 'auto' | 'local' | 'haiku' | 'gpt-mini' | 'gemini-flash'
     skip_tools?: string[]
     only_tools?: string[]
     ai_skip_tools?: string[]
@@ -55,14 +66,43 @@ function deepMerge(base: TomlConfig, override: TomlConfig): TomlConfig {
 }
 
 function loadToml(): TomlConfig {
-  const globalPath = join(__dirname, '..', 'squeezr.toml')
+  const bundledPath = join(__dirname, '..', 'squeezr.toml')
+  const userPath = USER_CONFIG_PATH
   const localPath = join(process.cwd(), '.squeezr.toml')
-  const globalCfg = loadTomlFile(globalPath)
+  // One-time migration: if the bundled toml has been hand-edited (typical case
+  // before 1.46.2 because the dashboard wrote ports there) AND no user config
+  // exists yet, copy the bundled file to ~/.squeezr/ so the user's choices
+  // survive the next `npm install -g`.
+  migrateBundledToUserHome(bundledPath, userPath)
+  const bundledCfg = loadTomlFile(bundledPath)
+  const userCfg = loadTomlFile(userPath)
   const localCfg = loadTomlFile(localPath)
+  if (Object.keys(userCfg).length > 0) {
+    console.log(`[squeezr] Using user config: ${userPath}`)
+  }
   if (Object.keys(localCfg).length > 0) {
     console.log(`[squeezr] Using project config: ${localPath}`)
   }
-  return deepMerge(globalCfg, localCfg)
+  // Precedence (low → high): bundled defaults → user home → project local.
+  return deepMerge(deepMerge(bundledCfg, userCfg), localCfg)
+}
+function migrateBundledToUserHome(bundledPath: string, userPath: string): void {
+  if (existsSync(userPath)) return
+  if (!existsSync(bundledPath)) return
+  try {
+    const raw = readFileSync(bundledPath, 'utf-8')
+    const parsed = parse(raw) as TomlConfig
+    const port = parsed.proxy?.port
+    const mitm = parsed.proxy?.mitm_port
+    const hasCustomPorts = (port !== undefined && port !== 8080)
+      || (mitm !== undefined && mitm !== (port ?? 8080) + 1)
+    if (!hasCustomPorts) return
+    mkdirSync(USER_CONFIG_DIR, { recursive: true })
+    writeFileSync(userPath, raw, 'utf-8')
+    console.log(`[squeezr] Migrated custom config from bundled toml to ${userPath}`)
+  } catch {
+    /* migration is best-effort */
+  }
 }
 
 function env(key: string, fallback: string): string {
@@ -77,6 +117,10 @@ export class Config {
   readonly disabled: boolean
   readonly compressSystemPrompt: boolean
   readonly compressConversation: boolean
+  readonly keepRecentAssistant: number
+  readonly assistantThreshold: number
+  readonly anthropicNativeCompact: boolean
+  readonly compressionBackend: CompressionBackend
   readonly dryRun: boolean
   readonly skipTools: Set<string>
   readonly onlyTools: Set<string>
@@ -107,7 +151,13 @@ export class Config {
     this.keepRecent = parseInt(env('SQUEEZR_KEEP_RECENT', String(c.keep_recent ?? 3)))
     this.disabled = env('SQUEEZR_DISABLED', String(c.disabled ?? false)) === '1' || env('SQUEEZR_DISABLED', '') === 'true'
     this.compressSystemPrompt = c.compress_system_prompt ?? true
-    this.compressConversation = c.compress_conversation ?? false
+    this.compressConversation = c.compress_conversation ?? true  // safe by default — only deterministic on assistant msgs
+    this.keepRecentAssistant = c.keep_recent_assistant ?? 3
+    this.assistantThreshold = c.assistant_threshold ?? 300
+    this.anthropicNativeCompact = c.anthropic_native_compact ?? false  // opt-in beta
+    const validBackends = new Set<CompressionBackend>(['auto', 'local', 'haiku', 'gpt-mini', 'gemini-flash'])
+    const backendRaw = (c.backend ?? 'auto') as CompressionBackend
+    this.compressionBackend = validBackends.has(backendRaw) ? backendRaw : 'auto'
     this.dryRun = env('SQUEEZR_DRY_RUN', '') === '1'
     this.skipTools = new Set((c.skip_tools ?? []).map(t => t.toLowerCase()))
     this.onlyTools = new Set((c.only_tools ?? []).map(t => t.toLowerCase()))
@@ -153,11 +203,15 @@ export class Config {
 
 export type CompressionMode = 'soft' | 'normal' | 'aggressive' | 'critical'
 
+export type CompressionBackend = 'auto' | 'local' | 'haiku' | 'gpt-mini' | 'gemini-flash'
+
 export interface RuntimeOverrides {
   mode: CompressionMode
   threshold?: number
   keepRecent?: number
   aiEnabled?: boolean
+  anthropicNativeCompact?: boolean
+  compressionBackend?: CompressionBackend
 }
 
 const MODES: Record<CompressionMode, Omit<RuntimeOverrides, 'mode'>> = {
@@ -189,6 +243,16 @@ export function effectiveKeepRecent(config: Config): number {
 /** Whether AI compression is enabled right now */
 export function aiEnabled(): boolean {
   return runtimeOverrides.aiEnabled ?? true
+}
+
+/** Whether Anthropic's native compact-2026-01-12 beta is enabled */
+export function anthropicNativeCompactEnabled(): boolean {
+  return runtimeOverrides.anthropicNativeCompact ?? config.anthropicNativeCompact
+}
+
+/** Get the effective compression backend (runtime override > config > 'auto') */
+export function effectiveBackend(): CompressionBackend {
+  return runtimeOverrides.compressionBackend ?? config.compressionBackend
 }
 
 export const config = new Config()

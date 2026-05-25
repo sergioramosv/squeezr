@@ -16,7 +16,7 @@
 | Ollama | HTTP (local) | Transparent via dummy API key detection |
 | **Codex Desktop** | **HTTP to OpenAI API** | **`~/.codex/config.toml` → `openai_base_url` (set by `squeezr setup`)** |
 | **Codex CLI** | **WebSocket to chatgpt.com** | **TLS-terminating MITM proxy on :8081** |
-| **Cursor IDE** | **ConnectRPC/HTTP2 to api2.cursor.sh** | **`squeezr cursor` — MITM proxy on :8082** |
+| Cursor IDE | HTTP to OpenAI API (BYOK mode only) | `localhost:8080` directly (CORS supported) or `squeezr tunnel` if calls come from Cursor's servers |
 | Continue (VS Code) | HTTP to OpenAI-compat | `apiBase: http://localhost:8080/v1` |
 
 Works with both API keys and subscription plans (OAuth) — Claude Code Max/Pro, OpenAI Plus, etc.
@@ -91,8 +91,8 @@ Compression aggressiveness scales with context window usage:
 
 ### Session optimizations
 
-- **Session cache:** After ~50 tool results, older results are batch-summarized into a single compact block
-- **KV cache warming:** Deterministic MD5-based IDs keep compressed content prefix-stable across requests
+- **Session cache:** Each compressed tool result is stored by MD5 hash. If the same content appears again in a later request, the cached version is reused instantly with no API call
+- **KV cache warming:** IDs are deterministic (MD5) so the compressed string is byte-for-byte identical across requests — Anthropic's KV cache stays warm and historical tokens cost zero compute
 - **Cross-turn dedup:** If the same file is read multiple times, earlier reads are replaced with reference pointers
 - **Expand on demand:** Compressed blocks include a `squeezr_expand(id)` callback to retrieve full content
 

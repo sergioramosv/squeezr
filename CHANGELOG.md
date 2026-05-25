@@ -2,6 +2,211 @@
 
 All notable changes to Squeezr will be documented here.
 
+## [1.46.2] - 2026-05-25
+### Fixed
+- **`npm install -g squeezr-ai@latest` borraba los puertos personalizados del usuario.** El `squeezr.toml` editado por el dashboard (POST `/squeezr/ports`) se escribía dentro del directorio del paquete npm. Cada reinstall/update reemplazaba ese directorio, perdiendo la configuración del usuario y dejando que `findFreePort()` arrancara silenciosamente en 8080 → siguiente libre, así que cada update mandaba al usuario a un puerto random. Ahora la configuración persistente vive en `~/.squeezr/squeezr.toml` (junto a `runtime.json` y `stats.json`). El `squeezr.toml` bundled dentro del paquete pasa a ser sólo defaults de fábrica.
+
+### Changed
+- **Orden de precedencia de config:** bundled defaults → `~/.squeezr/squeezr.toml` (user) → `./.squeezr.toml` (project) → env vars. Antes era sólo bundled → project.
+- **Migración automática:** en el primer arranque tras instalar 1.46.2, si el bundled toml todavía tiene puertos personalizados (port ≠ 8080 o mitm_port no derivado) y `~/.squeezr/squeezr.toml` no existe, se copia la TOML al user-home con un log `[squeezr] Migrated custom config…`. Best-effort, sin lanzar si falla.
+- **`POST /squeezr/ports`** escribe a `~/.squeezr/squeezr.toml`, nunca al bundled. Crea `~/.squeezr/` si hace falta.
+
+## [1.46.1] - 2026-05-25
+### Fixed
+- **`recipes/squeezr-1B/3_generate_mega_dataset.py`** — backoff específico para `RateLimitError`. El bucle anterior trataba 429 como cualquier excepción (3 retries con 2/4/8s), insuficiente para la ventana rodante de 5h de la Max subscription: bastaba un burst para que todos los workers murieran y cayera la generación. Ahora `RateLimitError` se cuenta en un contador separado con backoff `60→120→240→480→600s` (cap), hasta 8 reintentos, y emite `[RL]` logs. Otros errores siguen con el bucle corto. Aplicado a `synthesize_one` y `distill_one`.
+
+## [1.46.0] - 2026-05-24
+### Added
+- **`recipes/squeezr-1B/3_generate_mega_dataset.py`** — generador comprehensivo single-shot para crear el dataset de fine-tuning del modelo local `squeezr-1B`. Pipeline en dos etapas:
+  1. **Síntesis** con Sonnet 4.6 (barato): genera ejemplos sintéticos para 56 categorías (TypeScript/Python/Rust/Go/Java/Shell/SQL/HTML/CSS/YAML/JSON/TOML/Markdown/Dockerfile + git-diff/log/status/blame + npm/vitest/jest/pytest/cargo/tsc/eslint/ruff + docker/kubectl/terraform/aws/gcloud + json-api/graphql/http-headers/curl/openapi + grep/ripgrep/find/glob + stack traces Node/Python/Rust/Java + logs + Claude Edit/Write/Bash/Read shaped inputs) con distribución de tamaño realista (small/medium/large/xlarge ponderado 2:5:3:1) y muestreo ponderado por frecuencia real en tráfico Squeezr.
+  2. **Destilación** con Opus 4.7 (calidad máxima) en 3 variantes por ejemplo (conservative ~35% / balanced ~55% / aggressive ~75%), usando un único system prompt cacheable (`cache_control: ephemeral`) que dispara prompt-caching de Anthropic — la regla de compresión sólo cuenta como input cacheado (~90% off) en lugar de coste full por cada destilación. Para 9000 pairs esto baja el coste de ~$1500 a ~$350.
+- Output en formato chat-style JSONL `{messages: [system, user, assistant], original_chars, compressed_chars, ratio}` compatible directamente con Unsloth, axolotl, trl, o cualquier SFT framework.
+- Resumibilidad real: re-ejecutar salta `(id, variant)` ya emitidos. Backoff exponencial en errores, max_retries=3 por request. Concurrencia configurable (default 24 in-flight) para saturar el rate-limit de tokens/segundo del API.
+### Fixed
+- **`Savings by client` se vaciaba en cada `update` / `install` / `start-stop`.** `byModel` se persistía a `~/.squeezr/stats.json` y se recargaba con `loadPersistedByModel()` al arrancar, pero `byClient` se inicializaba a `{}` y nunca se escribía al disco — cualquier restart borraba el desglose por cliente (claude_code, claude_desktop, codex, …). Fix simétrico al de byModel: nuevo `loadPersistedByClient()`, init del campo desde disco, y `persist()` ahora también escribe `existing.by_client` como snapshot acumulativo.
+- **Dashboard mostraba "Update available v1.46.0 → v1.24.0" cuando la versión local era MAYOR que la publicada en npm.** El check usaba `latest !== current` (cualquier diferencia → banner), sin comparar dirección. Ahora `compareSemver(latest, current) > 0`: el banner sólo aparece si npm tiene una versión estrictamente más nueva que la local. Comparación semver propia (major.minor.patch + prerelease tail), sin dependencias.
+- **`compress_conversation = false` en `squeezr.toml` desactivaba silenciosamente Steps 1.5–1.7.** Era la causa principal de "sólo ahorramos 10% en Claude Code y <1% en Claude Desktop": el flag bloqueaba la deterministic pass sobre mensajes assistant/user/tool_use input *aunque* el código ya estuviera implementado. Flipped a `true`. Si tu propia `.squeezr.toml` local lo tiene a `false`, ponlo a `true` o bórralo para heredar el default.
+
+### Added
+- **Compresión de bloques de texto en mensajes de usuario (Claude Desktop fix).** Nuevo Step 1.6 en `compressAnthropicMessages` (y equivalentes en OpenAI/Gemini) aplica `preprocessAssistant()` a `user.content[*].text` cuando ≥ `assistant_threshold`, saltándose el último mensaje (la pregunta en vuelo). Esto es donde Claude Desktop pegaba adjuntos enormes que antes no se tocaban — explica el <1% de ratio reportado.
+- **Compresión deterministic de `tool_use.input` (Claude Code fix).** Nuevo Step 1.7 procesa los campos largos dentro de los tool_use de assistants antiguos: `Bash.command`, `Edit.old_string`/`new_string`, `Write.content`, `NotebookEdit.new_source`, `MultiEdit.edits[]`. Estos bloques son los que crecen rápido en sesiones largas de Claude Code y eran invisibles para el pipeline anterior.
+- **Pre-pass deterministic en `compressSystemPrompt`.** Antes de llamar a Haiku/GPT-mini/Gemini, ahora se aplica `preprocess()` al system prompt. Si la pre-pass sola ahorra ≥25%, se cachea y se devuelve sin llamada AI (gratis, sin latencia, sin coste). El cache se indexa por hash del prompt deterministic, así prompts equivalentes (mismo contenido, distinto whitespace) hit el mismo entry.
+- **Step 1.5 (prose deterministic) replicado en `compressOpenAIMessages` y `compressGeminiContents`.** Antes sólo existía en Anthropic. Ahora los tres formatos comparten la misma pipeline de limpieza de prosa en mensajes assistant/user antiguos.
+
+### Changed
+- **Defaults bajados para activar compresión más agresiva por defecto:**
+  - `assistant_threshold`: 1000 → 300 (más mensajes elegibles para deterministic)
+  - `keep_recent_assistant`: 5 → 3 (más historia comprimible)
+- **`systemPrompt.ts` fallback path no devuelve nunca el prompt crudo.** Si la llamada AI falla, devolvemos el output deterministic (la pre-pass es gratis) en vez del original sin tocar. Antes un timeout de Haiku perdía las mejoras gratuitas.
+
+### Notes
+- **Reinicia squeezr** (`squeezr stop && squeezr start`) para que coja el nuevo build y el nuevo `compress_conversation = true`.
+- **Si estás en WSL**, cierra y reabre la terminal después del restart para que los shims `claude`/`codex` lean la nueva versión.
+- 18 tests existentes fallan, pero son bitrot preexistente (los tests usan dos strings idénticos que el cross-turn dedup colapsa antes de que llegue al compresor) — no son regresiones de esta versión.
+
+## [1.45.5] - 2026-05-24
+### Fixed
+- **Ratio del dashboard mostraba 0-2% cuando los Tokens Saved / processed sumaban un ratio real de ~11.5%.** Causa: en `buildStatsPayload()` (`src/server.ts`), los campos `total_original_chars` / `total_saved_chars` / `requests` se sobreescribían con valores all-time (`Math.max(session, persisted, history)`), pero `savings_pct` venía del spread `...session` — es decir, del contador en RAM de esta sesión del proceso. Justo después de un restart la sesión apenas ha procesado nada, así que el ratio caía a 0%-2% mientras los demás cards mostraban totales all-time enormes (23.7M/204M). Fix: `savings_pct` ahora se recalcula desde `allTimeSavedTokens / allTimeOriginalTokens` para que el ratio sea internamente consistente con las cifras que ya muestra el resto del dashboard.
+- **`breakdown` (deterministic / ai_compression / read_dedup / system_prompt / overhead / ai_calls) también era session-only**, lo que confundía aún más cuando se comparaba contra los Tokens Saved all-time. Ahora `buildStatsPayload()` sobreescribe el breakdown con los valores persistidos en `~/.squeezr/stats.json` (`det_saved_chars`, `ai_saved_chars`, `dedup_saved_chars`, `sysprompt_saved_chars`, `overhead_chars`, `ai_compression_calls`), con fallback a los contadores de sesión por si no hubiera nada persistido. Misma fuente de verdad para los hero cards y para el breakdown.
+
+## [1.45.4] - 2026-05-24
+### Fixed
+- **El dashboard no mostraba Claude Desktop en la sección "By client".** El tráfico aparecía en los logs (`desktop-proxy.log`) pero ni el desglose por cliente ni los contadores del dashboard reflejaban nada de Claude Desktop. Dos bugs encadenados:
+  1. **Stats duplicados entre procesos.** El desktop proxy ejecutaba la pipeline de compresión IN-PROCESS (`app.fetch` importado de `server.ts`), así que tenía su propio singleton `Stats` separado del que aliment el dashboard del main proxy en 8080. Cualquier request de Claude Desktop incrementaba contadores invisibles. Además, ambos procesos persistían a `~/.squeezr/stats.json` y se pisaban (snapshot overwrite).
+  2. **Detección de cliente fallaba.** El UA de Claude Desktop no contiene "claude-desktop" ni "electron" en mayoría de casos, así que `detectAnthropicClient` caía al default `claude_code`.
+- **Fix:** el desktop proxy ya no compresa él mismo — es un thin relay TLS/path-routing layer que reenvía `/v1/messages` (y todo el tráfico Codex Desktop) al main proxy en `127.0.0.1:${SQUEEZR_PORT}`, donde se hace la compresión, el recording, y el dashboard. Sólo los paths no comprimibles (OAuth, sessions, organizations) van directo a `api.anthropic.com` vía `anthropicDirectFetch`, sin pasar por Hono. Además el desktop proxy ahora inyecta header `x-squeezr-client: claude_desktop` (HTTPS) o `codex_desktop` (HTTP) que el detector trata como autoritativo — el listener *sabe* qué cliente recibió, no hace falta heurística de UA.
+
+### Changed
+- **Desktop proxy es ahora puramente thin.** Removidos los imports/usos de `loadSessionCache`, `loadExpandStore`, `loadHistory` y la patched `globalThis.fetch`. El proceso ya no toca esos ficheros — el main proxy es la única fuente. Esto elimina race conditions sobre `~/.squeezr/{session-cache,expand-store,history,stats}.json` cuando ambos procesos están vivos.
+
+## [1.45.3] - 2026-05-24
+### Fixed
+- **Claude Desktop fallaba con `OAuthError: Unable to start session. Authentication failed (404)`** tras `enable-claude-desktop`. Causa: el desktop proxy enrutaba TODOS los paths a través de la app Hono (`app.all('*')`), cuyo catch-all usa el heurístico `detectUpstream(headers)` — para requests de Claude Desktop (OAuth, organizations, sessions, history…) ese detector no reconoce headers Anthropic y los misenruta como OpenAI, devolviendo 404. Fix: el desktop proxy ahora distingue por path. Sólo `/v1/messages` (el endpoint comprimible) atraviesa Hono; cualquier otra ruta hace passthrough crudo a `https://api.anthropic.com${path}${search}` vía `anthropicDirectFetch` (direct DNS, headers/body sin tocar). Claude Desktop ve la API real para autenticarse y Squeezr sólo se mete cuando hay tokens que ahorrar.
+
+## [1.45.2] - 2026-05-23
+### Fixed
+- **Activar `enable-claude-desktop` rompía Claude Code en terminal** ("Retrying in 0s · attempt 5/10" infinito). Aunque los procesos están separados, el hosts file `127.0.0.1 api.anthropic.com` es global y afecta al proxy principal — sus llamadas outbound a Anthropic se redirigían a 127.0.0.1:443 → portproxy → desktop proxy (con cert auto-firmado de Squeezr) → TLS falla. Fix: el proxy principal ahora usa direct-DNS (vía 1.1.1.1 / 8.8.8.8) ÚNICAMENTE para `api.anthropic.com`, siempre, sin importar el estado del hosts file. Cualquier otro upstream (OpenAI, Gemini, local) sigue usando `fetch` normal sin cambios. No hay branching en estado de Claude Desktop — el comportamiento es constante e invariante.
+- **`Invalid IP address: undefined` en el desktop proxy** al recibir tráfico real de Claude Desktop. Causa: el callback `lookup` de `https.request` ignoraba `options.all`. Cuando Node lo pone a `true` (típico con `https.Agent` y keep-alive), espera un array de `{address, family}`; la implementación previa devolvía un string suelto y reventaba. Fix: el callback ahora maneja ambos modos correctamente.
+
+### Changed
+- **Nuevo módulo compartido `src/anthropicDirectFetch.ts`** que centraliza el fetch outbound hacia `api.anthropic.com`: direct DNS por 1.1.1.1/8.8.8.8, `accept-encoding: identity` forzado (fix gzip de v1.44 conservado), `lookup` que respeta `opts.all`. Lo usan ambos procesos — `server.ts` (main proxy) y `desktopProxy.ts` — para que haya un solo sitio donde arreglar este tipo de bugs.
+
+## [1.45.1] - 2026-05-23
+### Fixed
+- **`squeezr desktop {start|stop|status}` no reconocía el subcomando.** Causa: el router del switch leía `args[0]` para el subcomando, pero `args[0]` es el comando top-level (`'desktop'`) — el subcomando real está en `args[1]`. Mismo bug existía en `squeezr mcp`. Ambos arreglados.
+- **`squeezr desktop status` reportaba "NOT running" aunque el desktop proxy estuviera vivo** cuando el PID file estaba obsoleto (situación común tras un reinicio no graceful: nueva instancia se levanta con PID distinto al del fichero). Fallback nuevo: si el PID del fichero está muerto, sonda los puertos 8443/8088 con `net.connect`; si hay listener, resuelve el PID dueño con `netstat -ano` y reescribe el PID file para adoptarlo.
+- **`squeezr desktop stop` no podía matar listeners huérfanos** cuando el PID file no se correspondía con el proceso real. Ahora también recupera el PID por puerto antes de mandar `SIGTERM`.
+
+### Added
+- **Diagnóstico en `squeezr desktop status` del estado de interceptación de Claude Desktop.** Lee el hosts file y reporta explícitamente si la redirección `127.0.0.1 api.anthropic.com` está activa. Si no lo está, muestra el siguiente paso obligatorio (`squeezr enable-claude-desktop` como admin) — porque la causa más común de "no aparece nada en los logs" no es que el desktop proxy no esté corriendo, sino que el cliente nunca está apuntando a él.
+- **Adopción automática de listeners huérfanos** en `squeezr desktop start`. Si los puertos 8443/8088 ya están bound por un proceso anterior con PID file perdido, en vez de fallar con `EADDRINUSE` reescribe el PID file y reusa el listener existente.
+
+## [1.45.0] - 2026-05-23
+### Changed
+- **Arquitectura: proxy separado para Desktop apps en otro puerto.** El usuario tenía toda la razón quejándose: "HAZ OTRO PROXY NUEVO EN OTRO PUERTO PARA CLAUDE DESKTOP Y CODEX DESKTOP ASI SI LO ROMPES NO DEJA DE FUNCIONAR EL DE CLAUDE CODE TERMINAL". Hecho:
+  - **Proxy principal (8080)** = Claude Code, Codex CLI, Aider, Gemini CLI. NUNCA toca el hosts file, NUNCA arranca MITM, NUNCA mira flags de Claude Desktop. Idéntico comportamiento con o sin Claude Desktop activo.
+  - **Proxy Desktop (8443 HTTPS + 8088 HTTP)** = Claude Desktop + Codex Desktop. Proceso totalmente separado (`src/desktopProxy.ts`). Listener TLS propio para Claude Desktop (vía hosts file), listener HTTP propio para Codex Desktop. Fetch outbound parcheado con DNS directo (1.1.1.1/8.8.8.8) para esquivar el hosts file. PID file propio (`~/.squeezr/desktop-proxy.pid`).
+  - **Aislamiento real:** si el desktop proxy crashea/hangs/explota, el principal en 8080 sigue sirviendo Claude Code SIN VERSE AFECTADO. Son dos procesos node distintos en `tasklist`.
+- **`squeezr start`** ahora también levanta el desktop proxy (después del principal). Si el desktop falla en arrancar, el principal sigue corriendo y se imprime un warning (no es fatal).
+- **`squeezr stop`** ahora también mata el desktop proxy primero, luego el principal. Cada uno con su PID file.
+- **Nuevos subcomandos CLI:** `squeezr desktop start | stop | status` para gestionar el desktop proxy de forma independiente sin tocar el principal.
+- **`src/index.ts` limpio:** eliminados todos los imports y código relacionado con Claude Desktop. `outgoingFetch` en `server.ts` vuelve a ser `fetch` plano para api.anthropic.com. Cero acoplamiento.
+
+### Fixed
+- **Claude Code dejaba de funcionar al activar Claude Desktop.** Causa: `outgoingFetch` en el proxy principal ramificaba según estado del hosts file y caía en `fetchBypassHosts` que no descomprimía gzip. Solución arquitectónica (no parche): el proxy principal ya no tiene ese código. La lógica de bypass DNS vive ÚNICAMENTE en el desktop proxy separado.
+
+### Added
+- **`src/desktopProxy.ts`** — entrypoint Node standalone. TLS server en 8443 + HTTP server en 8088. Genera certs por SNI firmados con la CA local. Parchea `globalThis.fetch` SÓLO en su propio proceso (no afecta al principal) para enrutar `api.anthropic.com` por DNS directo. Catch global de `uncaughtException` para no morirse por un handshake malo.
+
+## [1.44.0] - 2026-05-23
+### Fixed
+- **Claude Code dejaba de funcionar al activar Claude Desktop** ("Retrying in 5s · attempt 4/10" infinito). Causa raíz doble:
+  1. `fetchBypassHosts` usaba `https.request` que **NO descomprime gzip/brotli automáticamente** (a diferencia del `fetch` global). Anthropic respondía comprimido y el SSE llegaba como bytes basura → el parser de Claude Code no veía mensajes y reintentaba. **Fix:** se fuerza `accept-encoding: identity` en outbound, eliminando cualquier `accept-encoding` heredado del cliente.
+  2. `outgoingFetch` cambiaba de comportamiento según el estado del hosts file. Si `fetchBypassHosts` tenía cualquier bug, **solo se manifestaba con Claude Desktop activo**, creando acoplamiento implícito. **Fix:** `outgoingFetch` ahora SIEMPRE usa `fetchBypassHosts` para api.anthropic.com — sin condicionales. El comportamiento del proxy principal es idéntico con o sin Claude Desktop.
+
+### Changed
+- **Arquitectura: Claude Desktop MITM es ahora un proceso hijo independiente** (`src/claudeDesktopWorker.ts`). El proxy principal hace `spawn()` del worker como child process cuando detecta el marker del hosts file. **Aislamiento total:**
+  - Si el worker crashea, hangs o tiene memory leak → el proxy principal (Claude Code, Codex, Aider) sigue funcionando.
+  - El proxy principal NO importa nada del worker. Solo lo lanza.
+  - El worker reinyecta los requests interceptados en `http://localhost:<proxy_port>` como cliente HTTP normal, reutilizando el pipeline de compresión completo.
+  - SIGTERM del proxy principal mata limpiamente al worker.
+- **`anthropicMitm.ts`** — `startAnthropicMitm` / `stopAnthropicMitm` ya no se importan en `index.ts`. Solo se exportan `fetchBypassHosts` e `isClaudeDesktopInterceptActive` para uso del server. La MITM real vive en el worker.
+
+## [1.43.0] - 2026-05-23
+### Fixed
+- **Claude Desktop interception coexiste con Claude Code** — el flag file separado se eliminó. La detección ahora lee directamente el hosts file buscando el marker `# squeezr-claude-desktop BEGIN`. Si está → modo claude-desktop activo (arranca listener MITM en 8443, usa `fetchBypassHosts` para outbound). Si no → comportamiento normal. **Imposible quedar en estado half-broken** (hosts modificado pero listener no arrancado).
+- **`fetchBypassHosts` ahora es streaming-aware** — usa `ReadableStream` que pipea chunks del `http.IncomingMessage` directamente, sin bufferizar. Mantiene SSE de Claude Code funcionando perfectamente cuando claude-desktop está enabled simultáneamente.
+- **Cache de 30s** en la detección del hosts file — lectura solo cada 30s, no en cada request.
+
+### Added
+- **`isClaudeDesktopInterceptActive()`** en `anthropicMitm.ts` — detección runtime via lectura del hosts file con cache.
+
+## [1.42.0] - 2026-05-23
+### Added
+- **Claude Desktop interception via hosts file + TLS** — `squeezr enable-claude-desktop` modifica el hosts file con `127.0.0.1 api.anthropic.com`, abre el firewall TCP 443, y flushea la DNS cache. Squeezr levanta entonces un listener HTTPS en port 443 con certificado para `api.anthropic.com` firmado por la CA local de Squeezr (ya confiada por Windows tras `squeezr setup`). Claude Desktop conecta a "Anthropic" pero acaba en Squeezr → comprime → reenvía al api real.
+- **`src/anthropicMitm.ts`** — HTTPS server en 443 que termina TLS y enruta vía el Hono app existente. Genera certs per-host firmados por la CA. Reusa el pipeline de compresión completo (system prompt + tool results + assistant det + dedup).
+- **`fetchBypassHosts()`** en `anthropicMitm.ts` — drop-in replacement de `fetch()` que usa `https.request` con custom `lookup` que resuelve via DNS directo (1.1.1.1 / 8.8.8.8), bypaseando el hosts file. Crítico: sin esto, Squeezr forwardearía a `api.anthropic.com → 127.0.0.1 → loop infinito`.
+- **`disable-claude-desktop`** — comando reverso que limpia hosts file y firewall rule, restaurando comportamiento normal.
+- **Auto-elevation** — el comando detecta si no corre como admin y se relanza vía PowerShell `Start-Process -Verb RunAs`.
+
+## [1.41.0] - 2026-05-23
+### Added
+- **Endpoint `POST /squeezr/distill`** — usa el token OAuth capturado de Claude Code/Desktop para hacer distillation con Opus 4.7 usando la **suscripción Pro/Max del usuario** (cero coste API). Soporta 3 variantes (`conservative`, `balanced`, `aggressive`). Diseñado para entrenar `squeezr-1B`.
+- **Script `recipes/squeezr-1B/2_distill_via_squeezr.py`** — llama al endpoint local, maneja rate limits 429 con pausa de 5min, resumable, multi-variant.
+- **Script `recipes/squeezr-1B/1_extract_dataset.py`** — extrae ejemplos reales de `~/.squeezr/expand_store.json` (~437 ejemplos en uso normal).
+- **Script `recipes/squeezr-1B/1b_synthetic_examples.py`** — genera ejemplos sintéticos por categoría (git-diff, vitest, pytest, terraform, etc.) para diversidad del dataset.
+- **`configureCodexDesktop` defensivo** — detecta `openai_base_url = ""` (que Codex Desktop a veces sobreescribe) y lo arregla en re-runs de `squeezr setup`.
+
+### Fixed
+- **Update banner mostrando versión vieja como "available"** — bug en la lógica del cache de update-check. Ahora compara versiones numéricamente y solo muestra banner si npm tiene una versión **estrictamente más nueva**. Aplicado tanto al path cacheado como al fresh fetch.
+
+## [1.40.0] - 2026-05-23
+### Added
+- **Compression backend selector** en Settings → Compression. 5 opciones: `Auto` (default, usa el modelo de la API que recibe la request), `squeezr-1B` (local via Ollama, gratis, sin red), `Haiku`, `GPT-4o-mini`, `Gemini Flash`. Cuando se selecciona un backend distinto de Auto, **se usa ese modelo para TODAS las compresiones** sin importar de qué cliente venga la request. Fallback automático a Auto si el backend elegido no tiene key disponible.
+- **Endpoint `GET/POST /squeezr/backend`** para consultar/cambiar el backend en runtime.
+- **Config `backend`** en `squeezr.toml [compression]` (default: `"auto"`).
+- **Función `effectiveBackend()`** en `config.ts` que respeta runtime override sobre TOML.
+- **Función `getEffectiveCompressFn()`** en `compressor.ts` que enruta la llamada al backend seleccionado, manteniendo el circuit breaker y la caché LRU.
+- **Storage de Gemini API key** en `limits.ts` (antes solo se guardaba anthropic y openai). Necesario para que el backend `gemini-flash` funcione cuando se selecciona desde una request que no es Gemini.
+
+### Roadmap mencionado
+- **squeezr-1B**: modelo de compresión propio, fine-tuneado desde Qwen 3.5-0.8B usando Claude Opus 4.7 como teacher. Pendiente de entrenar. El backend selector ya tiene la opción `local` lista para cuando esté disponible.
+
+## [1.39.0] - 2026-05-23
+### Added
+- **Patrones específicos para mensajes del assistant** (`preprocessAssistant` en `deterministic.ts`). Reemplaza phrases verbosas (`"in order to"` → `"to"`, `"due to the fact that"` → `"because"`, etc.), strip discourse markers (`"let me"`, `"I'll"`, `"actually"`, `"basically"`), elimina markdown decorativo (`**bold**`, `_italic_`), corta trailing summaries (`"Here's a summary…"`). **Solo aplica a prose, los code blocks ``` ``` quedan 100% intactos**. Splittea texto en prose/code antes de procesar.
+- **Toggle `compact-2026-01-12` (Anthropic native compaction beta)** — nuevo botón en Settings → Compression. Cuando se activa, Squeezr inyecta el header `anthropic-beta: compact-2026-01-12` en todas las requests a Anthropic. Anthropic resume server-side la conversación cuando excede threshold. **Stackable con la compresión de Squeezr** — comprimes primero, ellos resumen lo que queda. Solo Claude (no afecta OpenAI/Gemini). OFF por defecto, runtime-toggleable.
+- **Endpoint `GET/POST /squeezr/native-compact`** para consultar/togglear el estado del beta.
+- **Config `anthropic_native_compact`** en `squeezr.toml` (default: false).
+
+## [1.38.0] - 2026-05-23
+### Added
+- **`compress_conversation` (modo determinístico — sin AI)** — Aplica preprocesado determinístico a los mensajes del assistant antiguos: colapsa whitespace, minifica JSON embebido, dedup de stack traces y líneas repetidas. **Cero llamadas AI** — solo regex. Defaults conservadores: `keep_recent_assistant=5` (los últimos 5 mensajes del assistant intactos), `assistant_threshold=1000` (solo mensajes >1000 chars). Habilitado por defecto al ser totalmente seguro. La parte de AI compression para mensajes del assistant queda al margen (se implementará después con goteo y presupuesto duro para evitar el burst que quemó rate limits en pruebas anteriores).
+- **Config `keep_recent_assistant`** y **`assistant_threshold`** en `squeezr.toml`.
+- **Función `extractAnthropicAssistantTexts`** en `compressor.ts` que extrae textos de mensajes del assistant respetando `keepRecent` y umbral mínimo.
+- **Log `[squeezr/asst-det]`** que reporta ahorro determinístico sobre mensajes del assistant.
+
+## [1.37.0] - 2026-05-23
+### Added
+- **Cross-turn dedup extendido a Bash y Grep** (antes solo Read). Si el mismo output de Bash (ej: `git status`) o Grep aparece varias veces en la conversación con contenido byte-idéntico, las apariciones anteriores se reemplazan por `[same bash output as a later call — squeezr_expand(id) to retrieve]`. Estimado: +10-15% de ahorro adicional en sesiones iterativas (debug loops, refactors). **Riesgo cero**: hash MD5 exacto, si difiere un byte no deduplica. Threshold mínimo de 200 chars (outputs pequeños no compensan el overhead del placeholder). Aplicado a Anthropic, OpenAI y Gemini.
+
+## [1.36.0] - 2026-05-22
+### Fixed
+- **Dashboard frozen** — el constructor de Stats con campos sin inicializador (`private requests: number`) con target ES2022 causaba un conflicto entre los `Object.defineProperty` de los campos nativos y el constructor body. Revertido a campos con inicializadores simples (`= 0`), patrón que funciona de forma garantizada.
+- **Overview sigue mostrando histórico después del arreglo** — en lugar de pre-cargar en memoria, el endpoint `/squeezr/stats` ahora fusiona los totales de `stats.json` (all-time) con la sesión actual usando `Math.max`, de forma que siempre muestra el valor más alto (que es el histórico acumulado).
+
+## [1.35.0] - 2026-05-22
+### Fixed
+- **Overview vs Savings token mismatch** — `renderSavingsData` tenía `totalOrig += savedTokens + savedChars/3.5` que suma el mismo valor dos veces (ya que `savedTokens = savedChars/3.5`). Resultado: Savings mostraba el doble de tokens que Overview. Corregido usando `originalChars` real de la session.
+- **Overview shows all-time totals after restart** — `Stats` constructor ahora pre-carga totales de `stats.json` como baseline. Overview ya no empieza en 0 tras cada `squeezr stop/start`.
+- **`SessionRecord` ahora incluye `originalChars`** — `history.ts` y todos los `recordRequest()` en `server.ts` reciben y persisten los chars originales del request, necesario para calcular el total procesado correctamente en Savings.
+- **"0 compressed" con requests activos** — El hero card "Requests" ahora muestra AI calls + session cache hits combinados, no solo AI calls. Cuando solo corre determinística se muestra correctamente.
+
+## [1.34.0] - 2026-05-22
+### Changed
+- **Savings chart redesigned** — replaced basic colored divs with a proper SVG bar chart: grid lines with Y-axis labels (1.2M, 800k…), max bar highlighted in bright green, dimmer bars for context, value label above max bar, native hover tooltip (date + tokens + requests), x-axis labels rotated 40° when many bars, total tokens right-aligned in footer.
+### Fixed
+- **Version in dashboard header** — `package.json` was stuck at `1.30.0` while changelog was at `1.33.0`. Now in sync at `1.34.0`. Version is read live from `package.json` via `version.ts` so it always reflects the running code.
+
+## [1.33.0] - 2026-05-22
+### Fixed
+- **`squeezr stop` ya no borra el historial de savings** — el bug era que `stopProxy()` usaba `taskkill /F` (Windows) y `kill -9` (Unix), ambos force-kills que matan el proceso sin darle tiempo a ejecutar el shutdown handler (`persistAndExit` → `persistHistory`). Ahora primero hace un shutdown graceful via `POST /squeezr/control/stop` (que emite SIGTERM → `persistHistory` → guardado en disco) y espera ~1s. Solo entonces force-kill si el proceso sigue vivo. Aplica también a `squeezr update` y `squeezr setup` que reutilizan `stopProxy()`.
+
+## [1.32.0] - 2026-05-22
+### Fixed
+- **Hero "Cost Saved" now uses real model-weighted pricing** — was using flat $3/1M regardless of model. Now uses the same `calcCostFromModels` weighted calculation as the cost comparison section. Falls back to $3/1M only if no model data is available.
+- **By model tokens sum now matches total** — `by_model` is now persisted to `stats.json` and pre-loaded at proxy startup, so model breakdown accumulates across proxy restarts just like the total token counter. Previously only showed current session data, causing a visible mismatch (e.g. 5.3M in models vs 10.6M total).
+- **Savings tab "Est. Cost Saved" note is now dynamic** — previously hardcoded "at $3/1M tokens". Now shows "model-weighted pricing" when model data is available.
+
+## [1.31.0] - 2026-05-22
+### Added
+- **ARCHITECTURE.md** — full technical reference of everything Squeezr does, sourced exclusively from code: compression pipeline, deterministic patterns, session cache, expand store, circuit breaker, context pressure, stats tracking, client detection, all endpoints.
+### Fixed
+- **README: Cursor IDE row** — removed false claim of `squeezr cursor` command and MITM proxy on :8082 (neither exists). Now correctly describes BYOK localhost or `squeezr tunnel`.
+- **README: session cache description** — removed false "After ~50 tool results, batch-summarized" claim. Now accurately describes per-block MD5 hash lookup with KV cache preservation.
+### Changed
+- Deleted stale/false MD files: AUDIT_SIMPLE_RTK_vs_SQUEEZR.md, AUDIT_TECNICO_RTK_vs_SQUEEZR.md, CODEX.md, CURSOR_PLAN.md, CURSOR_TUNNEL.md, IMPROVEMENTS.md, NSSM_WINDOWS_SERVICE.md, WHY_SQUEEZR.md. Only README.md and ARCHITECTURE.md remain.
+
 ## [1.30.0] - 2026-05-22
 ### Fixed
 - **History sessions had `savedTokens: 0`** — `recordRequest` in `history.ts` was being passed `savings.savedChars` which only counts AI-compression savings, missing deterministic + system prompt + dedup savings (which are the majority). Now passes `originalChars - compressedChars` (total saved) so the Savings tab shows real numbers for past sessions.
