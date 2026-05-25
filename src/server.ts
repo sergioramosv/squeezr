@@ -1,9 +1,9 @@
-import { readFileSync } from 'node:fs'
+import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs'
 import { join } from 'node:path'
-import { homedir } from 'node:os'
+import { homedir, platform } from 'node:os'
 import { Hono, type Context } from 'hono'
 import { stream, streamSSE } from 'hono/streaming'
-import { config, applyMode, runtimeOverrides } from './config.js'
+import { config, applyMode, runtimeOverrides, anthropicNativeCompactEnabled, effectiveBackend, USER_CONFIG_DIR, USER_CONFIG_PATH, type CompressionBackend } from './config.js'
 import { Stats } from './stats.js'
 import type { LatencyInfo } from './stats.js'
 import { DASHBOARD_HTML } from './dashboard.js'
@@ -24,6 +24,7 @@ import {
   expandStoreSize,
 } from './expand.js'
 import { compressSystemPrompt } from './systemPrompt.js'
+import { anthropicDirectFetch, isAnthropicUrl } from './anthropicDirectFetch.js'
 import { sessionCacheSize } from './sessionCache.js'
 import { detPatternHits } from './deterministic.js'
 import { VERSION } from './version.js'
@@ -45,6 +46,7 @@ import {
   maybeRefreshOpenAIBilling,
   maybeRefreshOpenAISessionLimits,
   storeKey,
+  storedKey,
   limitsSnapshot,
 } from './limits.js'
 
@@ -115,7 +117,7 @@ const ANTHROPIC_API = 'https://api.anthropic.com'
 const OPENAI_API = 'https://api.openai.com'
 const GOOGLE_API = 'https://generativelanguage.googleapis.com'
 
-const SKIP_REQ_HEADERS = new Set(['host', 'content-length', 'transfer-encoding', 'connection', 'upgrade', 'expect'])
+const SKIP_REQ_HEADERS = new Set(['host', 'content-length', 'transfer-encoding', 'connection', 'upgrade', 'expect', 'x-squeezr-client', 'x-squeezr-dryrun'])
 
 function readCodexToken(): string | null {
   try {
@@ -155,9 +157,26 @@ function estimateChars(data: unknown): number {
   return JSON.stringify(data).length
 }
 
+// Outgoing fetch — uses Node's native fetch for everything EXCEPT
+// api.anthropic.com, which is forced through direct DNS so that the system
+// hosts file redirect installed by `squeezr enable-claude-desktop` does NOT
+// loop the main proxy back to itself (or to the desktop proxy with its
+// self-signed cert, which is what was breaking Claude Code in the terminal
+// with infinite "Retrying" loops).
+//
+// This is NOT a state-dependent branch on whether Claude Desktop is enabled
+// — that proved fragile. The behaviour is now constant: api.anthropic.com
+// ALWAYS uses direct DNS. The result is identical for users who never touch
+// Claude Desktop (the hosts file is fine, the direct resolver returns the
+// same IPs) and correct for users who do.
+function outgoingFetch(url: string, init: RequestInit): Promise<Response> {
+  if (isAnthropicUrl(url)) return anthropicDirectFetch(url, init)
+  return fetch(url, init)
+}
+
 async function proxyStream(upstream: string, body: unknown, headers: Record<string, string>, params?: URLSearchParams): Promise<Response> {
   const url = params?.toString() ? `${upstream}?${params}` : upstream
-  return fetch(url, {
+  return outgoingFetch(url, {
     method: 'POST',
     headers: { ...headers, 'content-type': 'application/json' },
     body: JSON.stringify(body),
@@ -185,6 +204,40 @@ app.use('*', async (c, next) => {
   c.res.headers.set('Access-Control-Allow-Headers', '*')
 })
 
+// ── Client detection from User-Agent ─────────────────────────────────────────
+// `hint` comes from the desktop proxy via `x-squeezr-client` and is the
+// authoritative source when present (the desktop proxy *knows* which listener
+// received the request). Falls back to UA heuristics otherwise.
+const VALID_CLIENT_HINTS = new Set([
+  'claude_code', 'claude_desktop', 'codex_cli', 'codex_desktop',
+  'aider', 'opencode', 'cursor', 'cline', 'windsurf', 'continue',
+])
+
+function detectAnthropicClient(ua: string, hint?: string | null): string {
+  if (hint && VALID_CLIENT_HINTS.has(hint)) return hint
+  const u = ua.toLowerCase()
+  if (u.includes('claude-code') || u.includes('claude_code')) return 'claude_code'
+  if (u.includes('claude-desktop') || u.includes('claude desktop') || u.includes('electron')) return 'claude_desktop'
+  if (u.includes('aider')) return 'aider'
+  if (u.includes('opencode') || u.includes('open-code')) return 'opencode'
+  if (u.includes('cursor')) return 'cursor'
+  if (u.includes('cline') || u.includes('roo')) return 'cline'
+  if (u.includes('windsurf')) return 'windsurf'
+  return 'claude_code' // default: most likely Claude Code if using /v1/messages
+}
+
+function detectOpenAIClient(ua: string, hint?: string | null): string {
+  if (hint && VALID_CLIENT_HINTS.has(hint)) return hint
+  const u = ua.toLowerCase()
+  if (u.includes('codex')) return 'codex_desktop'
+  if (u.includes('cursor')) return 'cursor'
+  if (u.includes('continue')) return 'continue'
+  if (u.includes('cline') || u.includes('roo')) return 'cline'
+  if (u.includes('windsurf')) return 'windsurf'
+  if (u.includes('aider')) return 'aider'
+  return 'openai_other'
+}
+
 // ── Anthropic / Claude Code ───────────────────────────────────────────────────
 
 app.post('/v1/messages', async (c) => {
@@ -195,6 +248,9 @@ app.post('/v1/messages', async (c) => {
     ?? c.req.header('authorization')?.replace(/^bearer\s+/i, '').trim()
     ?? process.env.ANTHROPIC_API_KEY
     ?? ''
+
+  const clientId = detectAnthropicClient(c.req.header('user-agent') ?? '', c.req.header('x-squeezr-client'))
+  const modelId  = String(body.model ?? 'unknown')
 
   // Extract project name BEFORE compressing system prompt (compression destroys <cwd> tags)
   const project = extractProjectName(body)
@@ -221,8 +277,8 @@ app.post('/v1/messages', async (c) => {
 
   // Bypass mode: skip all compression, still record request stats
   if (isBypassed()) {
-    stats.recordWithProject(project, originalChars, originalChars, emptySavings())
-    recordRequest(project, 0, 0, [])
+    stats.recordWithProject(project, originalChars, originalChars, emptySavings(), undefined, clientId, modelId)
+    recordRequest(project, 0, 0, [], originalChars)
     storeKey('anthropic', apiKey)
     const fwdHeaders = forwardHeaders(c.req.raw.headers)
     if (body.stream) {
@@ -243,7 +299,7 @@ app.post('/v1/messages', async (c) => {
         }
       })
     }
-    const resp = await fetch(`${ANTHROPIC_API}/v1/messages`, {
+    const resp = await outgoingFetch(`${ANTHROPIC_API}/v1/messages`, {
       method: 'POST',
       headers: { ...fwdHeaders, 'content-type': 'application/json' },
       body: JSON.stringify(body),
@@ -287,11 +343,25 @@ app.post('/v1/messages', async (c) => {
 
   // Inject expand tool
   injectExpandToolAnthropic(body)
-  stats.recordWithProject(project, originalChars, estimateChars(compressedMsgs), savings, compLatency)
-  recordRequest(project, savings.savedChars, savings.compressed, savings.byTool)
+  const _claudeCompChars = estimateChars(compressedMsgs)
+  stats.recordWithProject(project, originalChars, _claudeCompChars, savings, compLatency, clientId, modelId)
+  // Record TOTAL saved (originalChars - compressedChars), not just AI savings
+  recordRequest(project, Math.max(0, originalChars - _claudeCompChars), savings.compressed, savings.byTool, originalChars)
 
   storeKey('anthropic', apiKey)
   const fwdHeaders = forwardHeaders(c.req.raw.headers)
+
+  // Anthropic native context compaction beta (compact-2026-01-12)
+  // When enabled, Anthropic auto-summarizes the conversation server-side
+  // when input tokens exceed threshold. Stacks with Squeezr's compression.
+  if (anthropicNativeCompactEnabled()) {
+    const existingBeta = fwdHeaders['anthropic-beta'] || ''
+    if (!existingBeta.includes('compact-2026-01-12')) {
+      fwdHeaders['anthropic-beta'] = existingBeta
+        ? `${existingBeta},compact-2026-01-12`
+        : 'compact-2026-01-12'
+    }
+  }
 
   if (body.stream) {
     const upstream = await proxyStream(`${ANTHROPIC_API}/v1/messages`, body, fwdHeaders)
@@ -315,7 +385,7 @@ app.post('/v1/messages', async (c) => {
     })
   }
 
-  const resp = await fetch(`${ANTHROPIC_API}/v1/messages`, {
+  const resp = await outgoingFetch(`${ANTHROPIC_API}/v1/messages`, {
     method: 'POST',
     headers: { ...fwdHeaders, 'content-type': 'application/json' },
     body: JSON.stringify(body),
@@ -372,6 +442,9 @@ app.post('/v1/chat/completions', async (c) => {
   const isLocal = config.isLocalKey(openAIKey)
   const upstream = isLocal ? `${config.localUpstreamUrl.replace(/\/$/, '')}/v1/chat/completions` : `${OPENAI_API}/v1/chat/completions`
 
+  const oaiClientId = detectOpenAIClient(c.req.header('user-agent') ?? '', c.req.header('x-squeezr-client'))
+  const oaiModelId  = String(body.model ?? 'unknown')
+
   // Extract project name BEFORE compressing system prompt
   const oaiProject = extractProjectName(body)
 
@@ -380,8 +453,8 @@ app.post('/v1/chat/completions', async (c) => {
 
   // Bypass mode: skip all compression, still record request stats
   if (isBypassed()) {
-    stats.recordWithProject(oaiProject, originalChars, originalChars, emptySavings())
-    recordRequest(oaiProject, 0, 0, [])
+    stats.recordWithProject(oaiProject, originalChars, originalChars, emptySavings(), undefined, oaiClientId, oaiModelId)
+    recordRequest(oaiProject, 0, 0, [], originalChars)
     if (!isLocal) storeKey('openai', openAIKey)
     const fwdHeaders = forwardHeaders(c.req.raw.headers)
     if (body.stream) {
@@ -435,8 +508,9 @@ app.post('/v1/chat/completions', async (c) => {
   body.messages = compressedMsgs
 
   if (!isLocal) injectExpandToolOpenAI(body)
-  stats.recordWithProject(oaiProject, originalChars, estimateChars(compressedMsgs), savings, oaiCompLatency)
-  recordRequest(oaiProject, savings.savedChars, savings.compressed, savings.byTool)
+  const _oaiCompChars = estimateChars(compressedMsgs)
+  stats.recordWithProject(oaiProject, originalChars, _oaiCompChars, savings, oaiCompLatency, oaiClientId, oaiModelId)
+  recordRequest(oaiProject, Math.max(0, originalChars - _oaiCompChars), savings.compressed, savings.byTool, originalChars)
 
   if (!isLocal) storeKey('openai', openAIKey)
   const fwdHeaders = forwardHeaders(c.req.raw.headers)
@@ -516,11 +590,13 @@ app.post('/v1beta/models/*', async (c) => {
   const contents = (body.contents ?? []) as unknown[]
   const originalChars = estimateChars(contents)
   const geminiProject = extractProjectName(body)
+  // Gemini model is in the URL path: /v1beta/models/gemini-2.5-pro:generateContent
+  const geminiModelId = modelPath.split(':')[0] || 'gemini'
 
   // Bypass mode: skip all compression, still record request stats
   if (isBypassed()) {
-    stats.recordWithProject(geminiProject, originalChars, originalChars, emptySavings())
-    recordRequest(geminiProject, 0, 0, [])
+    stats.recordWithProject(geminiProject, originalChars, originalChars, emptySavings(), undefined, 'gemini', geminiModelId)
+    recordRequest(geminiProject, 0, 0, [], originalChars)
     const targetUrl = `${GOOGLE_API}/v1beta/models/${modelPath}`
     const fwdHeaders = forwardHeaders(c.req.raw.headers)
     const params = url.searchParams
@@ -537,6 +613,8 @@ app.post('/v1beta/models/*', async (c) => {
     return c.body(await resp.arrayBuffer(), resp.status as any, respHeaders)
   }
 
+  // Store gemini key so it's available if backend is later switched to gemini-flash from a different API request
+  if (googleKey) storeKey('gemini', googleKey)
   const gemCompT0 = Date.now()
   const [compressedContents, savings] = await compressGeminiContents(
     contents as Parameters<typeof compressGeminiContents>[0],
@@ -546,8 +624,9 @@ app.post('/v1beta/models/*', async (c) => {
   const gemCompLatency: LatencyInfo = { totalMs: Date.now() - gemCompT0, detMs: savings.detMs, aiMs: savings.aiMs }
   body.contents = compressedContents
 
-  stats.recordWithProject(geminiProject, originalChars, estimateChars(compressedContents), savings, gemCompLatency)
-  recordRequest(geminiProject, savings.savedChars, savings.compressed, savings.byTool)
+  const _gemCompChars = estimateChars(compressedContents)
+  stats.recordWithProject(geminiProject, originalChars, _gemCompChars, savings, gemCompLatency, 'gemini', geminiModelId)
+  recordRequest(geminiProject, Math.max(0, originalChars - _gemCompChars), savings.compressed, savings.byTool, originalChars)
 
   const targetUrl = `${GOOGLE_API}/v1beta/models/${modelPath}`
   const fwdHeaders = forwardHeaders(c.req.raw.headers)
@@ -606,8 +685,61 @@ app.post('/v1beta/models/*', async (c) => {
 
 async function buildStatsPayload() {
   await maybeRefreshOpenAISessionLimits().catch(() => {})
+  const session = stats.summary()
+
+  // Compute all-time totals by summing ALL history sessions (history.json is the source of truth)
+  // plus comparing with stats.json — take the maximum to avoid regressions
+  const allSessions = getAllSessionsForHistory()
+  const historyTotalSavedTokens = allSessions.reduce((s, r) => s + (r.savedTokens || 0), 0)
+  const historyTotalOriginalTokens = allSessions.reduce((s, r) => s + (r.originalChars ? Math.round(r.originalChars / 3.5) : 0), 0)
+  const historyTotalRequests = allSessions.reduce((s, r) => s + (r.requests || 0), 0)
+
+  const persisted = Stats.loadGlobal()
+  const allTimeSavedTokens = Math.max(
+    Math.round(session.total_saved_chars / 3.5),
+    Math.round(((persisted.total_saved_chars as number) ?? 0) / 3.5),
+    historyTotalSavedTokens
+  )
+  const allTimeOriginalTokens = Math.max(
+    Math.round(session.total_original_chars / 3.5),
+    Math.round(((persisted.total_original_chars as number) ?? 0) / 3.5),
+    historyTotalOriginalTokens
+  )
+  const allTimeRequests = Math.max(
+    session.requests,
+    (persisted.requests as number) ?? 0,
+    historyTotalRequests
+  )
+
+  // Ratio: compute from all-time totals so it matches the all-time Tokens Saved /
+  // processed cards. The session.savings_pct comes from this-process-only counters
+  // and shows misleading 0-2% values right after restart when the persisted history
+  // is multiple orders of magnitude larger than the current session.
+  const allTimeSavingsPct = allTimeOriginalTokens > 0
+    ? Math.round((allTimeSavedTokens / allTimeOriginalTokens) * 1000) / 10
+    : 0
+
+  // Breakdown: prefer persisted all-time values over session-only counters so
+  // deterministic/dedup/sysprompt numbers stay consistent with the hero cards.
+  const allTimeBreakdown = {
+    deterministic: (persisted.det_saved_chars as number) ?? (session.breakdown?.deterministic ?? 0),
+    ai_compression: (persisted.ai_saved_chars as number) ?? (session.breakdown?.ai_compression ?? 0),
+    read_dedup:    (persisted.dedup_saved_chars as number) ?? (session.breakdown?.read_dedup ?? 0),
+    system_prompt: (persisted.sysprompt_saved_chars as number) ?? (session.breakdown?.system_prompt ?? 0),
+    overhead:      (persisted.overhead_chars as number) ?? (session.breakdown?.overhead ?? 0),
+    ai_calls:      (persisted.ai_compression_calls as number) ?? (session.breakdown?.ai_calls ?? 0),
+  }
+
   return {
-    ...stats.summary(),
+    ...session,
+    total_original_chars: allTimeOriginalTokens * 3.5,
+    total_saved_chars: allTimeSavedTokens * 3.5,
+    total_saved_tokens: allTimeSavedTokens,
+    requests: allTimeRequests,
+    savings_pct: allTimeSavingsPct,
+    breakdown: allTimeBreakdown,
+    anthropic_native_compact: anthropicNativeCompactEnabled(),
+    compression_backend: effectiveBackend(),
     cache: getCache(config).stats(),
     expand_store_size: expandStoreSize(),
     session_cache_size: sessionCacheSize(),
@@ -624,6 +756,36 @@ async function buildStatsPayload() {
 
 app.get('/squeezr/stats', (c) => {
   return buildStatsPayload().then(d => c.json(d))
+})
+
+// ── POST /squeezr/ports — write port config to squeezr.toml ─────────────────
+app.post('/squeezr/ports', async (c) => {
+  const body = await c.req.json<{ port?: number; mitm_port?: number }>()
+  const { port: newPort, mitm_port: newMitm } = body
+  if (!newPort || !newMitm || newPort < 1024 || newMitm < 1024 || newPort === newMitm) {
+    return c.text('Invalid ports', 400)
+  }
+  try {
+    // Always write to ~/.squeezr/squeezr.toml — the bundled package toml gets
+    // wiped on every `npm install -g`, which used to silently reset user
+    // ports back to 8080 + autoscan after every update.
+    const tomlPath = USER_CONFIG_PATH
+    mkdirSync(USER_CONFIG_DIR, { recursive: true })
+    let content = existsSync(tomlPath) ? readFileSync(tomlPath, 'utf-8') : '[proxy]\n'
+
+    // Update or insert [proxy] port and mitm_port
+    const updateKey = (src: string, key: string, val: number): string => {
+      const re = new RegExp(`^(\\s*${key}\\s*=\\s*)\\d+`, 'm')
+      return re.test(src) ? src.replace(re, `$1${val}`) : src.replace(/(\[proxy\][^\[]*)/s, `$1${key} = ${val}\n`)
+    }
+    if (!content.includes('[proxy]')) content = '[proxy]\n' + content
+    content = updateKey(content, 'port', newPort)
+    content = updateKey(content, 'mitm_port', newMitm)
+    writeFileSync(tomlPath, content, 'utf-8')
+    return c.json({ ok: true, port: newPort, mitm_port: newMitm, toml: tomlPath })
+  } catch (err: any) {
+    return c.text('Failed to write squeezr.toml: ' + err.message, 500)
+  }
 })
 
 app.get('/squeezr/health', (c) => {
@@ -655,6 +817,8 @@ app.get('/squeezr/health', (c) => {
       requests: s.requests,
       savings_pct: s.savings_pct,
     },
+    port: config.port,
+    mitm_port: config.mitmPort,
   })
 })
 
@@ -733,8 +897,10 @@ app.get('/squeezr/limits', async (c) => {
 // ── History + Projects endpoints ──────────────────────────────────────────────
 
 app.get('/squeezr/history', (c) => {
+  // sessions returns ONLY historical (past) sessions, current is separate
+  // to avoid double-counting when dashboard does sessions.concat(current)
   return c.json({
-    sessions: getAllSessionsForHistory(),
+    sessions: getHistorySessions().filter(s => s.id !== getCurrentSession().id),
     current: getCurrentSession(),
   })
 })
@@ -777,6 +943,102 @@ app.post('/squeezr/bypass', async (c) => {
     toggleBypassed()
   }
   return c.json({ bypassed: isBypassed() })
+})
+
+// ── Distillation endpoint — uses captured OAuth token to compress with Opus ──
+// Allows external scripts to do high-quality compression using the user's Claude
+// Pro/Max subscription (no API key needed). Used by recipes/squeezr-1B for training.
+app.post('/squeezr/distill', async (c) => {
+  const rawBody = await c.req.json().catch(() => ({})) as Record<string, unknown>
+  const text = String(rawBody.text ?? '')
+  const variant = String(rawBody.variant ?? 'balanced')
+  const model = String(rawBody.model ?? 'claude-opus-4-7-20260416')
+  if (!text || text.length < 10) {
+    return c.json({ error: 'text required' }, 400)
+  }
+
+  const token = storedKey('anthropic')
+  if (!token) {
+    return c.json({ error: 'No anthropic OAuth token captured yet. Use Claude Code once first.' }, 401)
+  }
+
+  const VARIANT_PROMPTS: Record<string, string> = {
+    conservative: 'CONSERVATIVE compression (30-40% reduction). Keep most detail: all file paths, function names, error messages with line numbers, test failures with assertions, all distinct stack frames. Remove only decorative content, whitespace, duplicate progress indicators.',
+    balanced: 'BALANCED compression (50-60% reduction). Keep file paths, function names, error messages with line numbers (truncate long messages to essentials), failing test names and assertions, key values. Remove verbose explanations, repeated info, decorative formatting, stack traces beyond first frame.',
+    aggressive: 'AGGRESSIVE compression (70-85% reduction). Bare essentials only: file paths, identifier names, error type + line, test pass/fail counts + failing test names, single most important value. Remove all explanations, all but critical assertions, all stack frames, all progress/timestamps/decorations.',
+  }
+  const variantPrompt = VARIANT_PROMPTS[variant] ?? VARIANT_PROMPTS.balanced
+
+  const prompt = `You are an expert at compressing AI coding tool outputs.
+
+${variantPrompt}
+
+Output ONLY the compressed text. No preamble, no markdown fences, no explanation.
+
+---
+TOOL OUTPUT TO COMPRESS:
+
+${text}`
+
+  try {
+    const authOpts = token.startsWith('sk-') ? { apiKey: token } : { authToken: token }
+    const { default: Anthropic } = await import('@anthropic-ai/sdk')
+    const client = new Anthropic({ ...authOpts, baseURL: 'https://api.anthropic.com' })
+    const t0 = Date.now()
+    const resp = await client.messages.create({
+      model,
+      max_tokens: 4096,
+      messages: [{ role: 'user', content: prompt }],
+    })
+    const compressed = (resp.content[0] as { text: string }).text.trim()
+    return c.json({
+      compressed,
+      original_length: text.length,
+      compressed_length: compressed.length,
+      ratio: 1 - compressed.length / Math.max(text.length, 1),
+      variant,
+      model,
+      latency_ms: Date.now() - t0,
+    })
+  } catch (e: any) {
+    const status = e?.status ?? 500
+    return c.json({ error: String(e?.message ?? e), status }, status as 429 | 500)
+  }
+})
+
+// Get/set compression backend (which AI model compresses tool results)
+app.get('/squeezr/backend', (c) => {
+  return c.json({ backend: effectiveBackend() })
+})
+
+app.post('/squeezr/backend', async (c) => {
+  try {
+    const body = await c.req.json<{ backend?: string }>().catch(() => ({} as { backend?: string }))
+    const valid: CompressionBackend[] = ['auto', 'local', 'haiku', 'gpt-mini', 'gemini-flash']
+    if (body.backend && valid.includes(body.backend as CompressionBackend)) {
+      runtimeOverrides.compressionBackend = body.backend as CompressionBackend
+    }
+  } catch { /* ignore */ }
+  return c.json({ backend: effectiveBackend() })
+})
+
+// Toggle Anthropic native compaction beta (compact-2026-01-12)
+app.get('/squeezr/native-compact', (c) => {
+  return c.json({ enabled: anthropicNativeCompactEnabled() })
+})
+
+app.post('/squeezr/native-compact', async (c) => {
+  try {
+    const body = await c.req.json<{ enabled?: boolean }>().catch(() => ({} as { enabled?: boolean }))
+    if (typeof body.enabled === 'boolean') {
+      runtimeOverrides.anthropicNativeCompact = body.enabled
+    } else {
+      runtimeOverrides.anthropicNativeCompact = !anthropicNativeCompactEnabled()
+    }
+  } catch {
+    runtimeOverrides.anthropicNativeCompact = !anthropicNativeCompactEnabled()
+  }
+  return c.json({ enabled: anthropicNativeCompactEnabled() })
 })
 
 // ── OAuth token refresh proxy (Codex: set CODEX_REFRESH_TOKEN_URL_OVERRIDE=http://localhost:PORT/oauth/token) ──

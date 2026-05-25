@@ -22,13 +22,26 @@ const UPDATE_CHECK_FILE = path.join(os.homedir(), '.squeezr', 'update-check.json
 const UPDATE_CHECK_INTERVAL = 4 * 60 * 60 * 1000 // 4 hours
 
 // Fire and forget — runs in background, never blocks CLI
+// Convert semver string to comparable number (major*1M + minor*1k + patch)
+function semverToNum(v) {
+  if (!v || typeof v !== 'string') return 0
+  const parts = v.split('.').map(p => parseInt(p) || 0)
+  return (parts[0] || 0) * 1000000 + (parts[1] || 0) * 1000 + (parts[2] || 0)
+}
+
+// Returns the npm version IF it's strictly newer than the local version, else null
+function newerVersionOrNull(latest) {
+  if (!latest || latest === pkg.version) return null
+  return semverToNum(latest) > semverToNum(pkg.version) ? latest : null
+}
+
 const updateCheckPromise = (async () => {
   try {
     // Read cached check
     let cached = null
     try { cached = JSON.parse(fs.readFileSync(UPDATE_CHECK_FILE, 'utf-8')) } catch {}
     if (cached && Date.now() - cached.checkedAt < UPDATE_CHECK_INTERVAL) {
-      return cached.latest !== pkg.version ? cached.latest : null
+      return newerVersionOrNull(cached.latest)
     }
     // Fetch latest from npm (with timeout)
     const { get } = await import('https')
@@ -48,7 +61,7 @@ const updateCheckPromise = (async () => {
     const dir = path.dirname(UPDATE_CHECK_FILE)
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
     fs.writeFileSync(UPDATE_CHECK_FILE, JSON.stringify({ latest, checkedAt: Date.now() }))
-    return latest !== pkg.version ? latest : null
+    return newerVersionOrNull(latest)
   } catch { return null }
 })()
 
@@ -242,6 +255,11 @@ Usage:
   squeezr mcp uninstall    Remove Squeezr MCP registration
   squeezr ports            Change HTTP and MITM proxy ports
   squeezr tunnel           Expose proxy via Cloudflare Tunnel for Cursor IDE
+  squeezr enable-claude-desktop   Enable hosts-file redirect for Claude Desktop (admin once)
+  squeezr disable-claude-desktop  Disable hosts-file redirect for Claude Desktop
+  squeezr desktop start    Start SEPARATE proxy for Claude/Codex Desktop (ports 8443+8088)
+  squeezr desktop stop     Stop the desktop proxy (does NOT affect main proxy)
+  squeezr desktop status   Show desktop proxy status
   squeezr bypass           Toggle bypass mode (skip compression, keep logging)
   squeezr bypass --on      Enable bypass (disable compression)
   squeezr bypass --off     Disable bypass (resume compression)
@@ -314,6 +332,17 @@ async function startDaemon() {
   console.log(`  Dashboard:                        http://localhost:${port}/squeezr/dashboard`)
   console.log(`  Logs: ${logFile}`)
 
+  // ── Also start the SEPARATE Desktop proxy (independent process) ────────────
+  // This is the proxy that serves Claude Desktop and Codex Desktop. It runs in
+  // its own Node process on ports 8443 + 8088. If it crashes, the main proxy
+  // (just started above) keeps running. Failures here are non-fatal — we just
+  // warn and continue.
+  try {
+    await desktopProxyStart()
+  } catch (e) {
+    console.warn(`Desktop proxy did not start: ${e?.message ?? e}`)
+    console.warn(`(The main proxy is fine. Try \`squeezr desktop start\` separately.)`)
+  }
 }
 
 function showLogs() {
@@ -350,8 +379,55 @@ function killMcpProcesses() {
 function stopProxy() {
   const port = getPort()
   const mitmPort = getMitmPort(port)
+
+  // ── Step 0: Stop the SEPARATE Desktop proxy first (independent process) ────
+  // It has its own PID file. Failure here doesn't block main-proxy shutdown.
+  try {
+    const desktopPid = readDesktopPid()
+    if (desktopPid) {
+      try { process.kill(desktopPid, 'SIGTERM') } catch {}
+      // Give it a moment to exit gracefully
+      for (let i = 0; i < 20; i++) {
+        try { process.kill(desktopPid, 0) } catch { break }
+        execSync(process.platform === 'win32' ? `ping -n 1 127.0.0.1 > nul` : `sleep 0.1`, { stdio: 'pipe' })
+      }
+      try { process.kill(desktopPid, 'SIGKILL') } catch {}
+      try { fs.unlinkSync(DESKTOP_PID_FILE) } catch {}
+      // Also clean up any orphan listeners on the desktop ports
+      for (const dp of [DESKTOP_HTTPS_PORT, DESKTOP_HTTP_PORT]) {
+        try {
+          if (process.platform === 'win32') {
+            const out = execSync(`netstat -ano | findstr ":${dp} "`, { encoding: 'utf-8', stdio: 'pipe' })
+            const matches = [...out.matchAll(/LISTENING\s+(\d+)/g)]
+            for (const m of matches) {
+              try { execSync(`taskkill /F /PID ${m[1]}`, { stdio: 'pipe' }) } catch {}
+            }
+          } else {
+            try { execSync(`lsof -ti :${dp} -sTCP:LISTEN | xargs -r kill -9`, { stdio: 'pipe' }) } catch {}
+          }
+        } catch {}
+      }
+    }
+  } catch {}
+
+  // ── Step 1: Graceful shutdown via HTTP — persists history/cache before exit ──
+  // /squeezr/control/stop emits SIGTERM which calls persistAndExit().
+  // This prevents losing the current session's savings history on stop.
+  let gracefulOk = false
+  try {
+    const req = http.request({ hostname: 'localhost', port, path: '/squeezr/control/stop', method: 'POST', timeout: 2000 })
+    req.on('error', () => {})
+    req.end()
+    gracefulOk = true
+    // Give the process time to persist and exit cleanly
+    execSync(process.platform === 'win32'
+      ? `ping -n 2 127.0.0.1 > nul`  // ~1s sleep on Windows
+      : `sleep 1`, { stdio: 'pipe' })
+  } catch {}
+
+  // ── Step 2: Force-kill anything still listening (fallback) ──────────────────
   const ports = [port, mitmPort]
-  let killed = false
+  let killed = gracefulOk  // count graceful as "killed"
 
   for (const p of ports) {
     try {
@@ -430,9 +506,9 @@ async function checkStatus() {
     return false
   }
   console.log(`Squeezr is running  (v${json.version})`)
-  console.log(`  HTTP proxy (Claude/Aider/Gemini): http://localhost:${port}`)
-  console.log(`  MITM proxy (Codex):               http://localhost:${mitmPort}`)
-  console.log(`  Dashboard:                        http://localhost:${port}/squeezr/dashboard`)
+  console.log(`  HTTP proxy (Claude Code, Claude Desktop, Codex Desktop, Aider, Gemini): http://localhost:${port}`)
+  console.log(`  MITM proxy (Codex CLI TLS):  http://localhost:${mitmPort}`)
+  console.log(`  Dashboard:                   http://localhost:${port}/squeezr/dashboard`)
   if (json.mode) console.log(`  Mode:     ${json.mode}`)
   if (json.uptime_seconds != null) {
     const s = json.uptime_seconds
@@ -470,10 +546,22 @@ async function mcpInstall() {
     args: [mcpServerPath],
   }
 
+  // Claude Desktop config path varies by platform
+  const claudeDesktopConfig = process.platform === 'win32'
+    ? path.join(process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming'), 'Claude', 'claude_desktop_config.json')
+    : process.platform === 'darwin'
+      ? path.join(os.homedir(), 'Library', 'Application Support', 'Claude', 'claude_desktop_config.json')
+      : path.join(os.homedir(), '.config', 'Claude', 'claude_desktop_config.json')
+
   const targets = [
     {
       name: 'Claude Code',
       file: path.join(os.homedir(), '.claude.json'),
+      key: 'mcpServers',
+    },
+    {
+      name: 'Claude Desktop',
+      file: claudeDesktopConfig,
       key: 'mcpServers',
     },
     {
@@ -523,17 +611,24 @@ async function mcpInstall() {
   console.log('MCP server registered in ' + installed + ' client(s).')
   console.log('Server binary: ' + mcpServerPath)
   console.log('')
-  console.log('Available tools in Claude/Codex/Cursor:')
-  console.log('  squeezr_status   — Check if Squeezr is running')
-  console.log('  squeezr_stats    — Real-time token savings')
-  console.log('  squeezr_set_mode — Change compression aggressiveness')
-  console.log('  squeezr_config   — Current configuration')
-  console.log('  squeezr_habits   — Wasteful pattern report')
+  console.log('Available tools in Claude Desktop, Claude Code, Codex Desktop, Cursor…:')
+  console.log('  squeezr_status         — Check if Squeezr is running')
+  console.log('  squeezr_stats          — Real-time token savings')
+  console.log('  squeezr_set_mode       — Change compression aggressiveness')
+  console.log('  squeezr_config         — Current configuration')
+  console.log('  squeezr_habits         — Wasteful pattern report')
+  console.log('  squeezr_open_dashboard — Open the Squeezr dashboard in your browser')
 }
 
 async function mcpUninstall() {
+  const claudeDesktopConfig = process.platform === 'win32'
+    ? path.join(process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming'), 'Claude', 'claude_desktop_config.json')
+    : process.platform === 'darwin'
+      ? path.join(os.homedir(), 'Library', 'Application Support', 'Claude', 'claude_desktop_config.json')
+      : path.join(os.homedir(), '.config', 'Claude', 'claude_desktop_config.json')
   const files = [
     path.join(os.homedir(), '.claude.json'),
+    claudeDesktopConfig,
     path.join(os.homedir(), '.cursor', 'mcp.json'),
     path.join(os.homedir(), '.codeium', 'windsurf', 'mcp_config.json'),
     path.join(os.homedir(), '.vscode', 'extensions', 'mcp_settings.json'),
@@ -812,9 +907,389 @@ async function uninstall() {
   console.log('\nDone! Squeezr has been completely removed.\n')
 }
 
+// ── Claude Desktop hosts file + TLS intercept ────────────────────────────────
+// Claude Desktop ignores ANTHROPIC_BASE_URL (it's an Electron GUI app), so the
+// only way to intercept is at DNS level: hosts file redirects api.anthropic.com
+// → 127.0.0.1, and Squeezr listens on :443 with TLS using its local CA cert.
+//
+// This function adds/removes the hosts file entry + firewall rule. Requires
+// admin. On Windows, re-launches itself elevated via PowerShell Start-Process -Verb RunAs.
+
+const HOSTS_FILE_WIN = 'C:\\Windows\\System32\\drivers\\etc\\hosts'
+const HOSTS_FILE_UNIX = '/etc/hosts'
+const HOSTS_MARKER_BEGIN = '# squeezr-claude-desktop BEGIN'
+const HOSTS_MARKER_END   = '# squeezr-claude-desktop END'
+const INTERCEPTED_DOMAINS = ['api.anthropic.com']
+const CLAUDE_DESKTOP_FLAG_FILE = path.join(os.homedir(), '.squeezr', 'claude-desktop-enabled')
+const MITM_INTERNAL_PORT = 8443
+
+async function toggleClaudeDesktopIntercept(enable) {
+  const isWin = process.platform === 'win32'
+  const hostsPath = isWin ? HOSTS_FILE_WIN : HOSTS_FILE_UNIX
+
+  // Check if running as admin
+  const isAdmin = await checkIsAdmin()
+  if (!isAdmin) {
+    if (isWin) {
+      console.log('Admin rights required to modify hosts file and bind to port 443.')
+      console.log('Relaunching elevated...\n')
+      const verb = enable ? 'enable-claude-desktop' : 'disable-claude-desktop'
+      try {
+        execSync(
+          `powershell -NoProfile -Command "Start-Process -FilePath '${process.execPath}' -ArgumentList '${process.argv[1]}','${verb}' -Verb RunAs -Wait"`,
+          { stdio: 'inherit' }
+        )
+        console.log('\nDone. Restart Squeezr to apply: squeezr stop && squeezr start')
+      } catch (e) {
+        console.error('Failed to launch elevated process: ' + e.message)
+      }
+      return
+    } else {
+      console.error('Run with sudo: sudo squeezr ' + (enable ? 'enable' : 'disable') + '-claude-desktop')
+      process.exit(1)
+    }
+  }
+
+  // Read hosts file
+  let content = ''
+  try { content = fs.readFileSync(hostsPath, 'utf-8') } catch (e) {
+    console.error('Could not read hosts file: ' + e.message)
+    process.exit(1)
+  }
+
+  // Strip any existing squeezr block
+  const blockRegex = new RegExp(
+    `\\r?\\n?${HOSTS_MARKER_BEGIN}[\\s\\S]*?${HOSTS_MARKER_END}\\r?\\n?`,
+    'g'
+  )
+  content = content.replace(blockRegex, '')
+
+  if (enable) {
+    const block = [
+      '',
+      HOSTS_MARKER_BEGIN,
+      '# Redirects Claude Desktop to Squeezr for token compression.',
+      '# Remove this block (or run `squeezr disable-claude-desktop`) to undo.',
+      ...INTERCEPTED_DOMAINS.map(d => `127.0.0.1 ${d}`),
+      HOSTS_MARKER_END,
+      '',
+    ].join('\n')
+    content += block
+
+    fs.writeFileSync(hostsPath, content)
+    console.log('[1/4] Hosts file updated: api.anthropic.com → 127.0.0.1')
+
+    if (isWin) {
+      // 2. netsh portproxy 443 → 8443 (so Squeezr listens on 8443 without admin)
+      try {
+        execSync(`netsh interface portproxy delete v4tov4 listenport=443 listenaddress=127.0.0.1`, { stdio: 'pipe' })
+      } catch {}
+      try {
+        execSync(`netsh interface portproxy add v4tov4 listenport=443 listenaddress=127.0.0.1 connectport=${MITM_INTERNAL_PORT} connectaddress=127.0.0.1`, { stdio: 'pipe' })
+        console.log(`[2/4] Port forwarding 127.0.0.1:443 → 127.0.0.1:${MITM_INTERNAL_PORT} (netsh portproxy)`)
+      } catch (e) {
+        console.warn('Could not add netsh portproxy: ' + e.message)
+      }
+
+      // 3. Firewall: open inbound 443
+      try {
+        execSync('netsh advfirewall firewall delete rule name="Squeezr-Claude-Desktop-443"', { stdio: 'pipe' })
+      } catch {}
+      try {
+        execSync('netsh advfirewall firewall add rule name="Squeezr-Claude-Desktop-443" dir=in action=allow protocol=TCP localport=443', { stdio: 'pipe' })
+        console.log('[3/4] Firewall rule added for port 443.')
+      } catch (e) {
+        console.warn('Could not add firewall rule: ' + e.message)
+      }
+      // Flush DNS cache so the change takes effect immediately
+      try { execSync('ipconfig /flushdns', { stdio: 'pipe' }) } catch {}
+    }
+
+    // Note: no persistent flag file needed — Squeezr auto-detects the hosts file
+    // entry on startup and activates the MITM listener accordingly.
+
+    console.log('\n[NEXT] Restart Squeezr:    squeezr stop && squeezr start')
+    console.log('       Close Claude Desktop completely (including system tray).')
+    console.log('       Reopen Claude Desktop and try any query.')
+    console.log('       Verify in dashboard "By client" section → should show "claude_desktop".')
+  } else {
+    fs.writeFileSync(hostsPath, content)
+    console.log('[1/4] Hosts file cleaned: api.anthropic.com restored to normal DNS.')
+    if (isWin) {
+      try {
+        execSync(`netsh interface portproxy delete v4tov4 listenport=443 listenaddress=127.0.0.1`, { stdio: 'pipe' })
+        console.log('[2/4] Port forwarding rule removed.')
+      } catch {}
+      try {
+        execSync('netsh advfirewall firewall delete rule name="Squeezr-Claude-Desktop-443"', { stdio: 'pipe' })
+        console.log('[3/4] Firewall rule removed.')
+      } catch {}
+      try { execSync('ipconfig /flushdns', { stdio: 'pipe' }) } catch {}
+    }
+    // Legacy flag cleanup (if exists from older version)
+    try {
+      const legacyFlag = path.join(os.homedir(), '.squeezr', 'claude-desktop-enabled')
+      if (fs.existsSync(legacyFlag)) fs.unlinkSync(legacyFlag)
+    } catch {}
+    console.log('\n[NEXT] Restart Squeezr:    squeezr stop && squeezr start')
+  }
+}
+
+async function checkIsAdmin() {
+  if (process.platform === 'win32') {
+    try {
+      execSync('net session', { stdio: 'pipe' })
+      return true
+    } catch {
+      return false
+    }
+  } else {
+    return process.getuid && process.getuid() === 0
+  }
+}
+
+// ── Desktop proxy lifecycle (TOTALLY SEPARATE from main proxy on 8080) ───────
+//   `squeezr desktop start`  → spawns dist/desktopProxy.js detached
+//   `squeezr desktop stop`   → kills via PID file (does NOT touch port 8080)
+//   `squeezr desktop status` → prints state
+//
+// Critical: this proxy lives or dies independently. Crashing it cannot affect
+// the main proxy on 8080 (Claude Code, Codex CLI, Aider, Gemini CLI).
+
+const DESKTOP_PID_FILE = path.join(os.homedir(), '.squeezr', 'desktop-proxy.pid')
+const DESKTOP_LOG_FILE = path.join(os.homedir(), '.squeezr', 'desktop-proxy.log')
+const DESKTOP_HTTPS_PORT = 8443
+const DESKTOP_HTTP_PORT  = 8088
+
+function readDesktopPid() {
+  try {
+    const raw = fs.readFileSync(DESKTOP_PID_FILE, 'utf-8').trim()
+    const pid = Number(raw)
+    if (!pid || Number.isNaN(pid)) return null
+    // Check process actually exists
+    try { process.kill(pid, 0); return pid } catch { return null }
+  } catch { return null }
+}
+
+// Probe whether the desktop proxy listener is actually answering. Used to
+// detect orphan processes — situations where the PID file is stale but a
+// previous desktop proxy is still bound to the ports.
+async function isDesktopPortBound(port) {
+  return new Promise(resolve => {
+    const net = require('node:net')
+    const sock = net.connect({ host: '127.0.0.1', port, timeout: 500 }, () => {
+      sock.end()
+      resolve(true)
+    })
+    sock.once('error', () => resolve(false))
+    sock.once('timeout', () => { sock.destroy(); resolve(false) })
+  })
+}
+
+// Find the PID owning a local TCP listener on Windows via `netstat -ano`. We
+// use this only to clean up orphan desktop-proxy processes; it is a best
+// effort and returns null if it can't parse the output.
+function findPidByPort(port) {
+  if (process.platform !== 'win32') return null
+  try {
+    const out = require('node:child_process').execSync(`netstat -ano -p TCP`, { encoding: 'utf-8' })
+    for (const line of out.split(/\r?\n/)) {
+      const m = line.match(/^\s*TCP\s+\S+:(\d+)\s+\S+\s+LISTENING\s+(\d+)/)
+      if (m && Number(m[1]) === port) return Number(m[2])
+    }
+  } catch { /* ignore */ }
+  return null
+}
+
+async function desktopProxyStart() {
+  const existing = readDesktopPid()
+  if (existing) {
+    console.log(`Desktop proxy already running (pid=${existing}).`)
+    console.log(`  HTTPS: https://127.0.0.1:${DESKTOP_HTTPS_PORT}  (Claude Desktop)`)
+    console.log(`  HTTP:  http://127.0.0.1:${DESKTOP_HTTP_PORT}   (Codex Desktop)`)
+    return
+  }
+  // Detect orphan listener (PID file dead but listener still up) — common
+  // after an ungraceful restart. Reclaim it by adopting the running PID,
+  // otherwise the spawn below would crash with EADDRINUSE.
+  if (await isDesktopPortBound(DESKTOP_HTTPS_PORT) || await isDesktopPortBound(DESKTOP_HTTP_PORT)) {
+    const orphanPid = findPidByPort(DESKTOP_HTTPS_PORT) ?? findPidByPort(DESKTOP_HTTP_PORT)
+    if (orphanPid) {
+      try { fs.writeFileSync(DESKTOP_PID_FILE, String(orphanPid), 'utf-8') } catch {}
+      console.log(`Desktop proxy is already bound to ports ${DESKTOP_HTTPS_PORT}/${DESKTOP_HTTP_PORT} (pid=${orphanPid}, adopted).`)
+    } else {
+      console.log(`Desktop proxy ports ${DESKTOP_HTTPS_PORT}/${DESKTOP_HTTP_PORT} are already in use by an unknown process. Use 'squeezr desktop stop' first.`)
+    }
+    return
+  }
+  const distPath = path.join(ROOT, 'dist', 'desktopProxy.js')
+  if (!fs.existsSync(distPath)) {
+    console.error(`Error: ${distPath} not found. Run 'npm run build' first.`)
+    process.exit(1)
+  }
+  try { fs.mkdirSync(path.dirname(DESKTOP_LOG_FILE), { recursive: true }) } catch {}
+  const out = fs.openSync(DESKTOP_LOG_FILE, 'a')
+  const err = fs.openSync(DESKTOP_LOG_FILE, 'a')
+  const child = spawn(process.execPath, [distPath], {
+    detached: true,
+    stdio: ['ignore', out, err],
+    env: {
+      ...process.env,
+      SQUEEZR_DESKTOP_HTTPS_PORT: String(DESKTOP_HTTPS_PORT),
+      SQUEEZR_DESKTOP_HTTP_PORT:  String(DESKTOP_HTTP_PORT),
+    },
+  })
+  child.unref()
+  // Wait briefly to confirm it didn't immediately exit
+  await new Promise(r => setTimeout(r, 800))
+  if (child.exitCode !== null) {
+    console.error(`Desktop proxy failed to start (exit ${child.exitCode}). Check log: ${DESKTOP_LOG_FILE}`)
+    process.exit(1)
+  }
+  console.log(`Desktop proxy started (pid=${child.pid}).`)
+  console.log(`  HTTPS: https://127.0.0.1:${DESKTOP_HTTPS_PORT}  (Claude Desktop)`)
+  console.log(`  HTTP:  http://127.0.0.1:${DESKTOP_HTTP_PORT}   (Codex Desktop)`)
+  console.log(`  Log:   ${DESKTOP_LOG_FILE}`)
+  console.log(``)
+  console.log(`Note: the main Squeezr proxy on 8080 is unaffected by this command.`)
+}
+
+async function desktopProxyStop() {
+  let pid = readDesktopPid()
+  if (!pid) {
+    // PID file is missing or its pid is dead — but a listener may still be
+    // bound by an orphan. Try to locate it by port and kill that instead.
+    if (await isDesktopPortBound(DESKTOP_HTTPS_PORT) || await isDesktopPortBound(DESKTOP_HTTP_PORT)) {
+      pid = findPidByPort(DESKTOP_HTTPS_PORT) ?? findPidByPort(DESKTOP_HTTP_PORT)
+      if (!pid) {
+        console.log(`Desktop proxy ports ${DESKTOP_HTTPS_PORT}/${DESKTOP_HTTP_PORT} are in use but PID cannot be resolved. Stop the owning process manually.`)
+        return
+      }
+      console.log(`Recovered orphan desktop proxy pid=${pid} from listener.`)
+    } else {
+      console.log('Desktop proxy is not running.')
+      return
+    }
+  }
+  try {
+    process.kill(pid, 'SIGTERM')
+    // Wait up to 3s for graceful exit
+    for (let i = 0; i < 30; i++) {
+      try { process.kill(pid, 0) } catch { break }
+      await new Promise(r => setTimeout(r, 100))
+    }
+    // Force kill if still alive
+    try { process.kill(pid, 'SIGKILL') } catch {}
+    try { fs.unlinkSync(DESKTOP_PID_FILE) } catch {}
+    console.log(`Desktop proxy stopped (was pid=${pid}).`)
+  } catch (e) {
+    console.error(`Failed to stop desktop proxy: ${e.message}`)
+    process.exit(1)
+  }
+}
+
+async function desktopProxyStatus() {
+  let pid = readDesktopPid()
+  // Fallback when PID file is stale: probe the desktop ports. If the listener
+  // answers, the proxy IS running — just under a different PID than the one
+  // recorded. This is the common shape after an ungraceful restart.
+  if (!pid) {
+    const bound = (await isDesktopPortBound(DESKTOP_HTTPS_PORT))
+              || (await isDesktopPortBound(DESKTOP_HTTP_PORT))
+    if (!bound) {
+      console.log('Desktop proxy is NOT running.')
+      console.log('Start it with: squeezr desktop start')
+      return
+    }
+    const orphanPid = findPidByPort(DESKTOP_HTTPS_PORT) ?? findPidByPort(DESKTOP_HTTP_PORT)
+    if (orphanPid) {
+      try { fs.writeFileSync(DESKTOP_PID_FILE, String(orphanPid), 'utf-8') } catch {}
+      pid = orphanPid
+      console.log(`Desktop proxy is running (pid=${pid}, recovered from orphan listener).`)
+    } else {
+      console.log(`Desktop proxy listener is bound on ${DESKTOP_HTTPS_PORT}/${DESKTOP_HTTP_PORT} but its PID could not be resolved.`)
+    }
+  } else {
+    console.log(`Desktop proxy is running (pid=${pid}).`)
+  }
+  console.log(`  HTTPS: https://127.0.0.1:${DESKTOP_HTTPS_PORT}  (Claude Desktop)`)
+  console.log(`  HTTP:  http://127.0.0.1:${DESKTOP_HTTP_PORT}   (Codex Desktop)`)
+  console.log(`  Log:   ${DESKTOP_LOG_FILE}`)
+  // Surface the activation state of the Claude Desktop hosts redirect — the
+  // most common reason "nothing appears in the logs" even when this listener
+  // is bound is that the user never ran `enable-claude-desktop`, so Claude
+  // Desktop's traffic goes directly to api.anthropic.com.
+  const hostsActive = await isClaudeDesktopHostsActive()
+  if (hostsActive) {
+    console.log(``)
+    console.log(`  Claude Desktop interception: ACTIVE (hosts redirect set)`)
+  } else {
+    console.log(``)
+    console.log(`  Claude Desktop interception: NOT SET`)
+    console.log(`  → Run as admin: squeezr enable-claude-desktop`)
+    console.log(`    Without this, Claude Desktop talks to api.anthropic.com directly`)
+    console.log(`    and no traffic will reach this proxy.`)
+  }
+}
+
+// Best-effort detection of whether the hosts file currently redirects
+// api.anthropic.com to 127.0.0.1 (the prerequisite for Claude Desktop
+// traffic to reach the desktop proxy).
+async function isClaudeDesktopHostsActive() {
+  try {
+    const hostsPath = process.platform === 'win32'
+      ? 'C:\\Windows\\System32\\drivers\\etc\\hosts'
+      : '/etc/hosts'
+    const txt = fs.readFileSync(hostsPath, 'utf-8')
+    return /^\s*127\.0\.0\.1\s+api\.anthropic\.com\b/m.test(txt)
+        || txt.includes('# squeezr-claude-desktop BEGIN')
+  } catch { return false }
+}
+
+// ── Codex Desktop config helper ──────────────────────────────────────────────
+// Writes openai_base_url to ~/.codex/config.toml so Codex Desktop routes
+// through Squeezr's HTTP proxy (no MITM needed — uses standard base URL).
+
+function configureCodexDesktop(port) {
+  const codexDir  = path.join(os.homedir(), '.codex')
+  const codexToml = path.join(codexDir, 'config.toml')
+  const url = `http://localhost:${port}/v1`
+  const marker = 'openai_base_url'
+  const line = `openai_base_url = "${url}"`
+
+  try {
+    fs.mkdirSync(codexDir, { recursive: true })
+    if (fs.existsSync(codexToml)) {
+      let content = fs.readFileSync(codexToml, 'utf-8')
+      // Match openai_base_url = "anything" — including empty "" which Codex Desktop
+      // sometimes writes back to its config (bug we observed in the wild).
+      // Force-overwrite any existing value, even if empty.
+      const re = /openai_base_url\s*=\s*"[^"]*"/
+      if (re.test(content)) {
+        const before = content.match(re)?.[0] ?? ''
+        content = content.replace(re, line)
+        fs.writeFileSync(codexToml, content)
+        if (before === `openai_base_url = ""`) {
+          console.log(`  [ok] Codex Desktop: FIXED empty openai_base_url in ${codexToml}`)
+        } else {
+          console.log(`  [ok] Codex Desktop: updated ${codexToml}`)
+        }
+      } else {
+        fs.appendFileSync(codexToml, `\n# Squeezr: route Codex Desktop through the compression proxy\n${line}\n`)
+        console.log(`  [ok] Codex Desktop: configured ${codexToml}`)
+      }
+    } else {
+      fs.writeFileSync(codexToml, `# Squeezr: route Codex Desktop through the compression proxy\n${line}\n`)
+      console.log(`  [ok] Codex Desktop: created ${codexToml}`)
+    }
+  } catch (err) {
+    console.log(`  [warn] Codex Desktop config: ${err.message}`)
+  }
+}
+
 // ── squeezr setup ─────────────────────────────────────────────────────────────
 
-function setupWindows() {
+async function setupWindows() {
   const squeezrBin = process.argv[1]
   const nodeExe = process.execPath
   const distIndex = path.join(ROOT, 'dist', 'index.js')
@@ -846,7 +1321,15 @@ function setupWindows() {
     }
   }
 
-  // 1b. Install PowerShell wrapper so env vars auto-refresh after start/setup/update
+  // 1b. Configure Codex Desktop (~/.codex/config.toml → openai_base_url)
+  // On Windows, ANTHROPIC_BASE_URL from setx is already visible to all GUI apps
+  // (including Claude Desktop) since user-level env vars propagate to new processes.
+  configureCodexDesktop(port)
+
+  // 1c. Register MCP server in Claude Desktop + Codex Desktop automatically
+  await mcpInstall()
+
+  // 1c. Install PowerShell wrapper so env vars auto-refresh after start/setup/update
   installShellWrapper()
 
   // 2. Auto-start: try NSSM (Windows service, survives crashes) → fallback to Task Scheduler
@@ -984,8 +1467,15 @@ function setupWindows() {
 Done!
 
   Squeezr is running on http://localhost:${port}
-  MITM proxy on http://localhost:${mitmPort} (Codex TLS interception)
-  All CLIs (Claude Code, Codex, Aider, Gemini, Ollama) are configured.
+  MITM proxy on http://localhost:${mitmPort} (Codex CLI TLS interception)
+
+  Configured:
+    Claude Code        ANTHROPIC_BASE_URL=http://localhost:${port}
+    Claude Desktop     same — setx env var is visible to all GUI apps
+    Codex Desktop      ~/.codex/config.toml openai_base_url set
+    Codex CLI          HTTPS_PROXY=http://localhost:${mitmPort} codex  (per-session)
+    Aider / OpenCode   ANTHROPIC_BASE_URL + openai_base_url set
+    Gemini CLI         GEMINI_API_BASE_URL=http://localhost:${port}
 
   squeezr status   — check it's running
   squeezr gain     — see token savings
@@ -993,7 +1483,7 @@ Done!
     }
 }
 
-function setupUnix() {
+async function setupUnix() {
   const squeezrBin = process.argv[1]
   const nodeExe = process.execPath
   const platform = process.platform
@@ -1077,7 +1567,57 @@ function setupUnix() {
     console.log(`  [ok] Env vars + auto-heal updated in ${profile}`)
   }
 
-  // 2a. macOS — launchd
+  // 2. Configure Codex Desktop + Claude Desktop
+  // Codex Desktop reads ~/.codex/config.toml (openai_base_url key).
+  configureCodexDesktop(port)
+
+  // Register MCP server in Claude Desktop and Codex Desktop automatically
+  await mcpInstall()
+
+  // Claude Desktop (GUI app) does not read shell env vars.
+  // macOS: inject via a launchd env-setter plist (persists across reboots).
+  // Linux: write to ~/.config/environment.d/ (systemd user env, read by GUI apps).
+  if (platform === 'darwin') {
+    const envPlistDir  = path.join(os.homedir(), 'Library', 'LaunchAgents')
+    const envPlistPath = path.join(envPlistDir, 'com.squeezr.env.plist')
+    fs.mkdirSync(envPlistDir, { recursive: true })
+    const envVars = [
+      ['ANTHROPIC_BASE_URL',  `http://localhost:${port}`],
+      ['GEMINI_API_BASE_URL', `http://localhost:${port}`],
+      ['NODE_EXTRA_CA_CERTS', bundlePath],
+    ]
+    const envSetCmds = envVars.map(([k, v]) => `launchctl setenv ${k} "${v}"`).join(' && ')
+    fs.writeFileSync(envPlistPath, `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.squeezr.env</string>
+  <key>ProgramArguments</key>
+  <array><string>/bin/sh</string><string>-c</string><string>${envSetCmds}</string></array>
+  <key>RunAtLoad</key><true/>
+</dict>
+</plist>`)
+    try {
+      execSync(`launchctl unload "${envPlistPath}" 2>/dev/null; launchctl load -w "${envPlistPath}"`, { stdio: 'pipe' })
+      console.log(`  [ok] Claude Desktop: env vars set via launchctl (visible to all GUI apps)`)
+    } catch {
+      console.log(`  [warn] Claude Desktop: launchctl env plist failed — restart Claude Desktop manually after setup`)
+    }
+  } else {
+    // Linux: systemd user environment.d — read by all user processes incl. GUI apps
+    const envDDir  = path.join(os.homedir(), '.config', 'environment.d')
+    const envDPath = path.join(envDDir, 'squeezr.conf')
+    fs.mkdirSync(envDDir, { recursive: true })
+    fs.writeFileSync(envDPath, [
+      `# Squeezr — visible to all GUI apps (Claude Desktop, etc.)`,
+      `ANTHROPIC_BASE_URL=http://localhost:${port}`,
+      `GEMINI_API_BASE_URL=http://localhost:${port}`,
+      `NODE_EXTRA_CA_CERTS=${bundlePath}`,
+    ].join('\n') + '\n')
+    console.log(`  [ok] Claude Desktop: env vars written to ${envDPath} (effective after next login)`)
+  }
+
+  // 3a. macOS — launchd
   if (platform === 'darwin') {
     const plistDir = path.join(os.homedir(), 'Library', 'LaunchAgents')
     const plistPath = path.join(plistDir, 'com.squeezr.plist')
@@ -1126,7 +1666,7 @@ function setupUnix() {
       }
     })
 
-  // 2b. Linux — systemd
+  // 3b. Linux — systemd
   } else {
     const serviceDir = path.join(os.homedir(), '.config', 'systemd', 'user')
     const servicePath = path.join(serviceDir, 'squeezr.service')
@@ -1156,12 +1696,17 @@ WantedBy=default.target
   console.log(`
 Done!
 
-  Squeezr is running on http://localhost:8080
-  All CLIs (Claude Code, Codex, Aider, Gemini, Ollama) are configured.
+  Squeezr is running on http://localhost:${port}
+
+  Configured:
+    Claude Code        ANTHROPIC_BASE_URL=http://localhost:${port}
+    Claude Desktop     ${platform === 'darwin' ? 'env vars set via launchctl (restart app once)' : 'env vars in ~/.config/environment.d/ (re-login to activate)'}
+    Codex Desktop      ~/.codex/config.toml openai_base_url set
+    Codex CLI          HTTPS_PROXY=http://localhost:${mitmPort} codex  (per-session)
+    Aider / OpenCode   ANTHROPIC_BASE_URL + openai_base_url set
+    Gemini CLI         GEMINI_API_BASE_URL=http://localhost:${port}
 
   Run: source ${profile}  (or open a new terminal)
-  After that, everything is automatic.
-
   squeezr status   — check it's running
   squeezr gain     — see token savings
 `)
@@ -1181,7 +1726,7 @@ function isWSL() {
 
 // ── squeezr setup — WSL2 ────────────────────────────────────────────────────
 
-function setupWSL() {
+async function setupWSL() {
   const nodeExe = process.execPath
   const distIndex = path.join(ROOT, 'dist', 'index.js')
 
@@ -1257,6 +1802,7 @@ function setupWSL() {
   }
 
   // 2. Set Windows env vars via setx.exe (so Windows-launched CLIs see them)
+  //    ANTHROPIC_BASE_URL via setx is also visible to Claude Desktop (GUI app).
   const setxExe = '/mnt/c/Windows/System32/setx.exe'
   const winVars = {
     ANTHROPIC_BASE_URL: 'http://localhost:8080',
@@ -1274,6 +1820,37 @@ function setupWSL() {
     }
   } else {
     console.log('  [skip] setx.exe not found — Windows env vars not set')
+  }
+
+  // 3. Configure Codex Desktop + MCP
+  //    WSL-side ~/.codex/config.toml (for Codex Desktop running in WSL)
+  configureCodexDesktop(port)
+
+  // Register MCP server in Claude Desktop and Codex Desktop automatically
+  await mcpInstall()
+  //    Windows-side %USERPROFILE%\.codex\config.toml (for Codex Desktop on Windows)
+  try {
+    const winHome = execSync('cmd.exe /c echo %USERPROFILE%', { stdio: 'pipe' }).toString().trim().replace(/\r/g, '')
+    const winCodexDir = winHome + '\\.codex'
+    const winMountedDir = winCodexDir.replace(/\\/g, '/').replace(/^([A-Za-z]):/, (_, d) => `/mnt/${d.toLowerCase()}`)
+    const winMountedToml = winMountedDir + '/config.toml'
+    const winUrl = `http://localhost:${port}/v1`
+    const winLine = `openai_base_url = "${winUrl}"`
+    fs.mkdirSync(winMountedDir, { recursive: true })
+    if (fs.existsSync(winMountedToml)) {
+      let content = fs.readFileSync(winMountedToml, 'utf-8')
+      if (content.includes('openai_base_url')) {
+        content = content.replace(/openai_base_url\s*=\s*"[^"]*"/, winLine)
+        fs.writeFileSync(winMountedToml, content)
+      } else {
+        fs.appendFileSync(winMountedToml, `\n# Squeezr\n${winLine}\n`)
+      }
+    } else {
+      fs.writeFileSync(winMountedToml, `# Squeezr\n${winLine}\n`)
+    }
+    console.log(`  [ok] Codex Desktop (Windows): ${winCodexDir}\\config.toml`)
+  } catch {
+    console.log(`  [skip] Codex Desktop (Windows): could not write config`)
   }
 
   // 3. Auto-start: try systemd first (WSL2 with systemd enabled), fallback to
@@ -1350,7 +1927,14 @@ WantedBy=default.target
 Done!
 
   Squeezr is running on http://localhost:${setupPort}
-  All CLIs (Claude Code, Codex, Aider, Gemini, Ollama) are configured.
+
+  Configured:
+    Claude Code        ANTHROPIC_BASE_URL=http://localhost:${setupPort}
+    Claude Desktop     Windows setx env var set (restart app once to pick it up)
+    Codex Desktop      ~/.codex/config.toml + Windows %USERPROFILE%\\.codex\\config.toml
+    Codex CLI          HTTPS_PROXY=http://localhost:${setupMitmPort} codex  (per-session)
+    Aider / OpenCode   ANTHROPIC_BASE_URL + openai_base_url set
+    Gemini CLI         GEMINI_API_BASE_URL=http://localhost:${setupPort}
 
   Windows env vars are set (effective in new terminals immediately).
   WSL env vars added to ${profile}.
@@ -1624,12 +2208,24 @@ switch (command) {
   case 'uninstall':
     await uninstall()
     break
+  case 'enable-claude-desktop':
+  case 'disable-claude-desktop':
+    await toggleClaudeDesktopIntercept(command === 'enable-claude-desktop')
+    break
+  case 'desktop': {
+    const sub = args[1] ?? 'status'
+    if (sub === 'start')      await desktopProxyStart()
+    else if (sub === 'stop')  await desktopProxyStop()
+    else if (sub === 'status') await desktopProxyStatus()
+    else { console.error(`Unknown desktop subcommand: ${sub}. Use start|stop|status`); process.exit(1) }
+    break
+  }
   case 'config':
     showConfig()
     break
 
   case 'mcp': {
-    const subCmd = args[0] ?? 'install'
+    const subCmd = args[1] ?? 'install'
     if (subCmd === 'uninstall') await mcpUninstall()
     else await mcpInstall()
     break

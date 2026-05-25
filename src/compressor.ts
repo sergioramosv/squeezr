@@ -1,11 +1,11 @@
 import Anthropic from '@anthropic-ai/sdk'
 import OpenAI from 'openai'
 import { CompressionCache } from './cache.js'
-import { preprocess, preprocessForTool, hitPattern } from './deterministic.js'
+import { preprocess, preprocessAssistant, preprocessForTool, hitPattern } from './deterministic.js'
 import { storeOriginal } from './expand.js'
 import { hashText, getBlock, setBlock, SessionBlock } from './sessionCache.js'
 import type { Config } from './config.js'
-import { effectiveThreshold, effectiveKeepRecent, aiEnabled } from './config.js'
+import { effectiveThreshold, effectiveKeepRecent, aiEnabled, effectiveBackend } from './config.js'
 import { circuitBreaker } from './circuitBreaker.js'
 
 export interface Savings {
@@ -101,6 +101,45 @@ async function compressWithOllama(text: string, baseUrl: string, model: string):
 
 type CompressFn = (text: string) => Promise<string>
 
+/**
+ * Resolve which compression backend to actually use based on the runtime override.
+ *
+ * - 'auto'         → use the default backend for this API (the `defaultFn` passed in)
+ * - 'local'        → use Ollama / squeezr-1B (always local, no API call)
+ * - 'haiku'        → force Anthropic Haiku regardless of which API the request came from
+ * - 'gpt-mini'     → force OpenAI gpt-4o-mini
+ * - 'gemini-flash' → force Google Gemini Flash
+ *
+ * If the chosen backend has no key available (e.g. user picked haiku but only ever used
+ * OpenAI), falls back to defaultFn so we never break compression.
+ */
+function getEffectiveCompressFn(defaultFn: CompressFn, config: Config): CompressFn {
+  const backend = effectiveBackend()
+  if (backend === 'auto') return defaultFn
+  if (backend === 'local') {
+    return (text: string) => compressWithOllama(text, config.localUpstreamUrl, config.localCompressionModel)
+  }
+  // Cross-backend usage: need a key. Lazy-loaded to avoid circular import.
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { storedKey } = require('./limits.js') as typeof import('./limits.js')
+  if (backend === 'haiku') {
+    const k = storedKey('anthropic')
+    if (!k) { console.log('[squeezr] backend=haiku but no anthropic key seen yet — fallback to auto'); return defaultFn }
+    return (text: string) => compressWithHaiku(text, k)
+  }
+  if (backend === 'gpt-mini') {
+    const k = storedKey('openai')
+    if (!k) { console.log('[squeezr] backend=gpt-mini but no openai key seen yet — fallback to auto'); return defaultFn }
+    return (text: string) => compressWithGptMini(text, k)
+  }
+  if (backend === 'gemini-flash') {
+    const k = storedKey('gemini')
+    if (!k) { console.log('[squeezr] backend=gemini-flash but no gemini key seen yet — fallback to auto'); return defaultFn }
+    return (text: string) => compressWithGeminiFlash(text, k)
+  }
+  return defaultFn
+}
+
 async function runCompression(
   items: Array<{ index: number; subIndex?: number; text: string; tool: string }>,
   compressFn: CompressFn,
@@ -170,6 +209,159 @@ function extractAnthropicToolResults(
   return results
 }
 
+// ── User text blocks ──────────────────────────────────────────────────────────
+// Plain text blocks in user messages (NOT tool_result). This is where Claude
+// Desktop attachments + large pastes live. We compress deterministically only —
+// never AI — and skip the LAST user message so the active instruction is never
+// touched. Min length filters out greetings / single-line prompts.
+function extractAnthropicUserTextBlocks(
+  messages: AnthropicMessage[],
+  minLength: number,
+): Array<{ index: number; subIndex: number; text: string; isString: boolean }> {
+  const out: Array<{ index: number; subIndex: number; text: string; isString: boolean }> = []
+  const userIndices: number[] = []
+  for (let i = 0; i < messages.length; i++) {
+    if (messages[i].role === 'user') userIndices.push(i)
+  }
+  // Skip the most recent user message — it's the live ask, must stay intact.
+  const eligible = userIndices.slice(0, Math.max(0, userIndices.length - 1))
+  for (const i of eligible) {
+    const msg = messages[i]
+    if (typeof msg.content === 'string') {
+      if (msg.content.length >= minLength) {
+        out.push({ index: i, subIndex: -1, text: msg.content, isString: true })
+      }
+    } else if (Array.isArray(msg.content)) {
+      for (let j = 0; j < msg.content.length; j++) {
+        const block = msg.content[j] as { type?: string; text?: string }
+        if (block.type !== 'text') continue
+        const text = block.text ?? ''
+        if (text.length >= minLength) out.push({ index: i, subIndex: j, text, isString: false })
+      }
+    }
+  }
+  return out
+}
+
+// ── tool_use inputs ───────────────────────────────────────────────────────────
+// Long fields inside the `input` JSON of an assistant tool_use block:
+//   Bash      → command (rarely long, but happens with here-docs)
+//   Edit      → old_string, new_string
+//   Write     → content
+//   NotebookEdit → new_source
+//   Grep      → pattern (usually short — skip)
+// We only touch OLD turns (not last assistant message) to keep the active call
+// at full fidelity, in case the upstream re-reads it for tool dispatch logic.
+const TOOL_USE_INPUT_FIELDS: Record<string, string[]> = {
+  bash: ['command'],
+  edit: ['old_string', 'new_string'],
+  write: ['content'],
+  notebookedit: ['new_source'],
+  multiedit: ['edits'], // array of {old_string,new_string}
+}
+
+function compressToolUseInputDet(
+  input: unknown,
+  toolName: string,
+): { input: unknown; saved: number } {
+  const fields = TOOL_USE_INPUT_FIELDS[toolName.toLowerCase()]
+  if (!fields || !input || typeof input !== 'object') return { input, saved: 0 }
+  const obj = input as Record<string, unknown>
+  let saved = 0
+  let mutated = false
+  const out: Record<string, unknown> = { ...obj }
+  for (const field of fields) {
+    const val = obj[field]
+    if (typeof val === 'string' && val.length >= 200) {
+      const det = preprocess(val)
+      if (det.length < val.length) {
+        out[field] = det
+        saved += val.length - det.length
+        mutated = true
+      }
+    } else if (Array.isArray(val) && field === 'edits') {
+      const newEdits = val.map((e: unknown) => {
+        if (!e || typeof e !== 'object') return e
+        const edit = e as Record<string, unknown>
+        const ne: Record<string, unknown> = { ...edit }
+        for (const k of ['old_string', 'new_string']) {
+          const s = edit[k]
+          if (typeof s === 'string' && s.length >= 200) {
+            const det = preprocess(s)
+            if (det.length < s.length) { ne[k] = det; saved += s.length - det.length; mutated = true }
+          }
+        }
+        return ne
+      })
+      if (mutated) out[field] = newEdits
+    }
+  }
+  return mutated ? { input: out, saved } : { input, saved: 0 }
+}
+
+function extractAnthropicAssistantToolUses(
+  messages: AnthropicMessage[],
+  keepRecentAssistant: number,
+): Array<{ index: number; subIndex: number; tool: string }> {
+  const out: Array<{ index: number; subIndex: number; tool: string }> = []
+  const assistantIndices: number[] = []
+  for (let i = 0; i < messages.length; i++) {
+    if (messages[i].role === 'assistant') assistantIndices.push(i)
+  }
+  const eligible = assistantIndices.slice(0, Math.max(0, assistantIndices.length - keepRecentAssistant))
+  for (const i of eligible) {
+    const msg = messages[i]
+    if (!Array.isArray(msg.content)) continue
+    for (let j = 0; j < msg.content.length; j++) {
+      const block = msg.content[j] as { type?: string; name?: string }
+      if (block.type !== 'tool_use') continue
+      out.push({ index: i, subIndex: j, tool: block.name ?? 'unknown' })
+    }
+  }
+  return out
+}
+
+/**
+ * Extract text content from assistant messages.
+ * Assistant messages can be either a plain string or an array of blocks containing
+ * `text` and `tool_use` blocks. We only care about `text` blocks here.
+ *
+ * The last `keepRecentAssistant` assistant messages are excluded so the model
+ * always has the most recent few turns at full fidelity.
+ */
+function extractAnthropicAssistantTexts(
+  messages: AnthropicMessage[],
+  keepRecentAssistant: number,
+  minLength: number,
+): Array<{ index: number; subIndex: number; text: string; isString: boolean }> {
+  const results: Array<{ index: number; subIndex: number; text: string; isString: boolean }> = []
+  // First pass: identify all assistant messages
+  const assistantIndices: number[] = []
+  for (let i = 0; i < messages.length; i++) {
+    if (messages[i].role === 'assistant') assistantIndices.push(i)
+  }
+  // Skip the last keepRecentAssistant ones
+  const eligible = assistantIndices.slice(0, Math.max(0, assistantIndices.length - keepRecentAssistant))
+  for (const i of eligible) {
+    const msg = messages[i]
+    if (typeof msg.content === 'string') {
+      if (msg.content.length >= minLength) {
+        results.push({ index: i, subIndex: -1, text: msg.content, isString: true })
+      }
+    } else if (Array.isArray(msg.content)) {
+      for (let j = 0; j < msg.content.length; j++) {
+        const block = msg.content[j]
+        if (block.type !== 'text') continue
+        const text = (block as { text?: string }).text ?? ''
+        if (text.length >= minLength) {
+          results.push({ index: i, subIndex: j, text, isString: false })
+        }
+      }
+    }
+  }
+  return results
+}
+
 function buildAnthropicToolIdMap(messages: AnthropicMessage[]): { nameMap: Map<string, string>; skipIds: Set<string> } {
   const nameMap = new Map<string, string>()
   const skipIds = new Set<string>()
@@ -204,37 +396,48 @@ export async function compressAnthropicMessages(
   // Clone once — all modifications go here
   const msgs = structuredClone(messages) as AnthropicMessage[]
 
-  // ── Step 0: Cross-turn Read dedup ────────────────────────────────────────────
-  // If the exact same file content was read multiple times in this conversation,
+  // ── Step 0: Cross-turn dedup (Read / Bash / Grep) ────────────────────────────
+  // If the exact same tool output appears multiple times in the conversation,
   // keep the most recent occurrence at full fidelity and replace earlier ones
-  // with a short reference (saves tokens, model still has access via expand).
+  // with a short reference. Hash is MD5-exact, so any byte difference = no dedup.
+  // Zero quality risk: original content is always recoverable via squeezr_expand.
   const dedupedSet = new Set<string>()  // "index:subIndex" keys — skip in later steps
   let readDedupSaved = 0
+  // Per-tool short label used in the dedup placeholder text
+  const DEDUP_TOOLS: Record<string, string> = {
+    read: 'file content as a later read',
+    bash: 'bash output as a later call',
+    grep: 'grep result as a later search',
+  }
   {
-    const readHashToId = new Map<string, string>()  // hash → expand id of most recent
+    const hashToId = new Map<string, string>()  // hash → expand id of most recent
     const seenMostRecent = new Set<string>()
-    let readDedupCount = 0
+    let dedupCount = 0
     // Scan newest → oldest: first encounter of each hash = most recent
     for (let i = allResults.length - 1; i >= 0; i--) {
       const { index, subIndex, text, tool } = allResults[i]
-      if (tool.toLowerCase() !== 'read') continue
+      const toolLower = tool.toLowerCase()
+      const label = DEDUP_TOOLS[toolLower]
+      if (!label) continue
+      // Skip tiny outputs — not worth the placeholder overhead (~80 chars)
+      if (text.length < 200) continue
       const hash = hashText(text)
       if (!seenMostRecent.has(hash)) {
         seenMostRecent.add(hash)
-        readHashToId.set(hash, storeOriginal(text))
+        hashToId.set(hash, storeOriginal(text))
       } else {
-        const id = readHashToId.get(hash)!
+        const id = hashToId.get(hash)!
         ;(msgs[index].content as Array<{ content?: unknown }>)[subIndex].content =
-          `[same file content as a later read in conversation — squeezr_expand(${id}) to retrieve]`
+          `[same ${label} in conversation — squeezr_expand(${id}) to retrieve]`
         dedupedSet.add(`${index}:${subIndex}`)
-        readDedupCount++
+        dedupCount++
         readDedupSaved += text.length
       }
     }
     if (readDedupSaved > 0) {
       const tokens = Math.round(readDedupSaved / 3.5)
-      console.log(`[squeezr/read-dedup] ${readDedupCount} duplicate file read(s) collapsed: -${readDedupSaved.toLocaleString()} chars (~${tokens} tokens)`)
-      hitPattern('readDedup', readDedupCount)
+      console.log(`[squeezr/dedup] ${dedupCount} duplicate tool output(s) collapsed: -${readDedupSaved.toLocaleString()} chars (~${tokens} tokens)`)
+      hitPattern('readDedup', dedupCount)
     }
   }
 
@@ -254,6 +457,90 @@ export async function compressAnthropicMessages(
   if (detSaved > 0) {
     const tokens = Math.round(detSaved / 3.5)
     console.log(`[squeezr/det] Deterministic: -${detSaved.toLocaleString()} chars (~${tokens} tokens) across ${allResults.length} block(s)`)
+  }
+
+  // ── Step 1.5: Deterministic preprocessing on assistant messages ─────────────
+  // Only runs if compress_conversation is enabled in config. Zero AI calls,
+  // pure regex/whitespace cleanup — safe.
+  // Skips the last keep_recent_assistant messages so the immediate context is
+  // always at full fidelity. Skips messages below assistant_threshold.
+  if (config.compressConversation) {
+    const keepRecentAsst = config.keepRecentAssistant
+    const minLen = config.assistantThreshold
+    const assistantBlocks = extractAnthropicAssistantTexts(msgs, keepRecentAsst, minLen)
+    let asstDetSaved = 0
+    let asstCount = 0
+    for (const blk of assistantBlocks) {
+      const det = preprocessAssistant(blk.text)
+      if (det.length < blk.text.length) {
+        const saved = blk.text.length - det.length
+        if (blk.isString) {
+          msgs[blk.index].content = det
+        } else {
+          ;(msgs[blk.index].content as Array<{ text?: string }>)[blk.subIndex].text = det
+        }
+        asstDetSaved += saved
+        asstCount++
+      }
+    }
+    if (asstDetSaved > 0) {
+      const tokens = Math.round(asstDetSaved / 3.5)
+      console.log(`[squeezr/asst-det] Assistant deterministic: -${asstDetSaved.toLocaleString()} chars (~${tokens} tokens) across ${asstCount} message(s)`)
+    }
+    detSaved += asstDetSaved
+  }
+
+  // ── Step 1.6: Deterministic on user text blocks (Claude Desktop attachments) ─
+  // Plain text inside user messages — pastes, attachments, project context.
+  // The last user message is never touched (live ask). Pure regex, zero AI.
+  if (config.compressConversation) {
+    const userBlocks = extractAnthropicUserTextBlocks(msgs, config.assistantThreshold)
+    let userDetSaved = 0
+    let userCount = 0
+    for (const blk of userBlocks) {
+      const det = preprocessAssistant(blk.text)
+      if (det.length < blk.text.length) {
+        const saved = blk.text.length - det.length
+        if (blk.isString) {
+          msgs[blk.index].content = det
+        } else {
+          ;(msgs[blk.index].content as Array<{ text?: string }>)[blk.subIndex].text = det
+        }
+        userDetSaved += saved
+        userCount++
+      }
+    }
+    if (userDetSaved > 0) {
+      const tokens = Math.round(userDetSaved / 3.5)
+      console.log(`[squeezr/user-det] User text deterministic: -${userDetSaved.toLocaleString()} chars (~${tokens} tokens) across ${userCount} block(s)`)
+    }
+    detSaved += userDetSaved
+  }
+
+  // ── Step 1.7: Deterministic on tool_use inputs (Edit/Write/Bash bodies) ─────
+  // The `input` JSON of historical tool calls — Edit's old_string/new_string,
+  // Write's content. These are huge and previously unprocessed. Skip the most
+  // recent N assistant turns (`keepRecentAssistant`) so the live tool call
+  // stays intact.
+  if (config.compressConversation) {
+    const toolUses = extractAnthropicAssistantToolUses(msgs, config.keepRecentAssistant)
+    let tuSaved = 0
+    let tuCount = 0
+    for (const { index, subIndex, tool } of toolUses) {
+      const blocks = msgs[index].content as Array<{ type?: string; input?: unknown }>
+      const orig = blocks[subIndex].input
+      const { input: next, saved } = compressToolUseInputDet(orig, tool)
+      if (saved > 0) {
+        blocks[subIndex].input = next
+        tuSaved += saved
+        tuCount++
+      }
+    }
+    if (tuSaved > 0) {
+      const tokens = Math.round(tuSaved / 3.5)
+      console.log(`[squeezr/toolinput-det] tool_use input deterministic: -${tuSaved.toLocaleString()} chars (~${tokens} tokens) across ${tuCount} call(s)`)
+    }
+    detSaved += tuSaved
   }
 
   // ── Step 2: AI compression for old blocks above threshold ─────────────────
@@ -290,8 +577,10 @@ export async function compressAnthropicMessages(
   }
 
   const aiT0 = Date.now()
+  const defaultFn: CompressFn = (t) => compressWithHaiku(t, apiKey)
+  const fn = getEffectiveCompressFn(defaultFn, config)
   const freshlyCompressed = toCompress.length > 0
-    ? await runCompression(toCompress, t => compressWithHaiku(t, apiKey), config)
+    ? await runCompression(toCompress, fn, config)
     : []
   const aiMs = Date.now() - aiT0
 
@@ -385,27 +674,35 @@ export async function compressOpenAIMessages(
 
   const msgs = structuredClone(messages) as OpenAIMessage[]
 
-  // Step 0: Cross-turn Read dedup
+  // Step 0: Cross-turn dedup (Read / Bash / Grep) — see compressAnthropicMessages for details
   const dedupedIndices = new Set<number>()
   let readDedupSaved = 0
+  const OAI_DEDUP_TOOLS: Record<string, string> = {
+    read: 'file content as a later read',
+    bash: 'bash output as a later call',
+    grep: 'grep result as a later search',
+  }
   {
-    const readHashToId = new Map<string, string>()
+    const hashToId = new Map<string, string>()
     const seenMostRecent = new Set<string>()
-    let readDedupCount = 0
+    let dedupCount = 0
     for (let i = allResults.length - 1; i >= 0; i--) {
       const { index, text, tool } = allResults[i]
-      if (tool.toLowerCase() !== 'read') continue
+      const toolLower = tool.toLowerCase()
+      const label = OAI_DEDUP_TOOLS[toolLower]
+      if (!label) continue
+      if (text.length < 200) continue
       const hash = hashText(text)
       if (!seenMostRecent.has(hash)) {
-        seenMostRecent.add(hash); readHashToId.set(hash, storeOriginal(text))
+        seenMostRecent.add(hash); hashToId.set(hash, storeOriginal(text))
       } else {
-        msgs[index].content = `[same file content as a later read in conversation — squeezr_expand(${readHashToId.get(hash)}) to retrieve]`
-        dedupedIndices.add(index); readDedupCount++; readDedupSaved += text.length
+        msgs[index].content = `[same ${label} in conversation — squeezr_expand(${hashToId.get(hash)}) to retrieve]`
+        dedupedIndices.add(index); dedupCount++; readDedupSaved += text.length
       }
     }
     if (readDedupSaved > 0) {
-      console.log(`[squeezr/read-dedup] ${readDedupCount} duplicate file read(s) collapsed: -${readDedupSaved.toLocaleString()} chars`)
-      hitPattern('readDedup', readDedupCount)
+      console.log(`[squeezr/dedup] ${dedupCount} duplicate tool output(s) collapsed: -${readDedupSaved.toLocaleString()} chars`)
+      hitPattern('readDedup', dedupCount)
     }
   }
 
@@ -424,6 +721,37 @@ export async function compressOpenAIMessages(
   if (detSaved > 0) {
     const tag = isLocal ? 'ollama' : 'codex'
     console.log(`[squeezr/det/${tag}] Deterministic: -${detSaved.toLocaleString()} chars across ${allResults.length} block(s)`)
+  }
+
+  // Step 1.5: Deterministic on user/assistant prose messages (skip last user msg)
+  if (config.compressConversation) {
+    const minLen = config.assistantThreshold
+    // Last user-role message index — never touch it
+    let lastUserIdx = -1
+    for (let i = msgs.length - 1; i >= 0; i--) {
+      if ((msgs[i] as OpenAIMessage).role === 'user') { lastUserIdx = i; break }
+    }
+    let proseSaved = 0
+    let proseCount = 0
+    for (let i = 0; i < msgs.length; i++) {
+      const m = msgs[i] as OpenAIMessage
+      if (m.role !== 'user' && m.role !== 'assistant') continue
+      if (i === lastUserIdx) continue
+      if (typeof m.content !== 'string') continue
+      if (!m.content || m.content.length < minLen) continue
+      const det = preprocessAssistant(m.content)
+      if (det.length < m.content.length) {
+        proseSaved += m.content.length - det.length
+        proseCount++
+        m.content = det
+      }
+    }
+    if (proseSaved > 0) {
+      const tag = isLocal ? 'ollama' : 'codex'
+      const tokens = Math.round(proseSaved / 3.5)
+      console.log(`[squeezr/prose-det/${tag}] Prose deterministic: -${proseSaved.toLocaleString()} chars (~${tokens} tokens) across ${proseCount} message(s)`)
+      detSaved += proseSaved
+    }
   }
 
   // Step 2: AI compression for old blocks above threshold
@@ -459,9 +787,10 @@ export async function compressOpenAIMessages(
     }
   }
 
-  const compressFn: CompressFn = isLocal
+  const defaultFn: CompressFn = isLocal
     ? t => compressWithOllama(t, config.localUpstreamUrl, config.localCompressionModel)
     : t => compressWithGptMini(t, apiKey)
+  const compressFn = getEffectiveCompressFn(defaultFn, config)
 
   const oaiAiT0 = Date.now()
   const freshlyCompressed = toCompress.length > 0
@@ -535,27 +864,35 @@ export async function compressGeminiContents(
 
   const cts = structuredClone(contents) as GeminiContent[]
 
-  // Step 0: Cross-turn Read dedup
+  // Step 0: Cross-turn dedup (Read / Bash / Grep) — see compressAnthropicMessages for details
   const geminiDedupedSet = new Set<string>()
   let geminiReadDedupSaved = 0
+  const GEMINI_DEDUP_TOOLS: Record<string, string> = {
+    read: 'file content as a later read',
+    bash: 'bash output as a later call',
+    grep: 'grep result as a later search',
+  }
   {
-    const readHashToId = new Map<string, string>()
+    const hashToId = new Map<string, string>()
     const seenMostRecent = new Set<string>()
-    let readDedupCount = 0
+    let dedupCount = 0
     for (let i = allResults.length - 1; i >= 0; i--) {
       const { index, subIndex, text, tool } = allResults[i]
-      if (tool.toLowerCase() !== 'read') continue
+      const toolLower = tool.toLowerCase()
+      const label = GEMINI_DEDUP_TOOLS[toolLower]
+      if (!label) continue
+      if (text.length < 200) continue
       const hash = hashText(text)
       if (!seenMostRecent.has(hash)) {
-        seenMostRecent.add(hash); readHashToId.set(hash, storeOriginal(text))
+        seenMostRecent.add(hash); hashToId.set(hash, storeOriginal(text))
       } else {
-        cts[index].parts[subIndex].functionResponse!.response = { output: `[same file content as a later read — squeezr_expand(${readHashToId.get(hash)}) to retrieve]` }
-        geminiDedupedSet.add(`${index}:${subIndex}`); readDedupCount++; geminiReadDedupSaved += text.length
+        cts[index].parts[subIndex].functionResponse!.response = { output: `[same ${label} in conversation — squeezr_expand(${hashToId.get(hash)}) to retrieve]` }
+        geminiDedupedSet.add(`${index}:${subIndex}`); dedupCount++; geminiReadDedupSaved += text.length
       }
     }
     if (geminiReadDedupSaved > 0) {
-      console.log(`[squeezr/read-dedup/gemini] ${readDedupCount} duplicate file read(s) collapsed: -${geminiReadDedupSaved.toLocaleString()} chars`)
-      hitPattern('readDedup', readDedupCount)
+      console.log(`[squeezr/dedup/gemini] ${dedupCount} duplicate tool output(s) collapsed: -${geminiReadDedupSaved.toLocaleString()} chars`)
+      hitPattern('readDedup', dedupCount)
     }
   }
 
@@ -572,6 +909,38 @@ export async function compressGeminiContents(
   }
   const gemDetMs = Date.now() - gemDetT0
   if (detSaved > 0) console.log(`[squeezr/det/gemini] Deterministic: -${detSaved.toLocaleString()} chars across ${allResults.length} block(s)`)
+
+  // Step 1.5: Deterministic on text parts in user/model messages (skip last user msg)
+  if (config.compressConversation) {
+    const minLen = config.assistantThreshold
+    let lastUserIdx = -1
+    for (let i = cts.length - 1; i >= 0; i--) {
+      if (cts[i].role === 'user') { lastUserIdx = i; break }
+    }
+    let proseSaved = 0
+    let proseCount = 0
+    for (let i = 0; i < cts.length; i++) {
+      if (i === lastUserIdx) continue
+      const role = cts[i].role
+      if (role !== 'user' && role !== 'model') continue
+      for (let j = 0; j < cts[i].parts.length; j++) {
+        const part = cts[i].parts[j]
+        const t = part.text
+        if (typeof t !== 'string' || t.length < minLen) continue
+        const det = preprocessAssistant(t)
+        if (det.length < t.length) {
+          proseSaved += t.length - det.length
+          proseCount++
+          part.text = det
+        }
+      }
+    }
+    if (proseSaved > 0) {
+      const tokens = Math.round(proseSaved / 3.5)
+      console.log(`[squeezr/prose-det/gemini] Prose deterministic: -${proseSaved.toLocaleString()} chars (~${tokens} tokens) across ${proseCount} part(s)`)
+      detSaved += proseSaved
+    }
+  }
 
   // Step 2: AI compression for old blocks above threshold
   const candidates = allResults.slice(0, Math.max(0, allResults.length - effectiveKeepRecent(config)))
@@ -599,8 +968,10 @@ export async function compressGeminiContents(
   }
 
   const gemAiT0 = Date.now()
+  const gemDefaultFn: CompressFn = (t) => compressWithGeminiFlash(t, apiKey)
+  const gemFn = getEffectiveCompressFn(gemDefaultFn, config)
   const freshlyCompressed = toCompress.length > 0
-    ? await runCompression(toCompress, t => compressWithGeminiFlash(t, apiKey), config)
+    ? await runCompression(toCompress, gemFn, config)
     : []
   const gemAiMs = Date.now() - gemAiT0
 

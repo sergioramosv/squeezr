@@ -83,6 +83,17 @@ httpServer.listen(PORT, () => {
 // Start MITM proxy for Codex OAuth (chatgpt.com/backend-api)
 startMitmProxy()
 
+// ── Claude Desktop / Codex Desktop are HANDLED BY A SEPARATE PROXY ───────────
+// This main process (port 8080) ONLY serves Claude Code, Codex CLI, Aider and
+// Gemini CLI — clients that respect `ANTHROPIC_BASE_URL` / `OPENAI_BASE_URL`
+// env vars. It NEVER modifies hosts file, never runs HTTPS MITM, never reads
+// any "claude-desktop active?" flag. Total isolation.
+//
+// Claude Desktop and Codex Desktop (which ignore env vars) are served by a
+// completely separate proxy on a different port — see `src/desktopProxy.ts`
+// and the `squeezr desktop start` CLI command. That process can crash, hang,
+// or be killed and this main proxy keeps running untouched.
+
 const isDaemon = !!process.env.SQUEEZR_DAEMON
 
 function persistAndExit(code = 0): void {

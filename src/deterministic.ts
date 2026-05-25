@@ -152,6 +152,84 @@ export function preprocessRatio(original: string, processed: string): number {
   return 1 - processed.length / original.length
 }
 
+// ── Assistant message preprocessing ──────────────────────────────────────────
+// Patrones específicos para texto generado por Claude (no tool output).
+// Diseñados para reducir verbosidad sin tocar código (los code fences ``` quedan intactos).
+
+// Phrases verbosas → forma concisa. Solo aplica fuera de code blocks.
+const VERBOSE_PHRASES: Array<[RegExp, string]> = [
+  [/\bin order to\b/gi, 'to'],
+  [/\bdue to the fact that\b/gi, 'because'],
+  [/\bin spite of the fact that\b/gi, 'although'],
+  [/\bwith regard to\b/gi, 'about'],
+  [/\bat this point in time\b/gi, 'now'],
+  [/\bin the event that\b/gi, 'if'],
+  [/\bfor the purpose of\b/gi, 'to'],
+  [/\bin a manner that\b/gi, 'how'],
+  [/\bin the process of\b/gi, ''],
+  [/\bas a matter of fact\b/gi, ''],
+  [/\bit is important to note that\b/gi, 'note:'],
+  [/\bit should be noted that\b/gi, 'note:'],
+  [/\bplease note that\b/gi, ''],
+  [/\bkeep in mind that\b/gi, ''],
+]
+
+// Discourse markers que Claude usa al narrar — eliminables sin perder info
+const DISCOURSE_MARKERS = /\b(let me |i'll |i will |i'm going to |i'm now |i am now |i shall |now |so,? |so let's |well,? |alright,? |actually,? |basically,? |essentially,? |fundamentally,? )/gi
+
+// Summary block al final del mensaje — Claude resume lo que hizo después de hacerlo
+const TRAILING_SUMMARY = /\n\n(?:Here'?s a (?:summary|brief recap)|To summarize|In summary|Summary:|Recap:|To recap|In conclusion)\b[\s\S]{50,}$/i
+
+/**
+ * Split text into code blocks vs prose so we only compress the prose part.
+ * Code blocks (``` ```) must stay intact.
+ */
+function splitCodeAndProse(text: string): Array<{ kind: 'code' | 'prose'; text: string }> {
+  const parts: Array<{ kind: 'code' | 'prose'; text: string }> = []
+  const re = /```[\s\S]*?```/g
+  let lastIdx = 0
+  let m: RegExpExecArray | null
+  while ((m = re.exec(text)) !== null) {
+    if (m.index > lastIdx) parts.push({ kind: 'prose', text: text.slice(lastIdx, m.index) })
+    parts.push({ kind: 'code', text: m[0] })
+    lastIdx = m.index + m[0].length
+  }
+  if (lastIdx < text.length) parts.push({ kind: 'prose', text: text.slice(lastIdx) })
+  return parts
+}
+
+export function preprocessAssistant(text: string): string {
+  // Run base pipeline first (whitespace, JSON minify, etc.)
+  let t = preprocess(text)
+
+  // Then apply assistant-specific patterns ONLY to prose (not code blocks)
+  const parts = splitCodeAndProse(t)
+  for (let i = 0; i < parts.length; i++) {
+    if (parts[i].kind !== 'prose') continue
+    let p = parts[i].text
+    // Strip discourse markers at sentence start
+    p = p.replace(/(^|\.\s+|\n)([Ll]et me |[Ii]'ll |[Ii] will |[Ii]'m going to |[Nn]ow,? |[Ss]o,? )/g, '$1')
+    // Strip discourse markers mid-sentence (lighter)
+    p = p.replace(DISCOURSE_MARKERS, (match) => match[0].match(/[A-Z]/) ? '' : '')
+    // Verbose → concise phrases
+    for (const [re, rep] of VERBOSE_PHRASES) p = p.replace(re, rep)
+    // Strip markdown emphasis (bold/italic) — keep the text
+    p = p.replace(/\*\*([^*\n]+)\*\*/g, '$1')
+    p = p.replace(/(?<!\w)_([^_\n]+)_(?!\w)/g, '$1')
+    // Collapse multiple spaces that may result from removals
+    p = p.replace(/  +/g, ' ').replace(/ +([.,;:!?])/g, '$1')
+    parts[i].text = p
+  }
+  t = parts.map(p => p.text).join('')
+
+  // Strip trailing summary blocks (Claude often summarizes at the end)
+  t = t.replace(TRAILING_SUMMARY, '')
+
+  // Final whitespace cleanup
+  t = collapseWhitespace(t)
+  return t
+}
+
 // ── Bash: git status ─────────────────────────────────────────────────────────
 
 function looksLikeGitStatus(t: string): boolean {

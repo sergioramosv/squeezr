@@ -4,6 +4,7 @@ import { createHash } from 'crypto'
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'fs'
 import { join } from 'path'
 import { homedir } from 'os'
+import { preprocess } from './deterministic.js'
 
 const CACHE_FILE = join(homedir(), '.squeezr', 'sysprompt_cache.json')
 const MIN_LENGTH = 2000
@@ -40,13 +41,31 @@ export async function compressSystemPrompt(
 ): Promise<{ text: string; originalLen: number; compressedLen: number }> {
   if (!prompt || prompt.length < MIN_LENGTH) return { text: prompt, originalLen: prompt.length, compressedLen: prompt.length }
 
+  // Deterministic pre-pass — strip ANSI, timestamps, dedup lines, collapse
+  // whitespace. Free, no API call. Often saves 5-15% before Haiku/GPT touches it.
+  // The cache is keyed off the *deterministic* output so semantically-equivalent
+  // prompts (same content, different whitespace) hit the same cache entry.
+  const detPrompt = preprocess(prompt)
+  const originalLen = prompt.length
+
   const cache = loadCache()
-  const key = cacheKey(prompt)
-  if (cache[key]) return { text: cache[key], originalLen: prompt.length, compressedLen: cache[key].length }
+  const key = cacheKey(detPrompt)
+  if (cache[key]) return { text: cache[key], originalLen, compressedLen: cache[key].length }
+
+  // If deterministic alone saved >25%, that's a respectable win — skip the AI
+  // call entirely. Saves a Haiku request and the latency it adds.
+  if (detPrompt.length < originalLen * 0.75) {
+    cache[key] = detPrompt
+    saveCache(cache)
+    const ratio = Math.round((1 - detPrompt.length / originalLen) * 100)
+    console.log(`[squeezr/sysprompt-det] Deterministic-only: -${ratio}% (${originalLen.toLocaleString()} → ${detPrompt.length.toLocaleString()} chars) [cached, no AI]`)
+    return { text: detPrompt, originalLen, compressedLen: detPrompt.length }
+  }
 
   try {
     let compressed: string
-    const input = `${PROMPT}\n\n---\n${prompt.slice(0, 10000)}`
+    // Feed the deterministic-cleaned prompt to the AI (fewer noise tokens).
+    const input = `${PROMPT}\n\n---\n${detPrompt.slice(0, 10000)}`
 
     if (backend === 'haiku') {
       const authOpts = apiKey.startsWith('sk-') ? { apiKey } : { authToken: apiKey }
@@ -75,15 +94,19 @@ export async function compressSystemPrompt(
       const data = (await resp.json()) as { candidates: Array<{ content: { parts: Array<{ text: string }> } }> }
       compressed = data.candidates[0].content.parts[0].text
     } else {
-      return { text: prompt, originalLen: prompt.length, compressedLen: prompt.length } // ollama: skip
+      // Ollama: fall back to the deterministic-only output rather than the raw
+      // original. We never want to return a prompt we never touched.
+      return { text: detPrompt, originalLen, compressedLen: detPrompt.length }
     }
 
-    const ratio = Math.round((1 - compressed.length / prompt.length) * 100)
-    console.log(`[squeezr/${backend}] System prompt compressed: -${ratio}% (${prompt.length.toLocaleString()} → ${compressed.length.toLocaleString()} chars) [cached]`)
+    const ratio = Math.round((1 - compressed.length / originalLen) * 100)
+    console.log(`[squeezr/${backend}] System prompt compressed: -${ratio}% (${originalLen.toLocaleString()} → ${compressed.length.toLocaleString()} chars) [cached]`)
     cache[key] = compressed
     saveCache(cache)
-    return { text: compressed, originalLen: prompt.length, compressedLen: compressed.length }
+    return { text: compressed, originalLen, compressedLen: compressed.length }
   } catch {
-    return { text: prompt, originalLen: prompt.length, compressedLen: prompt.length }
+    // AI compression failed — still return the deterministic-cleaned text
+    // instead of the raw original. The pre-pass was free.
+    return { text: detPrompt, originalLen, compressedLen: detPrompt.length }
   }
 }

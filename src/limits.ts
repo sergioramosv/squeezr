@@ -147,15 +147,19 @@ export const openAISessionLimits: OpenAISessionRateLimitState = {
 // Last API key seen per CLI — used for proactive billing fetches
 let lastAnthropicKey = ''
 let lastOpenAIKey    = ''
+let lastGeminiKey    = ''
 
-export function storeKey(cli: 'anthropic' | 'openai', key: string): void {
+export function storeKey(cli: 'anthropic' | 'openai' | 'gemini', key: string): void {
   if (!key) return
   if (cli === 'anthropic') lastAnthropicKey = key
-  else lastOpenAIKey = key
+  else if (cli === 'openai') lastOpenAIKey = key
+  else lastGeminiKey = key
 }
 
-export function storedKey(cli: 'anthropic' | 'openai'): string {
-  return cli === 'anthropic' ? lastAnthropicKey : lastOpenAIKey
+export function storedKey(cli: 'anthropic' | 'openai' | 'gemini'): string {
+  if (cli === 'anthropic') return lastAnthropicKey
+  if (cli === 'openai') return lastOpenAIKey
+  return lastGeminiKey
 }
 
 function normalizeWindow(v: unknown): OpenAISessionWindow | null {

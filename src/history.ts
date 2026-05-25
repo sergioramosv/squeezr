@@ -23,6 +23,7 @@ export interface SessionRecord {
   startTime: number  // epoch ms
   endTime: number    // epoch ms — updated on every flush
   requests: number
+  originalChars: number
   savedChars: number
   savedTokens: number
   compressions: number
@@ -39,6 +40,7 @@ const SESSION_ID = Math.random().toString(36).slice(2, 10)
 const SESSION_START = Date.now()
 let currentProject = 'unknown'
 let currentRequests = 0
+let currentOriginalChars = 0
 let currentSavedChars = 0
 let currentCompressions = 0
 const currentByTool: Record<string, { count: number; savedTokens: number }> = {}
@@ -87,9 +89,11 @@ export function recordRequest(
   savedChars: number,
   compressions: number,
   byTool: Array<{ tool: string; savedChars: number }>,
+  originalChars = 0,
 ): void {
   if (project !== 'unknown') currentProject = project
   currentRequests++
+  currentOriginalChars += originalChars
   currentSavedChars += savedChars
   currentCompressions += compressions
   for (const { tool, savedChars: sc } of byTool) {
@@ -108,6 +112,7 @@ function buildCurrentRecord(): SessionRecord {
     startTime: SESSION_START,
     endTime: Date.now(),
     requests: currentRequests,
+    originalChars: currentOriginalChars,
     savedChars: currentSavedChars,
     savedTokens: Math.round(currentSavedChars / CHARS_PER_TOKEN),
     compressions: currentCompressions,
