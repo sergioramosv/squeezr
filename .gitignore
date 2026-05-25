@@ -6,3 +6,8 @@ dist/
 
 # Local inspection artifacts
 .tmp-codex-schema/
+
+# Training dataset (moved to ~/Documents/squeezr-1b)
+recipes/
+*.jsonl
+mega.log
