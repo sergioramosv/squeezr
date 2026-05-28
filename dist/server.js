@@ -5,7 +5,7 @@ import { Hono } from 'hono';
 import { stream, streamSSE } from 'hono/streaming';
 import { config, applyMode, runtimeOverrides, anthropicNativeCompactEnabled, effectiveBackend, USER_CONFIG_DIR, USER_CONFIG_PATH } from './config.js';
 import { Stats } from './stats.js';
-import { DASHBOARD_HTML } from './dashboard.js';
+import { DASHBOARD_HTML, LOGO_SVG } from './dashboard.js';
 import { getCache, emptySavings } from './compressor.js';
 import { compressAnthropicMessages, compressOpenAIMessages, compressGeminiContents, } from './compressor.js';
 import { isBypassed, setBypassed, toggleBypassed } from './bypass.js';
@@ -791,6 +791,11 @@ app.get('/squeezr/expand/:id', (c) => {
 // ── Dashboard + SSE + config ──────────────────────────────────────────────────
 app.get('/squeezr/dashboard', (c) => {
     return c.html(DASHBOARD_HTML);
+});
+app.get('/squeezr/favicon.svg', (c) => {
+    c.header('Content-Type', 'image/svg+xml');
+    c.header('Cache-Control', 'public, max-age=86400');
+    return c.body(LOGO_SVG);
 });
 app.get('/squeezr/events', (c) => {
     return streamSSE(c, async (s) => {

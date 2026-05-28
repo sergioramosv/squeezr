@@ -1,7 +1,8 @@
 # Changelog
-
 All notable changes to Squeezr will be documented here.
-
+## [1.46.3] - 2026-05-28
+### Added
+- **Dashboard favicon** — la pestaña del navegador ahora muestra el logo de Squeezr (mismo SVG que el header). Se sirve en `/squeezr/favicon.svg` con `Cache-Control: public, max-age=86400`. El path del logo se extrajo a `LOGO_PATH_D` para compartir source-of-truth entre header y favicon (antes estaba duplicado dentro del template HTML).
 ## [1.46.2] - 2026-05-25
 ### Fixed
 - **`npm install -g squeezr-ai@latest` borraba los puertos personalizados del usuario.** El `squeezr.toml` editado por el dashboard (POST `/squeezr/ports`) se escribía dentro del directorio del paquete npm. Cada reinstall/update reemplazaba ese directorio, perdiendo la configuración del usuario y dejando que `findFreePort()` arrancara silenciosamente en 8080 → siguiente libre, así que cada update mandaba al usuario a un puerto random. Ahora la configuración persistente vive en `~/.squeezr/squeezr.toml` (junto a `runtime.json` y `stats.json`). El `squeezr.toml` bundled dentro del paquete pasa a ser sólo defaults de fábrica.
