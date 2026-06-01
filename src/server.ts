@@ -306,8 +306,8 @@ const clientId = detectAnthropicClient(c.req.header('user-agent') ?? '', c.req.h
 
   // Bypass mode: skip all compression, still record request stats
   if (isBypassed()) {
-    stats.recordWithProject(project, originalChars, originalChars, emptySavings(), undefined, clientId, modelId)
-    recordRequest(project, 0, 0, [], originalChars)
+    stats.recordWithProject(project, originalRequestChars, originalRequestChars, emptySavings(), undefined, clientId, modelId)
+    recordRequest(project, 0, 0, [], originalRequestChars)
     storeKey('anthropic', apiKey)
     const fwdHeaders = forwardHeaders(c.req.raw.headers)
     if (body.stream) {
@@ -404,15 +404,15 @@ const clientId = detectAnthropicClient(c.req.header('user-agent') ?? '', c.req.h
   const compT0 = Date.now()
   const [compressedMsgs, savings] = await compressAnthropicMessages(messages as Parameters<typeof compressAnthropicMessages>[0], apiKey, config, systemExtraChars)
   const compLatency: LatencyInfo = { totalMs: Date.now() - compT0, detMs: savings.detMs, aiMs: savings.aiMs }
-  body.messages = compressedMsgs
+body.messages = compressedMsgs
 
-  // Inject expand tool
-  injectExpandToolAnthropic(body)
-
-  // Full request size after ALL compressions (messages + tools + system)
+  // Measure AFTER all compression, BEFORE expand tool injection (inject adds ~1K to tools)
   const compressedRequestChars = estimateChars(compressedMsgs)
     + estimateChars(body.tools ?? [])
     + estimateSystemChars(body.system)
+
+  // Inject expand tool (after measurement so its size doesn't distort savings_pct)
+  injectExpandToolAnthropic(body)
 
   // Attach per-feature savings to the savings object for accurate breakdown reporting
   savings.toolDescSavedChars = toolDescSaved
@@ -523,13 +523,14 @@ app.post('/v1/chat/completions', async (c) => {
   // Extract project name BEFORE compressing system prompt
   const oaiProject = extractProjectName(body)
 
-  const messages = (body.messages ?? []) as unknown[]
-  const originalChars = estimateChars(messages)
+const messages = (body.messages ?? []) as unknown[]
+  const originalOaiRequestChars = estimateFullRequestChars(body)
+  const originalChars = estimateChars(messages)  // kept for compressOpenAIMessages pressure calc
 
   // Bypass mode: skip all compression, still record request stats
   if (isBypassed()) {
-    stats.recordWithProject(oaiProject, originalChars, originalChars, emptySavings(), undefined, oaiClientId, oaiModelId)
-    recordRequest(oaiProject, 0, 0, [], originalChars)
+    stats.recordWithProject(oaiProject, originalOaiRequestChars, originalOaiRequestChars, emptySavings(), undefined, oaiClientId, oaiModelId)
+    recordRequest(oaiProject, 0, 0, [], originalOaiRequestChars)
     if (!isLocal) storeKey('openai', openAIKey)
     const fwdHeaders = forwardHeaders(c.req.raw.headers)
     if (body.stream) {
@@ -562,13 +563,14 @@ app.post('/v1/chat/completions', async (c) => {
     return c.json(respBody, resp.status as any, respHeaders)
   }
 
-  // Compress system message for non-local
+// Compress system message for non-local
+  let oaiSyspromptSaved = 0
   if (!isLocal && config.compressSystemPrompt && !config.dryRun) {
     const msgs = messages as Array<{ role: string; content?: string }>
     if (msgs[0]?.role === 'system' && typeof msgs[0].content === 'string') {
       const sp = await compressSystemPrompt(msgs[0].content, openAIKey, 'gpt-mini')
       msgs[0].content = sp.text
-      stats.recordSystemPromptSaved(sp.originalLen, sp.compressedLen)
+      oaiSyspromptSaved = sp.originalLen - sp.compressedLen
     }
   }
 
@@ -582,10 +584,14 @@ app.post('/v1/chat/completions', async (c) => {
   const oaiCompLatency: LatencyInfo = { totalMs: Date.now() - oaiCompT0, detMs: savings.detMs, aiMs: savings.aiMs }
   body.messages = compressedMsgs
 
+// Measure after all compressions, before expand injection
+  const oaiCompressedRequestChars = estimateChars(compressedMsgs)
+    + estimateChars(body.tools ?? [])
+    + estimateSystemChars(body.system)
   if (!isLocal) injectExpandToolOpenAI(body)
-  const _oaiCompChars = estimateChars(compressedMsgs)
-  stats.recordWithProject(oaiProject, originalChars, _oaiCompChars, savings, oaiCompLatency, oaiClientId, oaiModelId)
-  recordRequest(oaiProject, Math.max(0, originalChars - _oaiCompChars), savings.compressed, savings.byTool, originalChars)
+  savings.syspromptSavedChars = oaiSyspromptSaved
+  stats.recordWithProject(oaiProject, originalOaiRequestChars, oaiCompressedRequestChars, savings, oaiCompLatency, oaiClientId, oaiModelId)
+  recordRequest(oaiProject, Math.max(0, originalOaiRequestChars - oaiCompressedRequestChars), savings.compressed, savings.byTool, originalOaiRequestChars)
 
   if (!isLocal) storeKey('openai', openAIKey)
   const fwdHeaders = forwardHeaders(c.req.raw.headers)
@@ -662,16 +668,18 @@ app.post('/v1beta/models/*', async (c) => {
   const googleKey = extractGoogleKey(c.req.raw.headers, url)
   const modelPath = c.req.path.replace('/v1beta/models/', '')
 
-  const contents = (body.contents ?? []) as unknown[]
-  const originalChars = estimateChars(contents)
+const contents = (body.contents ?? []) as unknown[]
   const geminiProject = extractProjectName(body)
-  // Gemini model is in the URL path: /v1beta/models/gemini-2.5-pro:generateContent
   const geminiModelId = modelPath.split(':')[0] || 'gemini'
+  const originalGeminiRequestChars = estimateChars(body.contents ?? [])
+    + estimateChars(body.tools ?? [])
+    + estimateSystemChars(body.systemInstruction)
+  const originalChars = estimateChars(contents)  // kept for pressure calc
 
   // Bypass mode: skip all compression, still record request stats
   if (isBypassed()) {
-    stats.recordWithProject(geminiProject, originalChars, originalChars, emptySavings(), undefined, 'gemini', geminiModelId)
-    recordRequest(geminiProject, 0, 0, [], originalChars)
+    stats.recordWithProject(geminiProject, originalGeminiRequestChars, originalGeminiRequestChars, emptySavings(), undefined, 'gemini', geminiModelId)
+    recordRequest(geminiProject, 0, 0, [], originalGeminiRequestChars)
     const targetUrl = `${GOOGLE_API}/v1beta/models/${modelPath}`
     const fwdHeaders = forwardHeaders(c.req.raw.headers)
     const params = url.searchParams
@@ -699,9 +707,11 @@ app.post('/v1beta/models/*', async (c) => {
   const gemCompLatency: LatencyInfo = { totalMs: Date.now() - gemCompT0, detMs: savings.detMs, aiMs: savings.aiMs }
   body.contents = compressedContents
 
-  const _gemCompChars = estimateChars(compressedContents)
-  stats.recordWithProject(geminiProject, originalChars, _gemCompChars, savings, gemCompLatency, 'gemini', geminiModelId)
-  recordRequest(geminiProject, Math.max(0, originalChars - _gemCompChars), savings.compressed, savings.byTool, originalChars)
+  const gemCompressedRequestChars = estimateChars(compressedContents)
+    + estimateChars(body.tools ?? [])
+    + estimateSystemChars(body.systemInstruction)
+  stats.recordWithProject(geminiProject, originalGeminiRequestChars, gemCompressedRequestChars, savings, gemCompLatency, 'gemini', geminiModelId)
+  recordRequest(geminiProject, Math.max(0, originalGeminiRequestChars - gemCompressedRequestChars), savings.compressed, savings.byTool, originalGeminiRequestChars)
 
   const targetUrl = `${GOOGLE_API}/v1beta/models/${modelPath}`
   const fwdHeaders = forwardHeaders(c.req.raw.headers)

@@ -1,5 +1,13 @@
 # Changelog
 All notable changes to Squeezr will be documented here.
+## [1.55.2] - 2026-06-01
+### Fixed
+- **4 bugs de stats restantes tras v1.55.1:**
+- **BUG 1 (Anthropic):** `injectExpandToolAnthropic` añade ~1K al `body.tools` ANTES de que se midiera `compressedRequestChars`, inflando el "after" y reduciendo los savings reportados. Medición movida antes de la inyección.
+- **BUG 2 (Anthropic bypass):** modo bypass usaba `originalChars` (solo messages) en vez de `originalRequestChars` (full request).
+- **BUG 3 (OpenAI):** mismo problema que Anthropic pre-v1.55.1 — solo medía `messages[]`, ignoraba `tools[]` y `system`. Ahora usa `originalOaiRequestChars = messages + tools + system`.
+- **BUG 4 (Gemini):** mismo problema. Ahora usa `originalGeminiRequestChars = contents + tools + systemInstruction`.
+- Eliminado `stats.recordSystemPromptSaved()` del pipeline OpenAI — reemplazado por `savings.syspromptSavedChars` para consistencia con Anthropic.
 ## [1.55.1] - 2026-06-01
 ### Fixed
 - **Stats ahora miden el request completo** — `originalChars` antes medía solo `messages[]` (71% del request real). Los otros 29% (`tools[]` 25% + `system` 4%) eran completamente invisibles. El dashboard mostraba ~9% savings cuando la realidad era ~18-20%. Ahora `originalRequestChars` = messages + tools + system, mismo para `compressedRequestChars`.
