@@ -33,7 +33,8 @@ interface TomlConfig {
     stale_turn_threshold?: number // user-turns before triggering (default 40)
     stale_keep_recent?: number    // turns to keep at full fidelity (default 15)
     tool_desc_compress?: boolean     // compress tool descriptions (default false)
-    tool_desc_first_para?: boolean   // keep only first paragraph (default true when compress=true)
+    tool_desc_first_para?: boolean   // keep only first paragraph (default true)
+    tool_desc_safe_only?: boolean    // only truncate known built-ins (default true — safe)
     tool_desc_max_chars?: number     // hard-truncate to N chars after first-para (0 = off)
   }
   cache?: { enabled?: boolean; max_entries?: number }
@@ -130,8 +131,9 @@ export class Config {
   readonly staleTurns: boolean
   readonly staleTurnThreshold: number
   readonly staleTurnKeepRecent: number
-  readonly toolDescCompress: boolean
+readonly toolDescCompress: boolean
   readonly toolDescFirstPara: boolean
+  readonly toolDescSafeOnly: boolean
   readonly toolDescMaxChars: number
   readonly keepRecentAssistant: number
   readonly assistantThreshold: number
@@ -175,6 +177,7 @@ this.compressSystemPrompt = c.compress_system_prompt ?? true
     this.staleTurnKeepRecent = c.stale_keep_recent ?? 15
 this.toolDescCompress = c.tool_desc_compress ?? false
     this.toolDescFirstPara = c.tool_desc_first_para ?? true
+    this.toolDescSafeOnly = c.tool_desc_safe_only ?? true
     this.toolDescMaxChars = c.tool_desc_max_chars ?? 0
     this.keepRecentAssistant = c.keep_recent_assistant ?? 3
     this.assistantThreshold = c.assistant_threshold ?? 300

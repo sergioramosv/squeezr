@@ -1,36 +1,46 @@
 /**
- * Tool description compression (v1.54.0)
+ * Tool description compression (v1.54.1)
  *
- * Compresses the `description` field of tool definitions in the `tools[]`
- * array. The `input_schema` and `name` fields are NEVER touched.
+ * Compresses the `description` field of tool definitions in the `tools[]` array.
+ * The `input_schema` and `name` fields are NEVER touched.
  *
- * Based on capture data (req-0002.json):
- *   145 tools · 98,006 chars · ~28,000 tokens per request
- *   First-paragraph truncation → 17,329 chars · ~23,000 tokens saved per request
+ * Based on capture analysis (145 tools · 98,006 chars · ~28K tokens/request):
+ *
+ *  SAFE_ONLY mode (default, tool_desc_safe_only = true):
+ *    Only truncates 10 well-known Claude Code built-ins that Claude already knows
+ *    from training (Bash, Read, Edit, Write, Glob, Grep, WebFetch, WebSearch,
+ *    NotebookEdit, PowerShell). Saves ~7,000 tokens/request with zero risk.
+ *    MCP tools, Workflow, Agent, etc. keep their full descriptions.
+ *
+ *  ALL mode (tool_desc_safe_only = false, opt-in):
+ *    Truncates every tool description > MIN_FIRST_PARA_LEN chars. Saves ~23K tokens
+ *    but Claude loses Workflow scripting spec and MCP tool details — use with caution.
  *
  * Three passes (in order):
- *  1. Whitespace normalization — always safe.
- *  2. First-paragraph truncation — keeps everything up to the first blank line.
- *     Enabled via `tool_desc_first_para = true` (default true when compress is on).
- *     Only applies to descriptions > MIN_FIRST_PARA_LEN chars.
- *  3. Hard truncation — fallback max-chars cap via `tool_desc_max_chars` (default 0 = off).
+ *  1. Whitespace normalization
+ *  2. First-paragraph truncation (up to first blank line)
+ *  3. Hard char cap via tool_desc_max_chars (default 0 = off)
  *
  * Safety constraints (hard rules):
  *  - NEVER touches `input_schema` or `name`
- *  - Default OFF — requires `tool_desc_compress = true`
- *  - Result is discarded if it ends up longer than the original
+ *  - Default: safe_only = true (whitelist only)
+ *  - Result discarded if longer than original
  */
 
-const MIN_DESC_LEN = 200       // skip descriptions shorter than this
-const MIN_FIRST_PARA_LEN = 500 // only first-para-truncate if description > this
+const MIN_DESC_LEN = 200
+const MIN_FIRST_PARA_LEN = 500
+
+// Claude Code built-ins that Claude knows from training — safe to truncate.
+// Source: capture analysis 2026-06-01. Do NOT add MCP tools or Workflow here.
+const SAFE_BUILTIN_TOOLS = new Set([
+  'Bash', 'Read', 'Edit', 'Write', 'Glob', 'Grep',
+  'WebFetch', 'WebSearch', 'NotebookEdit', 'PowerShell',
+])
 
 type ToolDef = { name?: unknown; description?: unknown; input_schema?: unknown; [k: string]: unknown }
 
 function normalizeDesc(text: string): string {
-  return text
-    .replace(/[ \t]+$/gm, '')
-    .replace(/\n{3,}/g, '\n\n')
-    .trim()
+  return text.replace(/[ \t]+$/gm, '').replace(/\n{3,}/g, '\n\n').trim()
 }
 
 function firstParagraph(text: string): string {
@@ -48,6 +58,7 @@ export function compressToolDescriptions(
   tools: unknown[],
   maxChars: number,
   firstPara: boolean,
+  safeOnly: boolean,
 ): ToolDescResult {
   if (!Array.isArray(tools)) return { savedChars: 0, compressedTools: 0, totalTools: 0 }
 
@@ -60,6 +71,9 @@ export function compressToolDescriptions(
     if (typeof t.description !== 'string') continue
     const orig = t.description as string
     if (orig.length < MIN_DESC_LEN) continue
+
+    // In safe-only mode, skip tools not in the whitelist
+    if (safeOnly && !SAFE_BUILTIN_TOOLS.has(String(t.name ?? ''))) continue
 
     let result = normalizeDesc(orig)
 

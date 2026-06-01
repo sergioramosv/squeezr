@@ -1,5 +1,8 @@
 # Changelog
 All notable changes to Squeezr will be documented here.
+## [1.54.1] - 2026-06-01
+### Fixed
+- **Whitelist para tool desc compression** (`tool_desc_safe_only = true`). v1.54.0 truncaba todas las descriptions incluyendo Workflow (18K) y MCP tools — Claude perdía el scripting spec y las APIs de los MCPs. Ahora solo trunca los 10 built-ins que Claude ya conoce de entrenamiento. Ahorro: ~7K tokens/request, 100% seguro.
 ## [1.54.0] - 2026-06-01
 ### Added
 - **First-paragraph tool description compression** — basado en captures reales: 145 tools · 98,006 chars · ~28,000 tokens por request. Truncar al primer párrafo reduce a ~17,329 chars → **~23,050 tokens ahorrados por request**. Bash pasa de 10,441 a 53 chars. Workflow de 18,285 a 263 chars.

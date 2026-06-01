@@ -12,8 +12,10 @@ assistant_threshold = 300       # min chars before applying prose cleanup
 stale_turns = true               # collapse old assistant turns when conversation > threshold (default 40)
 # stale_turn_threshold = 40     # user turns before triggering stale summarization
 # stale_keep_recent = 15        # keep last N turns at full fidelity
-tool_desc_compress = true        # compress tool descriptions (saves ~23K tokens/request based on captures)
-tool_desc_first_para = true      # keep only first paragraph — cuts Bash 10K→53, Workflow 18K→263 chars
+tool_desc_compress = true        # compress tool descriptions (~7K tokens/request saved, safe-only mode)
+tool_desc_first_para = true      # keep only first paragraph (cuts Bash 10K->53 chars, etc.)
+tool_desc_safe_only = true       # only compress known built-ins: Bash/Read/Edit/Write/Glob/Grep/etc.
+                                 # set false to also compress Workflow/MCP tools (risky — they lose their spec)
 # tool_desc_max_chars = 0       # additional hard-truncate after first-para (0 = off)
 # skip_tools = ["Read"]         # never compress these tool types (Bash, Read, Grep, Glob...)
 # only_tools = ["Bash"]         # only compress these tool types — overrides skip_tools
