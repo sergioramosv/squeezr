@@ -1,5 +1,15 @@
 # Changelog
 All notable changes to Squeezr will be documented here.
+## [1.48.0] - 2026-06-01
+### Added
+- **Image dedup hash-based** (`src/imageDedup.ts`) — detecta `image` content blocks (base64 o URL) que aparezcan más de una vez en la conversación. Mantiene la última ocurrencia al full fidelity, reemplaza las anteriores con un `text` block `[squeezr: same image as message #N below — squeezr_expand(id) to retrieve original]`. El binario original se guarda via `storeOriginal()` para recovery via expand tool.
+- Vision tokens cuestan ~$15/MTok. Una captura repetida 10 veces en chat = 10-20K tokens tirados. Gran win para Claude Desktop (paste screenshot + 10 follow-ups) y Code (screenshots de errores).
+- 7 tests vitest cubriendo: dedup base64, no-op single occurrence, no-op non-image blocks, distinct base64 = distinct images, dedup por URL, 3+ ocurrencias mantiene última, ignora string-content.
+### Safety
+- Solo opera sobre `content` array de mensajes. NUNCA toca tools, system, headers, cache_control.
+- La última ocurrencia se mantiene SIEMPRE intacta (el modelo siempre ve la imagen actual).
+- Per-request scope, sin estado cross-session.
+- Static imports — sin `require()` dinámicos.
 ## [1.47.0] - 2026-06-01
 ### Added
 - **Request capture mode** (`src/requestCapture.ts`) — opt-in via `compression.capture_requests = true`. Cuando está activo, guarda los primeros N requests entrantes a `/v1/messages` en `~/.squeezr/captures/req-NNNN.json` con auth headers redactados (`<redacted>`). Sirve como corpus de testing para features siguientes sin tener que adivinar el shape de los payloads reales.

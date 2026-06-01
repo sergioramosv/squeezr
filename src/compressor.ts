@@ -3,6 +3,7 @@ import OpenAI from 'openai'
 import { CompressionCache } from './cache.js'
 import { preprocess, preprocessAssistant, preprocessForTool, hitPattern } from './deterministic.js'
 import { storeOriginal } from './expand.js'
+import { dedupImagesAnthropic } from './imageDedup.js'
 import { hashText, getBlock, setBlock, SessionBlock } from './sessionCache.js'
 import type { Config } from './config.js'
 import { effectiveThreshold, effectiveKeepRecent, aiEnabled, effectiveBackend } from './config.js'
@@ -393,9 +394,12 @@ export async function compressAnthropicMessages(
 
   if (allResults.length === 0) return [messages, emptySavings()]
 
-  // Clone once — all modifications go here
+// Clone once — all modifications go here
   const msgs = structuredClone(messages) as AnthropicMessage[]
-
+  // ── Image dedup (vision tokens are ~$15/MTok) ───────────────────────────────
+  // Hash each image content block; keep the last occurrence at full fidelity,
+  // replace earlier ones with a text placeholder + squeezr_expand id.
+  const imgDedup = dedupImagesAnthropic(msgs as Parameters<typeof dedupImagesAnthropic>[0])
   // ── Step 0: Cross-turn dedup (Read / Bash / Grep) ────────────────────────────
   // If the exact same tool output appears multiple times in the conversation,
   // keep the most recent occurrence at full fidelity and replace earlier ones
@@ -619,7 +623,7 @@ export async function compressAnthropicMessages(
     dryRun: false,
     sessionCacheHits: sessionHits.length,
     detSavedChars: detSaved,
-    dedupSavedChars: readDedupSaved,
+    dedupSavedChars: readDedupSaved + imgDedup.savedChars,
     aiSavedChars: totalAiSaved,
     overheadChars: totalOverhead,
     detMs,
