@@ -25,6 +25,7 @@ import {
 } from './expand.js'
 import { compressSystemPrompt } from './systemPrompt.js'
 import { captureRequest } from './requestCapture.js'
+import { dedupSkillBlocks } from './skillDedup.js'
 import { anthropicDirectFetch, isAnthropicUrl } from './anthropicDirectFetch.js'
 import { sessionCacheSize } from './sessionCache.js'
 import { detPatternHits } from './deterministic.js'
@@ -328,14 +329,19 @@ const clientId = detectAnthropicClient(c.req.header('user-agent') ?? '', c.req.h
   }
 
   // System prompt compression (handles both string and array formats — Claude Code sends array)
-  if (config.compressSystemPrompt && !config.dryRun) {
+if (config.compressSystemPrompt && !config.dryRun) {
     if (typeof body.system === 'string') {
-      const sp = await compressSystemPrompt(body.system, apiKey, 'haiku')
+      // Pre-pass: skill/plugin block dedup (free, zero risk — pure regex + MD5)
+      const dd = dedupSkillBlocks(body.system)
+      body.system = dd.text
+      const sp = await compressSystemPrompt(body.system as string, apiKey, 'haiku')
       body.system = sp.text
       stats.recordSystemPromptSaved(sp.originalLen, sp.compressedLen)
     } else if (Array.isArray(body.system)) {
       for (const block of body.system as Array<{ type?: string; text?: string }>) {
         if (block.type === 'text' && typeof block.text === 'string') {
+          const dd = dedupSkillBlocks(block.text)
+          block.text = dd.text
           const sp = await compressSystemPrompt(block.text, apiKey, 'haiku')
           block.text = sp.text
           stats.recordSystemPromptSaved(sp.originalLen, sp.compressedLen)

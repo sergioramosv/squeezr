@@ -1,5 +1,15 @@
 # Changelog
 All notable changes to Squeezr will be documented here.
+## [1.51.0] - 2026-06-01
+### Added
+- **Skill/plugin block dedup en sysprompt** (`src/skillDedup.ts`) — pre-pass al string del system prompt antes de la llamada Haiku. Detecta bloques duplicados byte-exact (≥4 líneas y ≥200 chars), mantiene la primera ocurrencia y reemplaza las posteriores con un placeholder `[squeezr: duplicate of block #N above — X chars elided]`.
+- Caso de uso: Claude Code plugins (issue claude-code#29971) registran skills duplicadas en el sysprompt — pueden ser 10-30K tokens repetidos por request.
+- 8 tests vitest cubriendo: dedup básico, no-op en prompts pequeños, no-op en single occurrence, threshold de chars y lines, separators preservados, 3+ ocurrencias, byte-exact matching.
+### Safety
+- Solo opera sobre el `text` string del sysprompt; NUNCA toca `cache_control` markers, structure, otros campos.
+- Hash MD5 byte-exact — una sola diferencia de char = no dedup.
+- Per-request scope, static imports.
+- Hook en `server.ts` antes de `compressSystemPrompt()` (Haiku call) — ahorra tokens al input de Haiku también.
 ## [1.50.0] - 2026-06-01
 ### Added
 - **Diff-based repeated Read** (`src/diffRead.ts`) — cuando el mismo `file_path` se lee varias veces en una sesión (típico flow read → edit → read again), mantiene el último Read intacto y reemplaza los anteriores con un diff unificado (Myers algorithm via npm `diff`) + recovery via `squeezr_expand`. Si el diff sería ≥60% del original, cae a referencia plana.
