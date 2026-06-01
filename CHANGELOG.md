@@ -1,5 +1,16 @@
 # Changelog
 All notable changes to Squeezr will be documented here.
+## [1.49.0] - 2026-06-01
+### Added
+- **Attachment / artifact dedup** (`src/attachmentDedup.ts`) — hash MD5 de text blocks ≥500 chars que aparezcan más de una vez en la conversación. Mantiene la última ocurrencia al full fidelity, reemplaza las anteriores con `[squeezr: same N-char block reappears in message #M below — squeezr_expand(id)]`. Recovery completo via expand tool.
+- Casos típicos: Desktop file attachments convertidos a texto (CSVs, PDFs, code), artifact blocks que Claude genera y reaparecen en historial.
+- 7 tests vitest cubriendo: dedup básico, último user intacto, último assistant intacto, threshold de tamaño, tool_use/tool_result intactos, single occurrence, placeholder no-empty.
+### Safety
+- Solo opera sobre text blocks dentro de mensajes user y assistant.
+- NUNCA toca tool_use / tool_result (IDs links no se rompen).
+- NUNCA toca el último user (live ask) ni el último assistant (live answer).
+- NUNCA produce empty content (Anthropic rechaza arrays vacíos).
+- Per-request scope, static imports.
 ## [1.48.0] - 2026-06-01
 ### Added
 - **Image dedup hash-based** (`src/imageDedup.ts`) — detecta `image` content blocks (base64 o URL) que aparezcan más de una vez en la conversación. Mantiene la última ocurrencia al full fidelity, reemplaza las anteriores con un `text` block `[squeezr: same image as message #N below — squeezr_expand(id) to retrieve original]`. El binario original se guarda via `storeOriginal()` para recovery via expand tool.
