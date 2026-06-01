@@ -1,5 +1,12 @@
 # Changelog
 All notable changes to Squeezr will be documented here.
+## [1.54.0] - 2026-06-01
+### Added
+- **First-paragraph tool description compression** — basado en captures reales: 145 tools · 98,006 chars · ~28,000 tokens por request. Truncar al primer párrafo reduce a ~17,329 chars → **~23,050 tokens ahorrados por request**. Bash pasa de 10,441 a 53 chars. Workflow de 18,285 a 263 chars.
+- Nuevo config: `tool_desc_first_para = true` (default true cuando `tool_desc_compress = true`). Solo aplica a descriptions >500 chars.
+- `tool_desc_compress = true` activado por defecto en squeezr.toml (antes era false — ahora tenemos datos que lo justifican).
+### Safety
+- NUNCA toca `input_schema` ni `name`. Solo `description`. Si el resultado es más largo que el original, se descarta.
 ## [1.53.1] - 2026-06-01
 ### Added
 - `squeezr restart` — para el proxy, espera 1.5s y lo vuelve a arrancar. Recarga `~/.squeezr/squeezr.toml` y cualquier cambio de config.

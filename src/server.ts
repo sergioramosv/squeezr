@@ -332,7 +332,7 @@ const clientId = detectAnthropicClient(c.req.header('user-agent') ?? '', c.req.h
 
 // Tool description compression
   if (config.toolDescCompress && Array.isArray(body.tools)) {
-    const td = compressToolDescriptions(body.tools as unknown[], config.toolDescMaxChars)
+    const td = compressToolDescriptions(body.tools as unknown[], config.toolDescMaxChars, config.toolDescFirstPara)
     if (td.savedChars > 0) {
       const tokens = Math.round(td.savedChars / 3.5)
       console.log(`[squeezr/tool-desc] ${td.compressedTools}/${td.totalTools} tool(s): -${td.savedChars.toLocaleString()} chars (~${tokens} tokens)`)

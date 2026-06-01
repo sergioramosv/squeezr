@@ -12,8 +12,9 @@ assistant_threshold = 300       # min chars before applying prose cleanup
 stale_turns = true               # collapse old assistant turns when conversation > threshold (default 40)
 # stale_turn_threshold = 40     # user turns before triggering stale summarization
 # stale_keep_recent = 15        # keep last N turns at full fidelity
-# tool_desc_compress = false    # normalize whitespace in tool descriptions (off until captures calibrate)
-# tool_desc_max_chars = 0       # hard-truncate tool descriptions to N chars (0 = normalize only)
+tool_desc_compress = true        # compress tool descriptions (saves ~23K tokens/request based on captures)
+tool_desc_first_para = true      # keep only first paragraph — cuts Bash 10K→53, Workflow 18K→263 chars
+# tool_desc_max_chars = 0       # additional hard-truncate after first-para (0 = off)
 # skip_tools = ["Read"]         # never compress these tool types (Bash, Read, Grep, Glob...)
 # only_tools = ["Bash"]         # only compress these tool types — overrides skip_tools
 # Per-command: add "# squeezr:skip" anywhere in a Bash command to skip that result:
