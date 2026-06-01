@@ -1,37 +1,33 @@
 /**
- * Tool description compression (v1.54.1)
+ * Tool description compression (v1.55.0)
  *
  * Compresses the `description` field of tool definitions in the `tools[]` array.
  * The `input_schema` and `name` fields are NEVER touched.
  *
  * Based on capture analysis (145 tools · 98,006 chars · ~28K tokens/request):
  *
- *  SAFE_ONLY mode (default, tool_desc_safe_only = true):
- *    Only truncates 10 well-known Claude Code built-ins that Claude already knows
- *    from training (Bash, Read, Edit, Write, Glob, Grep, WebFetch, WebSearch,
- *    NotebookEdit, PowerShell). Saves ~7,000 tokens/request with zero risk.
- *    MCP tools, Workflow, Agent, etc. keep their full descriptions.
+ *  EXPAND mode (tool_desc_expand = true, default):
+ *    Truncates ALL tool descriptions to the first paragraph, stores the full
+ *    spec in the expand store, and appends [squeezr_expand('ID') — full spec]
+ *    so Claude can fetch the complete spec just-in-time before using a complex
+ *    tool (Workflow, MCP, etc.). Saves ~23K tokens/request. Claude recovers the
+ *    spec with one expand call when needed.
  *
- *  ALL mode (tool_desc_safe_only = false, opt-in):
- *    Truncates every tool description > MIN_FIRST_PARA_LEN chars. Saves ~23K tokens
- *    but Claude loses Workflow scripting spec and MCP tool details — use with caution.
+ *  SAFE_ONLY mode (tool_desc_expand = false, tool_desc_safe_only = true):
+ *    Only truncates 10 well-known built-ins Claude knows from training.
+ *    Saves ~7K tokens/request. Zero risk — no expand needed.
  *
- * Three passes (in order):
- *  1. Whitespace normalization
- *  2. First-paragraph truncation (up to first blank line)
- *  3. Hard char cap via tool_desc_max_chars (default 0 = off)
- *
- * Safety constraints (hard rules):
+ * Safety constraints:
  *  - NEVER touches `input_schema` or `name`
- *  - Default: safe_only = true (whitelist only)
  *  - Result discarded if longer than original
+ *  - Expand IDs are deterministic (MD5) — safe for Anthropic prefix cache
  */
+
+import { storeOriginal } from './expand.js'
 
 const MIN_DESC_LEN = 200
 const MIN_FIRST_PARA_LEN = 500
 
-// Claude Code built-ins that Claude knows from training — safe to truncate.
-// Source: capture analysis 2026-06-01. Do NOT add MCP tools or Workflow here.
 const SAFE_BUILTIN_TOOLS = new Set([
   'Bash', 'Read', 'Edit', 'Write', 'Glob', 'Grep',
   'WebFetch', 'WebSearch', 'NotebookEdit', 'PowerShell',
@@ -59,6 +55,7 @@ export function compressToolDescriptions(
   maxChars: number,
   firstPara: boolean,
   safeOnly: boolean,
+  useExpand: boolean,
 ): ToolDescResult {
   if (!Array.isArray(tools)) return { savedChars: 0, compressedTools: 0, totalTools: 0 }
 
@@ -72,14 +69,24 @@ export function compressToolDescriptions(
     const orig = t.description as string
     if (orig.length < MIN_DESC_LEN) continue
 
-    // In safe-only mode, skip tools not in the whitelist
-    if (safeOnly && !SAFE_BUILTIN_TOOLS.has(String(t.name ?? ''))) continue
+    const toolName = String(t.name ?? '')
+
+    // In safe-only mode (no expand), skip non-whitelisted tools
+    if (!useExpand && safeOnly && !SAFE_BUILTIN_TOOLS.has(toolName)) continue
 
     let result = normalizeDesc(orig)
 
     if (firstPara && result.length > MIN_FIRST_PARA_LEN) {
       const para = firstParagraph(result)
-      if (para.length >= 20) result = para + '…'
+      if (para.length >= 20) {
+        if (useExpand) {
+          // Store full spec for on-demand retrieval — deterministic ID safe for prefix cache
+          const id = storeOriginal(orig)
+          result = `${para}…[squeezr_expand('${id}') — full spec]`
+        } else {
+          result = para + '…'
+        }
+      }
     }
 
     if (maxChars > 0 && result.length > maxChars) result = result.slice(0, maxChars) + '…'

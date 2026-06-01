@@ -1,5 +1,10 @@
 # Changelog
 All notable changes to Squeezr will be documented here.
+## [1.55.0] - 2026-06-01
+### Added
+- **Tool spec expand mode** (`tool_desc_expand = true`, default) — comprime TODAS las descriptions al primer párrafo (~23K tokens/request) y almacena el spec completo en el expand store. Claude ve `[squeezr_expand('ID') — full spec]` al final de cada description truncada y puede recuperar el spec completo con una sola llamada cuando lo necesita (ej: antes de escribir un workflow script o llamar a un MCP tool desconocido). IDs determinísticos (MD5) — compatibles con Anthropic prefix cache.
+- Modo alternativo sin expand: `tool_desc_expand = false` + `tool_desc_safe_only = true` — solo built-ins, 7K tokens/request, cero riesgo.
+- 3 tests nuevos: embed de hint, funciona con todos los tools (ignora whitelist cuando expand=true), determinismo de IDs.
 ## [1.54.1] - 2026-06-01
 ### Fixed
 - **Whitelist para tool desc compression** (`tool_desc_safe_only = true`). v1.54.0 truncaba todas las descriptions incluyendo Workflow (18K) y MCP tools — Claude perdía el scripting spec y las APIs de los MCPs. Ahora solo trunca los 10 built-ins que Claude ya conoce de entrenamiento. Ahorro: ~7K tokens/request, 100% seguro.

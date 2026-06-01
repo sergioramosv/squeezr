@@ -12,11 +12,12 @@ assistant_threshold = 300       # min chars before applying prose cleanup
 stale_turns = true               # collapse old assistant turns when conversation > threshold (default 40)
 # stale_turn_threshold = 40     # user turns before triggering stale summarization
 # stale_keep_recent = 15        # keep last N turns at full fidelity
-tool_desc_compress = true        # compress tool descriptions (~7K tokens/request saved, safe-only mode)
-tool_desc_first_para = true      # keep only first paragraph (cuts Bash 10K->53 chars, etc.)
-tool_desc_safe_only = true       # only compress known built-ins: Bash/Read/Edit/Write/Glob/Grep/etc.
-                                 # set false to also compress Workflow/MCP tools (risky — they lose their spec)
-# tool_desc_max_chars = 0       # additional hard-truncate after first-para (0 = off)
+tool_desc_compress = true        # compress ALL tool descriptions (~23K tokens/request saved)
+tool_desc_first_para = true      # keep only first paragraph (Bash 10K->53, Workflow 18K->263, etc.)
+tool_desc_expand = true          # store full spec in expand store — Claude llama squeezr_expand('ID')
+                                 # para recuperar el spec completo si lo necesita (ej: antes de escribir workflow)
+# tool_desc_safe_only = true    # modo alternativo: solo built-ins sin expand (7K tokens saved, 0 riesgo)
+# tool_desc_max_chars = 0       # hard-truncate adicional tras first-para (0 = off)
 # skip_tools = ["Read"]         # never compress these tool types (Bash, Read, Grep, Glob...)
 # only_tools = ["Bash"]         # only compress these tool types — overrides skip_tools
 # Per-command: add "# squeezr:skip" anywhere in a Bash command to skip that result:
