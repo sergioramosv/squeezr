@@ -1,5 +1,15 @@
 # Changelog
 All notable changes to Squeezr will be documented here.
+## [1.50.0] - 2026-06-01
+### Added
+- **Diff-based repeated Read** (`src/diffRead.ts`) — cuando el mismo `file_path` se lee varias veces en una sesión (típico flow read → edit → read again), mantiene el último Read intacto y reemplaza los anteriores con un diff unificado (Myers algorithm via npm `diff`) + recovery via `squeezr_expand`. Si el diff sería ≥60% del original, cae a referencia plana.
+- 6 tests vitest: dedup básico con diff pequeño, single read intacto, tool_use IDs preservados, identical content skipped (cross-turn dedup lo coge), distinct paths separados, fallback a reference cuando diff es grande.
+- Nueva dependencia: `diff` (Myers, ~5KB) + `@types/diff` (devDep).
+### Safety
+- Solo modifica el `content` del `tool_result` block; jamás toca el `tool_use` block ni el `tool_use_id` link.
+- Skipea Reads de tamaño < 500 chars.
+- Recovery completo via expand tool (original guardado con `storeOriginal`).
+- Static imports.
 ## [1.49.0] - 2026-06-01
 ### Added
 - **Attachment / artifact dedup** (`src/attachmentDedup.ts`) — hash MD5 de text blocks ≥500 chars que aparezcan más de una vez en la conversación. Mantiene la última ocurrencia al full fidelity, reemplaza las anteriores con `[squeezr: same N-char block reappears in message #M below — squeezr_expand(id)]`. Recovery completo via expand tool.

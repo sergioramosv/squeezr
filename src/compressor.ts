@@ -5,6 +5,7 @@ import { preprocess, preprocessAssistant, preprocessForTool, hitPattern } from '
 import { storeOriginal } from './expand.js'
 import { dedupImagesAnthropic } from './imageDedup.js'
 import { dedupAttachments } from './attachmentDedup.js'
+import { compressRepeatedReads } from './diffRead.js'
 import { hashText, getBlock, setBlock, SessionBlock } from './sessionCache.js'
 import type { Config } from './config.js'
 import { effectiveThreshold, effectiveKeepRecent, aiEnabled, effectiveBackend } from './config.js'
@@ -404,7 +405,12 @@ const imgDedup = dedupImagesAnthropic(msgs as Parameters<typeof dedupImagesAnthr
   // ── Attachment / artifact dedup (large repeated text blocks) ────────────────
   // Hash text blocks ≥500 chars; keep latest, replace earlier with placeholder
   // + squeezr_expand id. Skips last user/assistant (live turns).
-  const attDedup = dedupAttachments(msgs as Parameters<typeof dedupAttachments>[0])
+const attDedup = dedupAttachments(msgs as Parameters<typeof dedupAttachments>[0])
+  // ── Diff-based repeated Read ────────────────────────────────────────────────
+  // When same file is Read multiple times in a session, keep the latest at full
+  // fidelity and express earlier reads as a unified diff vs the latest. Falls
+  // back to a reference placeholder if the diff would be too big.
+  const diffReads = compressRepeatedReads(msgs as Parameters<typeof compressRepeatedReads>[0])
   // ── Step 0: Cross-turn dedup (Read / Bash / Grep) ────────────────────────────
   // If the exact same tool output appears multiple times in the conversation,
   // keep the most recent occurrence at full fidelity and replace earlier ones
@@ -628,7 +634,7 @@ const imgDedup = dedupImagesAnthropic(msgs as Parameters<typeof dedupImagesAnthr
     dryRun: false,
     sessionCacheHits: sessionHits.length,
     detSavedChars: detSaved,
-    dedupSavedChars: readDedupSaved + imgDedup.savedChars + attDedup.savedChars,
+    dedupSavedChars: readDedupSaved + imgDedup.savedChars + attDedup.savedChars + diffReads.savedChars,
     aiSavedChars: totalAiSaved,
     overheadChars: totalOverhead,
     detMs,
