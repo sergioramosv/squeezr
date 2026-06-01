@@ -1,5 +1,19 @@
 # Changelog
 All notable changes to Squeezr will be documented here.
+## [1.47.0] - 2026-06-01
+### Added
+- **Request capture mode** (`src/requestCapture.ts`) — opt-in via `compression.capture_requests = true`. Cuando está activo, guarda los primeros N requests entrantes a `/v1/messages` en `~/.squeezr/captures/req-NNNN.json` con auth headers redactados (`<redacted>`). Sirve como corpus de testing para features siguientes sin tener que adivinar el shape de los payloads reales.
+- Config: `capture_requests` (default `false`), `capture_limit` (default `20`).
+- Safety: si la escritura falla por cualquier razón, log + swallow — NUNCA bloquea la request del usuario.
+- 3 tests vitest: redacción case-insensitive, no-op cuando desactivado, naming sequential.
+### How to use
+```toml
+# ~/.squeezr/squeezr.toml
+[compression]
+capture_requests = true
+capture_limit = 10
+```
+Reinicia squeezr, manda 10 mensajes a Claude Code, mira `~/.squeezr/captures/`. Cada archivo es un JSON con el request body original + metadata.
 ## [1.46.3] - 2026-05-28
 ### Added
 - **Dashboard favicon** — la pestaña del navegador ahora muestra el logo de Squeezr (mismo SVG que el header). Se sirve en `/squeezr/favicon.svg` con `Cache-Control: public, max-age=86400`. El path del logo se extrajo a `LOGO_PATH_D` para compartir source-of-truth entre header y favicon (antes estaba duplicado dentro del template HTML).

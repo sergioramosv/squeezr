@@ -24,6 +24,7 @@ import {
   expandStoreSize,
 } from './expand.js'
 import { compressSystemPrompt } from './systemPrompt.js'
+import { captureRequest } from './requestCapture.js'
 import { anthropicDirectFetch, isAnthropicUrl } from './anthropicDirectFetch.js'
 import { sessionCacheSize } from './sessionCache.js'
 import { detPatternHits } from './deterministic.js'
@@ -249,9 +250,22 @@ app.post('/v1/messages', async (c) => {
     ?? process.env.ANTHROPIC_API_KEY
     ?? ''
 
-  const clientId = detectAnthropicClient(c.req.header('user-agent') ?? '', c.req.header('x-squeezr-client'))
+const clientId = detectAnthropicClient(c.req.header('user-agent') ?? '', c.req.header('x-squeezr-client'))
   const modelId  = String(body.model ?? 'unknown')
-
+  // Request capture (opt-in via compression.capture_requests = true).
+  // Saves anonymized payloads to ~/.squeezr/captures/ for offline analysis.
+  // Auth headers are redacted; first N requests only (bounded disk use).
+  if (config.captureRequests) {
+    const allHeaders: Record<string, string> = {}
+    c.req.raw.headers.forEach((value, key) => { allHeaders[key] = value })
+    captureRequest(body, {
+      client: clientId,
+      model: modelId,
+      method: 'POST',
+      path: '/v1/messages',
+      headers: allHeaders,
+    }, { enabled: true, limit: config.captureLimit })
+  }
   // Extract project name BEFORE compressing system prompt (compression destroys <cwd> tags)
   const project = extractProjectName(body)
 

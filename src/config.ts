@@ -27,6 +27,8 @@ interface TomlConfig {
     skip_tools?: string[]
     only_tools?: string[]
     ai_skip_tools?: string[]
+    capture_requests?: boolean  // capture incoming /v1/messages payloads (anonymized) to ~/.squeezr/captures/
+    capture_limit?: number  // max number of captures to keep before stopping (default 20)
   }
   cache?: { enabled?: boolean; max_entries?: number }
   adaptive?: {
@@ -117,6 +119,8 @@ export class Config {
   readonly disabled: boolean
   readonly compressSystemPrompt: boolean
   readonly compressConversation: boolean
+  readonly captureRequests: boolean
+  readonly captureLimit: number
   readonly keepRecentAssistant: number
   readonly assistantThreshold: number
   readonly anthropicNativeCompact: boolean
@@ -150,8 +154,10 @@ export class Config {
     this.threshold = parseInt(env('SQUEEZR_THRESHOLD', String(c.threshold ?? 800)))
     this.keepRecent = parseInt(env('SQUEEZR_KEEP_RECENT', String(c.keep_recent ?? 3)))
     this.disabled = env('SQUEEZR_DISABLED', String(c.disabled ?? false)) === '1' || env('SQUEEZR_DISABLED', '') === 'true'
-    this.compressSystemPrompt = c.compress_system_prompt ?? true
+this.compressSystemPrompt = c.compress_system_prompt ?? true
     this.compressConversation = c.compress_conversation ?? true  // safe by default — only deterministic on assistant msgs
+    this.captureRequests = c.capture_requests ?? false  // opt-in only — writes anonymized payloads to ~/.squeezr/captures/
+    this.captureLimit = c.capture_limit ?? 20
     this.keepRecentAssistant = c.keep_recent_assistant ?? 3
     this.assistantThreshold = c.assistant_threshold ?? 300
     this.anthropicNativeCompact = c.anthropic_native_compact ?? false  // opt-in beta
