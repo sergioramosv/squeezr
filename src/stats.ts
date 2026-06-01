@@ -64,12 +64,15 @@ export class Stats {
   private sessionStart = Date.now()
   private lastOriginalChars = 0
   private lastCompressedChars = 0
-  // Breakdown counters for honest reporting
+// Breakdown counters for honest reporting
   private totalDetSaved = 0
   private totalDedupSaved = 0
   private totalAiSaved = 0
   private totalOverheadChars = 0
   private totalSyspromptSaved = 0
+  private totalToolDescSaved = 0
+  private totalStaleTurnsSaved = 0
+  private totalSkillDedupSaved = 0
   private totalAiCompressionCalls = 0
 
   // Latency tracking (rolling percentile windows)
@@ -92,10 +95,14 @@ export class Stats {
     this.lastCompressedChars = compressedChars
 
     // Accumulate breakdown
-    this.totalDetSaved += savings.detSavedChars ?? 0
+this.totalDetSaved += savings.detSavedChars ?? 0
     this.totalDedupSaved += savings.dedupSavedChars ?? 0
     this.totalAiSaved += savings.aiSavedChars ?? 0
     this.totalOverheadChars += savings.overheadChars ?? 0
+    this.totalToolDescSaved += savings.toolDescSavedChars ?? 0
+    this.totalStaleTurnsSaved += savings.staleTurnsSavedChars ?? 0
+    this.totalSkillDedupSaved += savings.skillDedupSavedChars ?? 0
+    this.totalSyspromptSaved += savings.syspromptSavedChars ?? 0
     this.totalAiCompressionCalls += savings.compressed
 
     // Latency tracking
@@ -121,6 +128,7 @@ export class Stats {
     this.persist(originalChars, compressedChars, savings)
   }
 
+  /** @deprecated Pass savings.syspromptSavedChars instead */
   recordSystemPromptSaved(originalLen: number, compressedLen: number): void {
     if (compressedLen < originalLen) {
       this.totalSyspromptSaved += originalLen - compressedLen
@@ -198,10 +206,13 @@ export class Stats {
       last_original_chars: this.lastOriginalChars,
       last_compressed_chars: this.lastCompressedChars,
       // Savings breakdown for honest dashboard reporting
-      breakdown: {
-        deterministic: this.totalDetSaved,
-        ai_compression: this.totalAiSaved,
+breakdown: {
+        tool_results_det: this.totalDetSaved,
+        tool_results_ai: this.totalAiSaved,
         read_dedup: this.totalDedupSaved,
+        tool_desc: this.totalToolDescSaved,
+        stale_turns: this.totalStaleTurnsSaved,
+        skill_dedup: this.totalSkillDedupSaved,
         system_prompt: this.totalSyspromptSaved,
         overhead: this.totalOverheadChars,
         ai_calls: this.totalAiCompressionCalls,
@@ -275,6 +286,10 @@ export class Stats {
       existing.dedup_saved_chars = (existing.dedup_saved_chars ?? 0) + (savings.dedupSavedChars ?? 0)
       existing.ai_saved_chars = (existing.ai_saved_chars ?? 0) + (savings.aiSavedChars ?? 0)
       existing.overhead_chars = (existing.overhead_chars ?? 0) + (savings.overheadChars ?? 0)
+      existing.tool_desc_saved_chars = (existing.tool_desc_saved_chars ?? 0) + (savings.toolDescSavedChars ?? 0)
+      existing.stale_turns_saved_chars = (existing.stale_turns_saved_chars ?? 0) + (savings.staleTurnsSavedChars ?? 0)
+      existing.skill_dedup_saved_chars = (existing.skill_dedup_saved_chars ?? 0) + (savings.skillDedupSavedChars ?? 0)
+      existing.sysprompt_saved_chars = (existing.sysprompt_saved_chars ?? 0) + (savings.syspromptSavedChars ?? 0)
       existing.ai_compression_calls = (existing.ai_compression_calls ?? 0) + savings.compressed
       existing.sysprompt_saved_chars = (existing.sysprompt_saved_chars ?? 0) + (this.totalSyspromptSaved > 0 ? this.totalSyspromptSaved : 0)
       // Reset sysprompt counter after persisting to avoid double-counting

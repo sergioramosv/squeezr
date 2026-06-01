@@ -160,6 +160,16 @@ function detectUpstream(headers: Headers): string {
 function estimateChars(data: unknown): number {
   return JSON.stringify(data).length
 }
+function estimateSystemChars(system: unknown): number {
+  if (typeof system === 'string') return system.length
+  if (Array.isArray(system)) return JSON.stringify(system).length
+  return 0
+}
+function estimateFullRequestChars(body: Record<string, unknown>): number {
+  return estimateChars(body.messages ?? [])
+    + estimateChars(body.tools ?? [])
+    + estimateSystemChars(body.system)
+}
 
 // Outgoing fetch — uses Node's native fetch for everything EXCEPT
 // api.anthropic.com, which is forced through direct DNS so that the system
@@ -273,7 +283,9 @@ const clientId = detectAnthropicClient(c.req.header('user-agent') ?? '', c.req.h
   const project = extractProjectName(body)
 
   const messages = (body.messages ?? []) as unknown[]
-  const originalChars = estimateChars(messages)
+  // Measure FULL request (messages + tools + system) before ANY compression
+  const originalRequestChars = estimateFullRequestChars(body)
+  const originalChars = estimateChars(messages)  // kept for compressAnthropicMessages pressure calc
 
   // Dry-run mode: exercises the compression pipeline but does NOT forward to
   // upstream. Used by the post-start self-test to verify the request path is
@@ -330,31 +342,40 @@ const clientId = detectAnthropicClient(c.req.header('user-agent') ?? '', c.req.h
     return c.json(respBody, resp.status as any, respHeaders)
   }
 
-// Tool description compression
+// Track savings from each pre-pass for accurate stats reporting
+  let toolDescSaved = 0
+  let skillDedupSaved = 0
+  let syspromptSaved = 0
+  let staleTurnsSaved = 0
+
+  // Tool description compression
   if (config.toolDescCompress && Array.isArray(body.tools)) {
     const td = compressToolDescriptions(body.tools as unknown[], config.toolDescMaxChars, config.toolDescFirstPara, config.toolDescSafeOnly, config.toolDescExpand)
+    toolDescSaved = td.savedChars
     if (td.savedChars > 0) {
       const tokens = Math.round(td.savedChars / 3.5)
       console.log(`[squeezr/tool-desc] ${td.compressedTools}/${td.totalTools} tool(s): -${td.savedChars.toLocaleString()} chars (~${tokens} tokens)`)
     }
   }
+
   // System prompt compression (handles both string and array formats — Claude Code sends array)
-if (config.compressSystemPrompt && !config.dryRun) {
+  if (config.compressSystemPrompt && !config.dryRun) {
     if (typeof body.system === 'string') {
-      // Pre-pass: skill/plugin block dedup (free, zero risk — pure regex + MD5)
       const dd = dedupSkillBlocks(body.system)
+      skillDedupSaved += dd.savedChars
       body.system = dd.text
       const sp = await compressSystemPrompt(body.system as string, apiKey, 'haiku')
+      syspromptSaved += sp.originalLen - sp.compressedLen
       body.system = sp.text
-      stats.recordSystemPromptSaved(sp.originalLen, sp.compressedLen)
     } else if (Array.isArray(body.system)) {
       for (const block of body.system as Array<{ type?: string; text?: string }>) {
         if (block.type === 'text' && typeof block.text === 'string') {
           const dd = dedupSkillBlocks(block.text)
+          skillDedupSaved += dd.savedChars
           block.text = dd.text
           const sp = await compressSystemPrompt(block.text, apiKey, 'haiku')
+          syspromptSaved += sp.originalLen - sp.compressedLen
           block.text = sp.text
-          stats.recordSystemPromptSaved(sp.originalLen, sp.compressedLen)
         }
       }
     }
@@ -366,18 +387,20 @@ if (config.compressSystemPrompt && !config.dryRun) {
       ? (body.system as Array<{ text?: string }>).reduce((s, b) => s + (b.text?.length ?? 0), 0)
       : 0
 
-// Stale turn summarization
+  // Stale turn summarization
   if (config.staleTurns) {
     const stale = collapseStaleTurns(
       messages as Array<{ role: string; content: string | Array<{ type?: string; text?: string }> }>,
       config.staleTurnThreshold,
       config.staleTurnKeepRecent,
     )
+    staleTurnsSaved = stale.savedChars
     if (stale.savedChars > 0) {
       const tokens = Math.round(stale.savedChars / 3.5)
       console.log(`[squeezr/stale-turns] ${stale.collapsedBlocks} block(s) in ${stale.staleCount} old turn(s): -${stale.savedChars.toLocaleString()} chars (~${tokens} tokens)`)
     }
   }
+
   const compT0 = Date.now()
   const [compressedMsgs, savings] = await compressAnthropicMessages(messages as Parameters<typeof compressAnthropicMessages>[0], apiKey, config, systemExtraChars)
   const compLatency: LatencyInfo = { totalMs: Date.now() - compT0, detMs: savings.detMs, aiMs: savings.aiMs }
@@ -385,10 +408,20 @@ if (config.compressSystemPrompt && !config.dryRun) {
 
   // Inject expand tool
   injectExpandToolAnthropic(body)
-  const _claudeCompChars = estimateChars(compressedMsgs)
-  stats.recordWithProject(project, originalChars, _claudeCompChars, savings, compLatency, clientId, modelId)
-  // Record TOTAL saved (originalChars - compressedChars), not just AI savings
-  recordRequest(project, Math.max(0, originalChars - _claudeCompChars), savings.compressed, savings.byTool, originalChars)
+
+  // Full request size after ALL compressions (messages + tools + system)
+  const compressedRequestChars = estimateChars(compressedMsgs)
+    + estimateChars(body.tools ?? [])
+    + estimateSystemChars(body.system)
+
+  // Attach per-feature savings to the savings object for accurate breakdown reporting
+  savings.toolDescSavedChars = toolDescSaved
+  savings.staleTurnsSavedChars = staleTurnsSaved
+  savings.skillDedupSavedChars = skillDedupSaved
+  savings.syspromptSavedChars = syspromptSaved
+
+  stats.recordWithProject(project, originalRequestChars, compressedRequestChars, savings, compLatency, clientId, modelId)
+  recordRequest(project, Math.max(0, originalRequestChars - compressedRequestChars), savings.compressed, savings.byTool, originalRequestChars)
 
   storeKey('anthropic', apiKey)
   const fwdHeaders = forwardHeaders(c.req.raw.headers)
@@ -764,12 +797,15 @@ async function buildStatsPayload() {
   // Breakdown: prefer persisted all-time values over session-only counters so
   // deterministic/dedup/sysprompt numbers stay consistent with the hero cards.
   const allTimeBreakdown = {
-    deterministic: (persisted.det_saved_chars as number) ?? (session.breakdown?.deterministic ?? 0),
-    ai_compression: (persisted.ai_saved_chars as number) ?? (session.breakdown?.ai_compression ?? 0),
-    read_dedup:    (persisted.dedup_saved_chars as number) ?? (session.breakdown?.read_dedup ?? 0),
-    system_prompt: (persisted.sysprompt_saved_chars as number) ?? (session.breakdown?.system_prompt ?? 0),
-    overhead:      (persisted.overhead_chars as number) ?? (session.breakdown?.overhead ?? 0),
-    ai_calls:      (persisted.ai_compression_calls as number) ?? (session.breakdown?.ai_calls ?? 0),
+    tool_results_det: (persisted.det_saved_chars as number) ?? (session.breakdown?.tool_results_det ?? 0),
+    tool_results_ai:  (persisted.ai_saved_chars as number) ?? (session.breakdown?.tool_results_ai ?? 0),
+    read_dedup:       (persisted.dedup_saved_chars as number) ?? (session.breakdown?.read_dedup ?? 0),
+    tool_desc:        (persisted.tool_desc_saved_chars as number) ?? (session.breakdown?.tool_desc ?? 0),
+    stale_turns:      (persisted.stale_turns_saved_chars as number) ?? (session.breakdown?.stale_turns ?? 0),
+    skill_dedup:      (persisted.skill_dedup_saved_chars as number) ?? (session.breakdown?.skill_dedup ?? 0),
+    system_prompt:    (persisted.sysprompt_saved_chars as number) ?? (session.breakdown?.system_prompt ?? 0),
+    overhead:         (persisted.overhead_chars as number) ?? (session.breakdown?.overhead ?? 0),
+    ai_calls:         (persisted.ai_compression_calls as number) ?? (session.breakdown?.ai_calls ?? 0),
   }
 
   return {

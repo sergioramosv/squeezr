@@ -19,13 +19,17 @@ export interface Savings {
   dryRun: boolean
   sessionCacheHits: number
   // Honest breakdown for accurate gain reporting
-  detSavedChars?: number     // deterministic preprocessing savings
-  dedupSavedChars?: number   // read-dedup savings
-  aiSavedChars?: number      // AI compression savings (net, after tag overhead)
-  overheadChars?: number     // chars added by [squeezr:XXXX] tags
+  detSavedChars?: number       // deterministic preprocessing savings (tool results)
+  dedupSavedChars?: number     // read-dedup savings
+  aiSavedChars?: number        // AI compression savings (net, after tag overhead)
+  overheadChars?: number       // chars added by [squeezr:XXXX] tags
+  toolDescSavedChars?: number  // tool description compression savings
+  staleTurnsSavedChars?: number // stale turn summarization savings
+  skillDedupSavedChars?: number // skill/plugin block dedup savings (system prompt pre-pass)
+  syspromptSavedChars?: number // system prompt Haiku compression savings
   // Latency tracking (ms)
-  detMs?: number             // deterministic preprocessing time
-  aiMs?: number              // AI compression time
+  detMs?: number               // deterministic preprocessing time
+  aiMs?: number                // AI compression time
 }
 
 const COMPRESS_PROMPT =

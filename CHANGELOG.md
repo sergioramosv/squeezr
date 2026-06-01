@@ -1,5 +1,10 @@
 # Changelog
 All notable changes to Squeezr will be documented here.
+## [1.55.1] - 2026-06-01
+### Fixed
+- **Stats ahora miden el request completo** — `originalChars` antes medía solo `messages[]` (71% del request real). Los otros 29% (`tools[]` 25% + `system` 4%) eran completamente invisibles. El dashboard mostraba ~9% savings cuando la realidad era ~18-20%. Ahora `originalRequestChars` = messages + tools + system, mismo para `compressedRequestChars`.
+- **Breakdown completo** — añadidos contadores para `tool_desc`, `stale_turns`, `skill_dedup`, `system_prompt` en el breakdown del dashboard. Antes `skill_dedup` y `tool_desc` eran 0 siempre.
+- `savings.toolDescSavedChars`, `staleTurnsSavedChars`, `skillDedupSavedChars`, `syspromptSavedChars` propagados desde server.ts al stats object. Stats persiste los 4 nuevos campos en `stats.json`.
 ## [1.55.0] - 2026-06-01
 ### Added
 - **Tool spec expand mode** (`tool_desc_expand = true`, default) — comprime TODAS las descriptions al primer párrafo (~23K tokens/request) y almacena el spec completo en el expand store. Claude ve `[squeezr_expand('ID') — full spec]` al final de cada description truncada y puede recuperar el spec completo con una sola llamada cuando lo necesita (ej: antes de escribir un workflow script o llamar a un MCP tool desconocido). IDs determinísticos (MD5) — compatibles con Anthropic prefix cache.
