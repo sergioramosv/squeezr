@@ -26,6 +26,8 @@ import {
 import { compressSystemPrompt } from './systemPrompt.js'
 import { captureRequest } from './requestCapture.js'
 import { dedupSkillBlocks } from './skillDedup.js'
+import { collapseStaleTurns } from './staleTurns.js'
+import { compressToolDescriptions } from './toolDescComp.js'
 import { anthropicDirectFetch, isAnthropicUrl } from './anthropicDirectFetch.js'
 import { sessionCacheSize } from './sessionCache.js'
 import { detPatternHits } from './deterministic.js'
@@ -328,6 +330,14 @@ const clientId = detectAnthropicClient(c.req.header('user-agent') ?? '', c.req.h
     return c.json(respBody, resp.status as any, respHeaders)
   }
 
+// Tool description compression
+  if (config.toolDescCompress && Array.isArray(body.tools)) {
+    const td = compressToolDescriptions(body.tools as unknown[], config.toolDescMaxChars)
+    if (td.savedChars > 0) {
+      const tokens = Math.round(td.savedChars / 3.5)
+      console.log(`[squeezr/tool-desc] ${td.compressedTools}/${td.totalTools} tool(s): -${td.savedChars.toLocaleString()} chars (~${tokens} tokens)`)
+    }
+  }
   // System prompt compression (handles both string and array formats — Claude Code sends array)
 if (config.compressSystemPrompt && !config.dryRun) {
     if (typeof body.system === 'string') {
@@ -356,6 +366,18 @@ if (config.compressSystemPrompt && !config.dryRun) {
       ? (body.system as Array<{ text?: string }>).reduce((s, b) => s + (b.text?.length ?? 0), 0)
       : 0
 
+// Stale turn summarization
+  if (config.staleTurns) {
+    const stale = collapseStaleTurns(
+      messages as Array<{ role: string; content: string | Array<{ type?: string; text?: string }> }>,
+      config.staleTurnThreshold,
+      config.staleTurnKeepRecent,
+    )
+    if (stale.savedChars > 0) {
+      const tokens = Math.round(stale.savedChars / 3.5)
+      console.log(`[squeezr/stale-turns] ${stale.collapsedBlocks} block(s) in ${stale.staleCount} old turn(s): -${stale.savedChars.toLocaleString()} chars (~${tokens} tokens)`)
+    }
+  }
   const compT0 = Date.now()
   const [compressedMsgs, savings] = await compressAnthropicMessages(messages as Parameters<typeof compressAnthropicMessages>[0], apiKey, config, systemExtraChars)
   const compLatency: LatencyInfo = { totalMs: Date.now() - compT0, detMs: savings.detMs, aiMs: savings.aiMs }

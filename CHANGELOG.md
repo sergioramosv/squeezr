@@ -1,5 +1,18 @@
 # Changelog
 All notable changes to Squeezr will be documented here.
+## [1.53.1] - 2026-06-01
+### Added
+- `squeezr restart` — para el proxy, espera 1.5s y lo vuelve a arrancar. Recarga `~/.squeezr/squeezr.toml` y cualquier cambio de config.
+## [1.53.0] - 2026-06-01
+### Added
+- **Tool description compression** (`src/toolDescComp.ts`) — normaliza whitespace en `description` de `tools[]` (trailing spaces, 3+ newlines→2). Truncación opt-in via `tool_desc_max_chars`. Default OFF. 12 tests.
+### Safety
+- NUNCA toca `input_schema` ni `name`. Solo el campo `description`.
+## [1.52.0] - 2026-06-01
+### Added
+- **Stale turn summarization** (`src/staleTurns.ts`) — colapsa bloques `text` de assistant en turnos >40, manteniendo los últimos 15 turnos intactos. Extrae keywords (file paths, errores, funciones). 13 tests.
+### Safety
+- NUNCA toca `tool_use`, `tool_result`, ni mensajes user. Determinístico, sin AI call.
 ## [1.51.0] - 2026-06-01
 ### Added
 - **Skill/plugin block dedup en sysprompt** (`src/skillDedup.ts`) — pre-pass al string del system prompt antes de la llamada Haiku. Detecta bloques duplicados byte-exact (≥4 líneas y ≥200 chars), mantiene la primera ocurrencia y reemplaza las posteriores con un placeholder `[squeezr: duplicate of block #N above — X chars elided]`.
