@@ -18,6 +18,7 @@ interface TomlConfig {
     threshold?: number
     keep_recent?: number
     disabled?: boolean
+    ai_compression?: boolean  // master switch for ALL AI compression calls (Haiku/GPT/Gemini). Default FALSE — opt-in only.
     compress_system_prompt?: boolean
     compress_conversation?: boolean
     keep_recent_assistant?: number
@@ -127,6 +128,7 @@ export class Config {
   readonly threshold: number
   readonly keepRecent: number
   readonly disabled: boolean
+  readonly aiCompression: boolean
   readonly compressSystemPrompt: boolean
   readonly compressConversation: boolean
   readonly captureRequests: boolean
@@ -174,7 +176,13 @@ readonly toolDescCompress: boolean
     this.threshold = parseInt(env('SQUEEZR_THRESHOLD', String(c.threshold ?? 800)))
     this.keepRecent = parseInt(env('SQUEEZR_KEEP_RECENT', String(c.keep_recent ?? 3)))
     this.disabled = env('SQUEEZR_DISABLED', String(c.disabled ?? false)) === '1' || env('SQUEEZR_DISABLED', '') === 'true'
-this.compressSystemPrompt = c.compress_system_prompt ?? true
+    // AI compression master switch — DEFAULT FALSE. When the user authenticates
+    // with a Claude Code OAuth token (subscription), every Haiku compression call
+    // bills against their OWN 5h plan quota — it can burn the plan faster than it
+    // saves. Opt-in only: set compression.ai_compression = true to enable.
+    this.aiCompression = c.ai_compression ?? false
+    // compress_system_prompt also makes a Haiku call — gate it behind aiCompression too.
+    this.compressSystemPrompt = (c.compress_system_prompt ?? true) && this.aiCompression
     this.compressConversation = c.compress_conversation ?? true  // safe by default — only deterministic on assistant msgs
     this.captureRequests = c.capture_requests ?? false
     this.captureLimit = c.capture_limit ?? 20
@@ -276,7 +284,9 @@ export function effectiveKeepRecent(config: Config): number {
   return runtimeOverrides.keepRecent ?? config.keepRecent
 }
 
-/** Whether AI compression is enabled right now */
+/** Whether the runtime mode override allows AI compression.
+ * NOTE: this is only the mode gate. The master switch is `config.aiCompression`
+ * (default false), checked alongside this in the compressor. */
 export function aiEnabled(): boolean {
   return runtimeOverrides.aiEnabled ?? true
 }

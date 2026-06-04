@@ -1,5 +1,11 @@
 # Changelog
 All notable changes to Squeezr will be documented here.
+## [1.59.0] - 2026-06-04
+### Changed — IMPORTANTE (coste)
+- **Compresión AI APAGADA por defecto** (`ai_compression = false`). Causa: cuando Claude Code se autentica con un token OAuth de suscripción, CADA llamada de compresión a Haiku se cobra contra el MISMO límite de 5h del plan del usuario. Con MAX_AI_BLOCKS_PER_REQUEST=5, una sesión activa multiplica el consumo y puede quemar el plan más rápido de lo que ahorra (caso real: 53% del límite de 5h gastado en ~10 min). Antes de v1.56.1 esto nunca se notó porque la compresión AI era código muerto; al arreglarla (v1.56.1) + arreglar el 401 OAuth (v1.57.1), empezó a ejecutarse de verdad y a facturar.
+- Nuevo flag `compression.ai_compression` (master switch). Solo activarlo con un API key facturado aparte (backend `gpt-mini`/`gemini-flash`) o modelo `local` — NUNCA con el token de suscripción.
+- `compress_system_prompt` ahora también queda gateado por `ai_compression` (hacía una llamada Haiku extra).
+- El resto de la compresión sigue activa y es GRATIS: determinística (regex/dedup), diff-read, stale-turns, tool-desc, MCP filter, skill-dedup. Ninguna llama a un modelo.
 ## [1.58.0] - 2026-06-04
 ### Added
 - **Coste de compresión en By Model** — bajo el desglose de ahorro por modelo, una sección "Compression cost" lista cada backend de compresión (Haiku, GPT-mini, Gemini, o local) con sus llamadas, tokens gastados (in/out) y coste en $. Los modelos locales se marcan "(local · free)".

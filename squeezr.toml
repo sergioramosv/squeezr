@@ -5,7 +5,12 @@ port = 8080
 threshold = 800          # min chars to compress a tool result
 keep_recent = 3          # how many recent tool results to leave untouched
 disabled = false
-compress_system_prompt = true   # compress system prompt after first request
+# AI compression master switch — DEFAULT FALSE. WARNING: with a Claude Code OAuth
+# subscription token, every Haiku compression call bills against YOUR OWN 5h plan
+# quota and can burn it faster than it saves. Only enable with a separate billed
+# API key + backend = "gpt-mini" / "gemini-flash" / "local".
+ai_compression = false
+compress_system_prompt = true   # only runs when ai_compression = true (it makes a Haiku call)
 compress_conversation = true    # deterministic clean on old user/assistant messages + tool_use inputs (pure regex, no AI)
 keep_recent_assistant = 3       # leave last N assistant turns untouched
 assistant_threshold = 300       # min chars before applying prose cleanup

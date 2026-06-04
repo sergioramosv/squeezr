@@ -624,7 +624,7 @@ const attDedup = dedupAttachments(msgs as Parameters<typeof dedupAttachments>[0]
     const cached = getBlock(hashText(c.text))
     if (cached) {
       sessionHits.push({ index: c.index, subIndex: c.subIndex, tool: c.tool, block: cached })
-    } else if (aiEnabled() && !config.aiSkipTools.has(c.tool.toLowerCase())) {
+    } else if (config.aiCompression && aiEnabled() && !config.aiSkipTools.has(c.tool.toLowerCase())) {
       toCompress.push(c)
     }
   }
@@ -842,7 +842,7 @@ export async function compressOpenAIMessages(
     const cached = getBlock(hashText(c.text))
     if (cached) {
       sessionHits.push({ index: c.index, tool: c.tool, block: cached })
-    } else if (aiEnabled() && !config.aiSkipTools.has(c.tool.toLowerCase())) {
+    } else if (config.aiCompression && aiEnabled() && !config.aiSkipTools.has(c.tool.toLowerCase())) {
       toCompress.push(c)
     }
   }
@@ -1033,7 +1033,7 @@ export async function compressGeminiContents(
   for (const c of candidates) {
     const cached = getBlock(hashText(c.text))
     if (cached) sessionHits.push({ index: c.index, subIndex: c.subIndex, tool: c.tool, block: cached })
-    else if (aiEnabled()) toCompress.push(c)
+    else if (config.aiCompression && aiEnabled()) toCompress.push(c)
   }
 
   const gemAiT0 = Date.now()

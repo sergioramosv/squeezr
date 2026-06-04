@@ -66,6 +66,7 @@ const baseConfig = {
   skipTools: new Set<string>(),
   onlyTools: new Set<string>(),
   aiSkipTools: new Set<string>(),
+  aiCompression: true,  // tests exercise the AI path; production default is false
   compressConversation: false,
   keepRecentAssistant: 3,
   assistantThreshold: 300,
