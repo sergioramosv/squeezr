@@ -53,6 +53,10 @@ function estimatePressure(messages: unknown[], extraChars = 0): number {
 
 // ── Compression backends ──────────────────────────────────────────────────────
 
+// ── AI usage tracking (session) ───────────────────────────────────────────────
+// Real token spend of the compression calls themselves — shown in the dashboard
+// "AI Compression" card so the user sees cost vs. benefit of the AI layer.
+export const aiUsageCounters = { calls: 0, inputTokens: 0, outputTokens: 0 }
 async function compressWithHaiku(text: string, apiKey: string): Promise<string> {
   // apiKey can be a real API key (sk-ant-api...), a Claude Code OAuth access
   // token (sk-ant-oat...), or another bearer token. OAuth tokens MUST go as
@@ -68,6 +72,9 @@ async function compressWithHaiku(text: string, apiKey: string): Promise<string> 
     max_tokens: 300,
     messages: [{ role: 'user', content: `${COMPRESS_PROMPT}\n\n---\n${text.slice(0, 4000)}` }],
   })
+  aiUsageCounters.calls++
+  aiUsageCounters.inputTokens += resp.usage?.input_tokens ?? 0
+  aiUsageCounters.outputTokens += resp.usage?.output_tokens ?? 0
   return (resp.content[0] as { text: string }).text
 }
 
@@ -81,6 +88,9 @@ async function compressWithGptMini(text: string, apiKey: string): Promise<string
     max_tokens: 300,
     messages: [{ role: 'user', content: `${COMPRESS_PROMPT}\n\n---\n${text.slice(0, 4000)}` }],
   })
+  aiUsageCounters.calls++
+  aiUsageCounters.inputTokens += resp.usage?.prompt_tokens ?? 0
+  aiUsageCounters.outputTokens += resp.usage?.completion_tokens ?? 0
   return resp.choices[0].message.content ?? ''
 }
 
@@ -93,7 +103,13 @@ async function compressWithGeminiFlash(text: string, apiKey: string): Promise<st
       contents: [{ role: 'user', parts: [{ text: `${COMPRESS_PROMPT}\n\n---\n${text.slice(0, 4000)}` }] }],
     }),
   })
-  const data = (await resp.json()) as { candidates: Array<{ content: { parts: Array<{ text: string }> } }> }
+  const data = (await resp.json()) as {
+    candidates: Array<{ content: { parts: Array<{ text: string }> } }>
+    usageMetadata?: { promptTokenCount?: number; candidatesTokenCount?: number }
+  }
+  aiUsageCounters.calls++
+  aiUsageCounters.inputTokens += data.usageMetadata?.promptTokenCount ?? 0
+  aiUsageCounters.outputTokens += data.usageMetadata?.candidatesTokenCount ?? 0
   return data.candidates[0].content.parts[0].text
 }
 
@@ -104,6 +120,9 @@ async function compressWithOllama(text: string, baseUrl: string, model: string):
     max_tokens: 300,
     messages: [{ role: 'user', content: `${COMPRESS_PROMPT}\n\n---\n${text.slice(0, 4000)}` }],
   })
+  aiUsageCounters.calls++  // local model — token spend is free but calls are tracked
+  aiUsageCounters.inputTokens += resp.usage?.prompt_tokens ?? 0
+  aiUsageCounters.outputTokens += resp.usage?.completion_tokens ?? 0
   return resp.choices[0].message.content ?? ''
 }
 

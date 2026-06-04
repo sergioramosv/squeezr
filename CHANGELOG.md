@@ -1,5 +1,10 @@
 # Changelog
 All notable changes to Squeezr will be documented here.
+## [1.58.0] - 2026-06-04
+### Added
+- **Card "AI Compression" en el Overview** — muestra, para la sesión actual: Calls (nº de llamadas al backend de compresión), Saved (tokens ahorrados por la capa AI), Spent (tokens que cuestan las propias llamadas: input+output) y una línea Net (saved − spent) en verde/rojo. Permite ver de un vistazo si la compresión AI compensa.
+- Tracking real de uso vía `aiUsageCounters` en `compressor.ts` — lee `usage` de cada respuesta de Haiku/GPT-mini/Gemini/Ollama. Expuesto en `/squeezr/stats` como `ai_usage`.
+- El grid del Overview pasa de 2 a 3 columnas: Top Tools · Session Cache · AI Compression.
 ## [1.57.1] - 2026-06-04
 ### Fixed
 - **Compresión AI fallaba con 401 para usuarios de Claude Code con suscripción** — los OAuth tokens (`sk-ant-oat...`) hacían match en `startsWith('sk-')` y se enviaban como `x-api-key` → `authentication_error`. Tras el fix v1.56.1 (que hizo que la AI compression por fin se intentara), el 401 abría el circuit breaker y la desactivaba de nuevo. Ahora los tokens OAuth van como `Authorization: Bearer` + header `anthropic-beta: oauth-2025-04-20`. Arreglado en los 3 call sites: `compressWithHaiku`, `compressSystemPrompt` (que además no forzaba baseURL — riesgo de recursión) y el endpoint `/squeezr/compress`.

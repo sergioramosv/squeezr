@@ -417,8 +417,8 @@ code{font-family:'Cascadia Code','SF Mono',Consolas,monospace;font-size:.9em}
         </div>
       </div>
 
-      <!-- Two-col grid -->
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
+      <!-- Three-col grid -->
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;margin-bottom:16px">
         <!-- Tools -->
         <div class="section" style="margin:0">
           <div class="section-head"><span class="section-title">Top Tools</span></div>
@@ -437,6 +437,18 @@ code{font-family:'Cascadia Code','SF Mono',Consolas,monospace;font-size:.9em}
               <div class="cache-card"><div class="cache-label">Expands</div><div class="cache-val" id="c-miss">—</div></div>
               <div class="cache-card"><div class="cache-label">LRU Size</div><div class="cache-val" id="c-rate">—</div></div>
             </div>
+          </div>
+        </div>
+        <!-- AI Compression -->
+        <div class="section" style="margin:0">
+          <div class="section-head"><span class="section-title">AI Compression</span><span style="font-size:11px;color:var(--text3)">this session</span></div>
+          <div class="section-body">
+            <div class="cache-row">
+              <div class="cache-card"><div class="cache-label">Calls</div><div class="cache-val" id="ai-calls">—</div></div>
+              <div class="cache-card"><div class="cache-label">Saved</div><div class="cache-val" id="ai-saved" style="color:var(--brand2)">—</div></div>
+              <div class="cache-card"><div class="cache-label">Spent</div><div class="cache-val" id="ai-spent">—</div></div>
+            </div>
+            <div id="ai-net" style="margin-top:8px;font-size:11px;color:var(--text3);text-align:center">—</div>
           </div>
         </div>
       </div>
@@ -849,10 +861,31 @@ function render(d) {
   var lp = function(id, v){ var e = document.getElementById(id); if(e) e.textContent = v != null ? v : '—'; };
   lp('l-50', p50); lp('l-95', p95); lp('l-99', p99);
 
-  // Session cache
+// Session cache
   document.getElementById('c-hits').textContent = fmt(cacheHits);
   document.getElementById('c-miss').textContent = fmt(cacheMiss);
   document.getElementById('c-rate').textContent = cacheSize > 0 ? fmt(cacheSize) : '—';
+  // AI Compression card (session) — calls, tokens saved vs tokens spent on the calls
+  if (d.ai_usage) {
+    var aiCalls = d.ai_usage.calls || 0;
+    var aiSpentTok = (d.ai_usage.input_tokens || 0) + (d.ai_usage.output_tokens || 0);
+    var aiSavedTok = Math.round((d.ai_usage.saved_chars || 0) / 3.5);
+    var setAi = function(id, v){ var e = document.getElementById(id); if(e) e.textContent = v; };
+    setAi('ai-calls', fmt(aiCalls));
+    setAi('ai-saved', aiSavedTok > 0 ? fmt(aiSavedTok) : '—');
+    setAi('ai-spent', aiSpentTok > 0 ? fmt(aiSpentTok) : '—');
+    var netEl = document.getElementById('ai-net');
+    if (netEl) {
+      if (aiCalls === 0) {
+        netEl.textContent = 'No AI calls yet this session';
+      } else {
+        var net = aiSavedTok - aiSpentTok;
+        var sign = net >= 0 ? '+' : '−';
+        netEl.textContent = 'Net: ' + sign + fmt(Math.abs(net)) + ' tokens (saved − spent)';
+        netEl.style.color = net >= 0 ? 'var(--brand2)' : 'var(--red, #e5484d)';
+      }
+    }
+  }
 
   // Tools
   renderTools(d.by_tool || d.tools);
