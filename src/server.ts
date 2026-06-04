@@ -14,6 +14,7 @@ import {
   compressGeminiContents,
 } from './compressor.js'
 import { isBypassed, setBypassed, toggleBypassed } from './bypass.js'
+import { isAiCompressionEnabled, setAiCompression, toggleAiCompression } from './aiToggle.js'
 import { circuitBreaker } from './circuitBreaker.js'
 import {
   injectExpandToolAnthropic,
@@ -884,6 +885,7 @@ ai_usage: {
     expand_store_size: expandStoreSize(),
     session_cache_size: sessionCacheSize(),
     dry_run: config.dryRun,
+    ai_compression_enabled: isAiCompressionEnabled(),
     pattern_hits: detPatternHits,
     version: VERSION,
     port: config.port,
@@ -1120,6 +1122,22 @@ app.post('/squeezr/bypass', async (c) => {
     toggleBypassed()
   }
   return c.json({ bypassed: isBypassed() })
+})
+
+// AI compression master toggle (persisted). When off, zero AI calls happen.
+app.get('/squeezr/ai-compression', (c) => {
+  return c.json({ enabled: isAiCompressionEnabled() })
+})
+
+app.post('/squeezr/ai-compression', async (c) => {
+  try {
+    const body = await c.req.json<{ enabled?: boolean }>().catch(() => ({} as { enabled?: boolean }))
+    if (typeof body.enabled === 'boolean') setAiCompression(body.enabled)
+    else toggleAiCompression()
+  } catch {
+    toggleAiCompression()
+  }
+  return c.json({ enabled: isAiCompressionEnabled() })
 })
 
 // ── Distillation endpoint — uses captured OAuth token to compress with Opus ──

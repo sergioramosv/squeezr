@@ -395,6 +395,7 @@ code{font-family:'Cascadia Code','SF Mono',Consolas,monospace;font-size:.9em}
           <div class="badge-row" style="margin:0">
             <span class="badge" id="mode-badge">—</span>
             <span class="badge" id="bypass-badge">—</span>
+            <span class="badge" id="ai-comp-badge">—</span>
           </div>
         </div>
         <div class="section-body">
@@ -405,6 +406,7 @@ code{font-family:'Cascadia Code','SF Mono',Consolas,monospace;font-size:.9em}
             <button class="mode-btn" data-mode="aggressive" onclick="setMode('aggressive')">Aggressive</button>
             <div class="divider-v"></div>
             <button class="bypass-btn" id="bypass-btn" onclick="toggleBypass()">Toggle Bypass</button>
+            <button class="bypass-btn" id="ai-comp-btn" onclick="toggleAiCompression()" title="AI compression (costs tokens). Off = deterministic only (free)">AI Compression: —</button>
           </div>
         </div>
       </div>
@@ -638,6 +640,15 @@ code{font-family:'Cascadia Code','SF Mono',Consolas,monospace;font-size:.9em}
         <div class="settings-row">
           <span class="s-key">Mode</span>
           <span class="s-val"><code id="cfg-mode">—</code></span>
+        </div>
+        <div class="settings-row" style="flex-direction:column;align-items:flex-start;gap:4px">
+          <div style="display:flex;justify-content:space-between;width:100%;align-items:center">
+            <span class="s-key">AI Compression</span>
+            <button class="action-btn" id="ai-comp-btn-settings" onclick="toggleAiCompression()">—</button>
+          </div>
+          <div style="font-size:12px;color:var(--text3);line-height:1.4">
+            Master switch for AI compression calls (Haiku/GPT/Gemini). When <strong style="color:var(--text2)">off</strong>, only free deterministic compression runs — <em>zero</em> token cost. ⚠️ With a Claude Code subscription token, leaving this <strong style="color:var(--text2)">on</strong> bills compression against your own 5h plan limit. Persists across restarts.
+          </div>
         </div>
         <div class="settings-row" style="flex-direction:column;align-items:flex-start;gap:4px">
           <div style="display:flex;justify-content:space-between;width:100%;align-items:center">
@@ -957,6 +968,21 @@ function render(d) {
 
   // Mode & bypass
   updateMode(mode, byp);
+
+  // AI compression toggle state (overview badge + button, settings button)
+  var aiOn = !!d.ai_compression_enabled;
+  var aiBadge = document.getElementById('ai-comp-badge');
+  if (aiBadge) {
+    aiBadge.textContent = 'AI: ' + (aiOn ? 'on' : 'off');
+    aiBadge.className = 'badge' + (aiOn ? ' yellow' : '');
+  }
+  var aiBtn = document.getElementById('ai-comp-btn');
+  if (aiBtn) {
+    aiBtn.textContent = 'AI Compression: ' + (aiOn ? 'ON' : 'OFF');
+    aiBtn.className = 'bypass-btn' + (aiOn ? ' active' : '');
+  }
+  var aiBtnSet = document.getElementById('ai-comp-btn-settings');
+  if (aiBtnSet) aiBtnSet.textContent = aiOn ? 'ON — turn off' : 'OFF — turn on';
 
   // Settings page — ports come from health endpoint (d.port / d.mitm_port)
   var httpPort = d.port || window.location.port || '8080';
@@ -1372,6 +1398,10 @@ function setMode(mode) {
 
 function toggleBypass() {
   fetch('/squeezr/bypass', {method:'POST'}).then(function(r){ if(r.ok) poll(); });
+}
+
+function toggleAiCompression() {
+  fetch('/squeezr/ai-compression', {method:'POST'}).then(function(r){ if(r.ok) poll(); });
 }
 
 // ── Connection ─────────────────────────────────────────────────────────────

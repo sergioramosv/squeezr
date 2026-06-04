@@ -30,6 +30,14 @@ vi.mock('openai', () => ({
   }),
 }))
 
+// Force the AI compression master toggle ON for these tests (production default
+// is off + persisted to disk; tests must not depend on the user's local state).
+vi.mock('../aiToggle.js', () => ({
+  isAiCompressionEnabled: () => true,
+  setAiCompression: () => {},
+  toggleAiCompression: () => true,
+}))
+
 // Mock fetch for Gemini
 const mockFetch = vi.fn().mockResolvedValue({
   json: async () => ({

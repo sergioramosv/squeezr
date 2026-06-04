@@ -1,5 +1,9 @@
 # Changelog
 All notable changes to Squeezr will be documented here.
+## [1.62.0] - 2026-06-04
+### Added
+- **Toggle de AI Compression on/off** (`src/aiToggle.ts`) — botón en Overview (junto a Toggle Bypass, con badge "AI: on/off") y en Settings. Apaga/enciende SOLO las llamadas AI (Haiku/GPT/Gemini); la compresión determinística gratis sigue siempre. Persiste en `~/.squeezr/ai-compression.json` (sobrevive reinicios). Endpoint `/squeezr/ai-compression` (GET/POST). Default OFF (lee del toml `ai_compression` la primera vez).
+- Ahora la compresión AI tiene 3 gates independientes: este toggle (persistido) + rate-limit 20/5min + barrera de cache. Y bypass por encima de todo.
 ## [1.61.0] - 2026-06-04
 ### Added
 - **AI Compression, Session Cache y Top Tools por periodo en Savings** — antes eran solo de la sesión del proxy en memoria (se perdían al reiniciar). Ahora `SessionRecord` persiste `aiUsage` (calls/in/out/saved) y `sessionCache` (reuses/expands) en history.json vía un extras-provider inyectado desde server.ts (sin acoplar history a compressor/stats). La pestaña Savings agrega esos datos + Top Tools por el periodo elegido (Day/Week/Month/All) y los muestra en 3 secciones nuevas que cambian al navegar entre periodos. Sobreviven reinicios.
