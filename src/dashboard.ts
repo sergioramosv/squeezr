@@ -790,8 +790,9 @@ function esc(s) {
 
 // ── Render ─────────────────────────────────────────────────────────────────
 var lastStats = null;
-// When true, overview hero cards show today's data from history — render() won't overwrite them
-var overviewFromHistory = false;
+// Overview hero cards always come from history (today's data). render() never overwrites them.
+// Starts true so render() never shows stale all-time data in the overview.
+var overviewFromHistory = true;
 
 function render(d) {
   if (!d) return;
@@ -1520,14 +1521,18 @@ function renderSavingsData(d) {
   var avgPct = totalOrig > 0 ? Math.round(totalSaved / (totalSaved + (totalOrig - totalSaved)) * 100) : 0;
 
   // Cost: use model-weighted if available from current stats, else flat $3/1M
+  // Compute cost for this period using the blended $/saved-token rate from all-time model data.
+  // This avoids the "scale" trick which produced inconsistent numbers vs the By Model section.
   var svModelCosts = (lastStats && lastStats.by_model) ? calcCostFromModels(lastStats.by_model, true) : null;
   var svCost, svCostNote;
   if (svModelCosts && svModelCosts.savedCost > 0) {
-    // Scale model costs proportionally if period ≠ all-time
-    var allSaved = 0;
-    sessions.forEach(function(s){ allSaved += s.savedTokens||0; });
-    var scale = allSaved > 0 ? totalSaved / allSaved : 1;
-    svCost = svModelCosts.savedCost * scale;
+    var allTimeSavedTok = 0;
+    if (lastStats && lastStats.by_model) {
+      Object.keys(lastStats.by_model).forEach(function(m){ allTimeSavedTok += (lastStats.by_model[m].saved_tokens || 0); });
+    }
+    // Blended rate = all-time saved cost / all-time saved tokens → apply to period tokens
+    var blendedRate = allTimeSavedTok > 0 ? svModelCosts.savedCost / allTimeSavedTok : 0.000003;
+    svCost = totalSaved * blendedRate;
     svCostNote = 'model-weighted pricing';
   } else {
     svCost = totalSaved * 0.000003;
