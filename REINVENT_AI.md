@@ -57,14 +57,14 @@ mantienes el cache.
    persistente en disco (`hash(original) → comprimido`). Nunca se re-comprime.
 3. **Siempre se aplica la versión cacheada** (no rotativo, no "5 por request").
    Esto hace el prefijo byte-estable → cache de Anthropic válido.
-4. **Determinismo del modelo:** squeezr-1B en greedy (temp=0) es determinista. Con
+4. **Determinismo del modelo:** Zest (zest-0.8b) en greedy (temp=0) es determinista. Con
    el caché persistente, incluso Haiku queda estable (el resultado se fija en la
    primera compresión y no se vuelve a llamar).
 5. **Coste:** 1 llamada AI por bloque único (amortizada) + 1 cache miss la primera
    vez que un bloque del prefijo se comprime. Después: ahorro permanente.
 
 ### Rollout seguro (sin repetir el incidente)
-- Empezar con `backend=local` (squeezr-1B, gratis) para que las pruebas no gasten
+- Empezar con `backend=local` (Zest (zest-0.8b), gratis) para que las pruebas no gasten
   plan. Haiku solo opt-in con API key facturada aparte.
 - Rate-limit duro ya existe (20 calls/5min).
 - Bypass persistente ya existe (parada de emergencia).
@@ -87,4 +87,4 @@ contexto son tool_results grandes (en las sesiones del usuario: la mayoría).
 - [ ] Quitar el cap rotativo de 5 → comprimir todos los bloques grandes elegibles
       una vez, de forma estable.
 - [ ] Instrumentar cache_creation/cache_read de Anthropic en el dashboard.
-- [ ] Probar con squeezr-1B local (gratis) antes de Haiku.
+- [ ] Probar con Zest (zest-0.8b) local (gratis) antes de Haiku.

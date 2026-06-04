@@ -1148,7 +1148,7 @@ app.post('/squeezr/ai-compression', async (c) => {
 
 // ── Distillation endpoint — uses captured OAuth token to compress with Opus ──
 // Allows external scripts to do high-quality compression using the user's Claude
-// Pro/Max subscription (no API key needed). Used by recipes/squeezr-1B for training.
+// Pro/Max subscription (no API key needed). Used by recipes/Zest (zest-0.8b) for training.
 app.post('/squeezr/distill', async (c) => {
   const rawBody = await c.req.json().catch(() => ({})) as Record<string, unknown>
   const text = String(rawBody.text ?? '')

@@ -1,6 +1,6 @@
 # Squeezr — Requisitos de hardware
 
-> Sin el modelo local squeezr-1B. Datos medidos en producción (v1.55.6, Windows 11, 2026-06-04).
+> Sin el modelo local Zest (zest-0.8b). Datos medidos en producción (v1.55.6, Windows 11, 2026-06-04).
 
 ## TL;DR
 
@@ -55,6 +55,6 @@ Squeezr es un proxy HTTP en Node.js. **Corre en cualquier máquina de los últim
 - ❌ Base de datos (todo es JSON en `~/.squeezr/`)
 - ❌ Ollama (opcional — solo si quieres backend de compresión 100% local)
 
-## Nota: con squeezr-1B (futuro)
+## Nota: con Zest (zest-0.8b) (futuro)
 
-Cuando el modelo local squeezr-1B esté disponible vía Ollama, los requisitos suben: ~2 GB RAM extra para el modelo (1.5B params bf16 → ~1 GB en Q4) y CPU con AVX2 o GPU pequeña para inferencia razonable. Se documentará por separado.
+Cuando el modelo local Zest (zest-0.8b) esté disponible vía Ollama, los requisitos suben: ~2 GB RAM extra para el modelo (1.5B params bf16 → ~1 GB en Q4) y CPU con AVX2 o GPU pequeña para inferencia razonable. Se documentará por separado.

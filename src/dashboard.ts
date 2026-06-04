@@ -694,14 +694,14 @@ code{font-family:'Cascadia Code','SF Mono',Consolas,monospace;font-size:.9em}
             <span class="s-key">Compression backend</span>
             <div style="display:flex;gap:4px;flex-wrap:wrap">
               <button class="mode-btn" data-backend="auto"         onclick="setBackend('auto')">Auto</button>
-              <button class="mode-btn" data-backend="local"        onclick="setBackend('local')">squeezr-1B</button>
+              <button class="mode-btn" data-backend="local"        onclick="setBackend('local')">Zest (zest-0.8b)</button>
               <button class="mode-btn" data-backend="haiku"        onclick="setBackend('haiku')">Haiku</button>
               <button class="mode-btn" data-backend="gpt-mini"     onclick="setBackend('gpt-mini')">GPT-4o-mini</button>
               <button class="mode-btn" data-backend="gemini-flash" onclick="setBackend('gemini-flash')">Gemini Flash</button>
             </div>
           </div>
           <div style="font-size:12px;color:var(--text3);line-height:1.4">
-            Modelo que comprime los tool results y mensajes históricos. <strong style="color:var(--text2)">Auto</strong> usa el modelo de la API que recibe la request (Haiku para Claude, GPT-mini para OpenAI, Flash para Gemini). <strong style="color:var(--text2)">squeezr-1B</strong> es el modelo local (gratis, sin red, requiere Ollama). El resto fuerza ese modelo para todas las requests.
+            Modelo que comprime los tool results y mensajes históricos. <strong style="color:var(--text2)">Auto</strong> usa el modelo de la API que recibe la request (Haiku para Claude, GPT-mini para OpenAI, Flash para Gemini). <strong style="color:var(--text2)">Zest (zest-0.8b)</strong> es el modelo local (gratis, sin red, requiere Ollama). El resto fuerza ese modelo para todas las requests.
           </div>
         </div>
         <div class="settings-row" style="flex-direction:column;align-items:flex-start;gap:8px">

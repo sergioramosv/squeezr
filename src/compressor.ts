@@ -148,7 +148,7 @@ type CompressFn = (text: string) => Promise<string>
  * Resolve which compression backend to actually use based on the runtime override.
  *
  * - 'auto'         → use the default backend for this API (the `defaultFn` passed in)
- * - 'local'        → use Ollama / squeezr-1B (always local, no API call)
+ * - 'local'        → use Ollama / Zest (zest-0.8b) (always local, no API call)
  * - 'haiku'        → force Anthropic Haiku regardless of which API the request came from
  * - 'gpt-mini'     → force OpenAI gpt-4o-mini
  * - 'gemini-flash' → force Google Gemini Flash
