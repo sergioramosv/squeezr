@@ -421,7 +421,7 @@ body.messages = compressedMsgs
   savings.syspromptSavedChars = syspromptSaved
 
   stats.recordWithProject(project, originalRequestChars, compressedRequestChars, savings, compLatency, clientId, modelId)
-  recordRequest(project, Math.max(0, originalRequestChars - compressedRequestChars), savings.compressed, savings.byTool, originalRequestChars)
+  recordRequest(project, Math.max(0, originalRequestChars - compressedRequestChars), savings.compressed, savings.byTool, originalRequestChars, modelId, clientId)
 
   storeKey('anthropic', apiKey)
   const fwdHeaders = forwardHeaders(c.req.raw.headers)
@@ -591,7 +591,7 @@ const messages = (body.messages ?? []) as unknown[]
   if (!isLocal) injectExpandToolOpenAI(body)
   savings.syspromptSavedChars = oaiSyspromptSaved
   stats.recordWithProject(oaiProject, originalOaiRequestChars, oaiCompressedRequestChars, savings, oaiCompLatency, oaiClientId, oaiModelId)
-  recordRequest(oaiProject, Math.max(0, originalOaiRequestChars - oaiCompressedRequestChars), savings.compressed, savings.byTool, originalOaiRequestChars)
+  recordRequest(oaiProject, Math.max(0, originalOaiRequestChars - oaiCompressedRequestChars), savings.compressed, savings.byTool, originalOaiRequestChars, oaiModelId, oaiClientId)
 
   if (!isLocal) storeKey('openai', openAIKey)
   const fwdHeaders = forwardHeaders(c.req.raw.headers)
@@ -711,7 +711,7 @@ const contents = (body.contents ?? []) as unknown[]
     + estimateChars(body.tools ?? [])
     + estimateSystemChars(body.systemInstruction)
   stats.recordWithProject(geminiProject, originalGeminiRequestChars, gemCompressedRequestChars, savings, gemCompLatency, 'gemini', geminiModelId)
-  recordRequest(geminiProject, Math.max(0, originalGeminiRequestChars - gemCompressedRequestChars), savings.compressed, savings.byTool, originalGeminiRequestChars)
+  recordRequest(geminiProject, Math.max(0, originalGeminiRequestChars - gemCompressedRequestChars), savings.compressed, savings.byTool, originalGeminiRequestChars, geminiModelId, 'gemini')
 
   const targetUrl = `${GOOGLE_API}/v1beta/models/${modelPath}`
   const fwdHeaders = forwardHeaders(c.req.raw.headers)

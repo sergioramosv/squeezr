@@ -1,5 +1,15 @@
 # Changelog
 All notable changes to Squeezr will be documented here.
+## [1.56.0] - 2026-06-04
+### Added
+- **By Model / By Client filtran por período en Savings** — los SessionRecord de history.json ahora guardan `byModel` y `byClient` (requests, originalTokens, savedTokens por modelo/cliente). El dashboard agrega esos datos de las sesiones del período seleccionado (Day/Week/Month/All) y los muestra en las secciones By Model y By Client de Savings, que ahora cambian al navegar entre días/semanas/meses. Las del Overview/Settings siguen siendo all-time.
+- `HARDWARE_REQUIREMENTS.md` — requisitos de hardware medidos en producción (Node ≥18, ~140 MB RAM, sin GPU).
+### Changed
+- `recordRequest()` acepta `model` y `client` opcionales — los 3 pipelines (Anthropic, OpenAI, Gemini) los pasan.
+- Refactor: `buildModelHtml`/`buildClientHtml` separados de sus renderers para reutilización per-period.
+- Labels de secciones en Savings: "selected period" para claridad; Overview "all time".
+### Notes
+- Sesiones anteriores a v1.56.0 no tienen byModel/byClient — mostrarán "No model data for this period" en períodos antiguos.
 ## [1.55.6] - 2026-06-04
 ### Fixed
 - Restaurado el comando `squeezr restart` — se perdió en el rewrite de historia del 2026-06-01 (reset a v1.51.0).

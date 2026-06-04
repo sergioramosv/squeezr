@@ -467,7 +467,7 @@ code{font-family:'Cascadia Code','SF Mono',Consolas,monospace;font-size:.9em}
 
       <!-- Model breakdown -->
       <div class="section">
-        <div class="section-head"><span class="section-title">By model</span><span style="font-size:11px;color:var(--text3)">real pricing per model</span></div>
+        <div class="section-head"><span class="section-title">By model</span><span style="font-size:11px;color:var(--text3)">all time · real pricing</span></div>
         <div class="section-body" id="model-body">
           <div style="font-size:13px;color:var(--text3)">No model data yet.</div>
         </div>
@@ -533,7 +533,7 @@ code{font-family:'Cascadia Code','SF Mono',Consolas,monospace;font-size:.9em}
 
       <!-- By model -->
       <div class="section">
-        <div class="section-head"><span class="section-title">By model</span><span style="font-size:11px;color:var(--text3)">real pricing per model</span></div>
+        <div class="section-head"><span class="section-title">By model</span><span style="font-size:11px;color:var(--text3)">selected period · real pricing</span></div>
         <div class="section-body" id="model-body-savings">
           <div style="font-size:13px;color:var(--text3)">No model data yet.</div>
         </div>
@@ -541,7 +541,7 @@ code{font-family:'Cascadia Code','SF Mono',Consolas,monospace;font-size:.9em}
 
       <!-- By client -->
       <div class="section">
-        <div class="section-head"><span class="section-title">By client (current session)</span></div>
+        <div class="section-head"><span class="section-title">By client</span><span style="font-size:11px;color:var(--text3)">selected period</span></div>
         <div class="section-body" id="client-body-savings">
           <div style="font-size:13px;color:var(--text3)">No client data yet.</div>
         </div>
@@ -1126,22 +1126,16 @@ function calcCostFromModels(byModel, getOriginal) {
 }
 
 // ── Model breakdown ────────────────────────────────────────────────────────
-function renderModelBreakdown(byModel) {
-  var el = document.getElementById('model-body');
-  var elSav = document.getElementById('model-body-savings');
-  var noData = '<span style="font-size:13px;color:var(--text3)">No model data yet — appears after first request.</span>';
-  if (!byModel || !Object.keys(byModel).length) {
-    if (el) el.innerHTML = noData;
-    if (elSav) elSav.innerHTML = noData;
-    return;
-  }
+// Build HTML for a by_model object — used by overview (all-time) and savings (per-period)
+function buildModelHtml(byModel) {
+  var noData = '<span style="font-size:13px;color:var(--text3)">No model data for this period.</span>';
+  if (!byModel || !Object.keys(byModel).length) return noData;
   var rows = Object.entries(byModel)
     .filter(function(e){ return e[1].requests > 0; })
     .sort(function(a,b){ return b[1].saved_tokens - a[1].saved_tokens; });
-  if (!rows.length) { if (el) el.innerHTML = noData; if (elSav) elSav.innerHTML = noData; return; }
-
+  if (!rows.length) return noData;
   var maxSaved = rows[0][1].saved_tokens || 1;
-  var html = rows.map(function(e){
+  return rows.map(function(e){
     var model = e[0];
     var data  = e[1];
     var priceIn = getModelPrice(model);
@@ -1166,8 +1160,11 @@ function renderModelBreakdown(byModel) {
       '</div>' +
     '</div>';
   }).join('');
-  if (el) el.innerHTML = html;
-  if (elSav) elSav.innerHTML = html;
+}
+
+function renderModelBreakdown(byModel) {
+  var el = document.getElementById('model-body');
+  if (el) el.innerHTML = buildModelHtml(byModel);
 }
 
 // ── Client breakdown (#8) ──────────────────────────────────────────────────
@@ -1227,26 +1224,16 @@ function toggleClientBreakdown() {
   document.getElementById('cli-chevron').style.transform = clientOpen ? 'rotate(180deg)' : '';
 }
 
-function renderClientBreakdown(byClient) {
-  var noData = '<span style="font-size:13px;color:var(--text3)">No client data yet — starts after first request.</span>';
-  var elOverview  = document.getElementById('client-body-overview');
-  var elSettings  = document.getElementById('cli-breakdown-body');
-
-  if (!byClient || !Object.keys(byClient).length) {
-    if (elOverview) elOverview.innerHTML = noData;
-    if (elSettings) elSettings.innerHTML = noData;
-    return;
-  }
+// Build HTML for a by_client object — used by overview, settings and savings (per-period)
+function buildClientHtml(byClient) {
+  var noData = '<span style="font-size:13px;color:var(--text3)">No client data for this period.</span>';
+  if (!byClient || !Object.keys(byClient).length) return noData;
   var rows = Object.entries(byClient)
     .filter(function(e){ return e[1].requests > 0; })
     .sort(function(a,b){ return b[1].saved_tokens - a[1].saved_tokens; });
-  if (!rows.length) {
-    if (elOverview) elOverview.innerHTML = noData;
-    if (elSettings) elSettings.innerHTML = noData;
-    return;
-  }
+  if (!rows.length) return noData;
   var maxSaved = rows[0][1].saved_tokens || 1;
-  var html = rows.map(function(e){
+  return rows.map(function(e){
     var label = CLIENT_LABELS[e[0]] || e[0];
     var data  = e[1];
     var pct   = Math.round((data.saved_tokens / maxSaved) * 100);
@@ -1261,6 +1248,12 @@ function renderClientBreakdown(byClient) {
       '<div style="font-size:11px;color:var(--text3)">' + data.requests + ' req · ~' + fmt(data.original_tokens) + ' tokens in</div>' +
     '</div>';
   }).join('');
+}
+
+function renderClientBreakdown(byClient) {
+  var html = buildClientHtml(byClient);
+  var elOverview  = document.getElementById('client-body-overview');
+  var elSettings  = document.getElementById('cli-breakdown-body');
   if (elOverview) elOverview.innerHTML = html;
   if (elSettings) elSettings.innerHTML = html;
 }
@@ -1570,10 +1563,37 @@ document.getElementById('sv-tokens').textContent    = fmt(totalSaved);
   // Bar chart: group by day for week/month/all, by session for day
   renderSavingsChart(filtered, savingsPeriod);
 
-  // Client breakdown mirrors overview
-  var cli = document.getElementById('client-body-savings');
-  var ovCli = document.getElementById('client-body-overview');
-  if (ovCli) cli.innerHTML = ovCli.innerHTML;
+  // Per-period model/client breakdown — aggregated from the filtered sessions.
+  // Session records store byModel/byClient since v1.56.0 (camelCase, token units).
+  var aggModel = {}, aggClient = {};
+  filtered.forEach(function(s){
+    var bm = s.byModel || {};
+    Object.keys(bm).forEach(function(m){
+      if (!aggModel[m]) aggModel[m] = { requests: 0, original_tokens: 0, saved_tokens: 0, savings_pct: 0 };
+      aggModel[m].requests        += bm[m].requests || 0;
+      aggModel[m].original_tokens += bm[m].originalTokens || 0;
+      aggModel[m].saved_tokens    += bm[m].savedTokens || 0;
+    });
+    var bc = s.byClient || {};
+    Object.keys(bc).forEach(function(cl){
+      if (!aggClient[cl]) aggClient[cl] = { requests: 0, original_tokens: 0, saved_tokens: 0, savings_pct: 0 };
+      aggClient[cl].requests        += bc[cl].requests || 0;
+      aggClient[cl].original_tokens += bc[cl].originalTokens || 0;
+      aggClient[cl].saved_tokens    += bc[cl].savedTokens || 0;
+    });
+  });
+  Object.keys(aggModel).forEach(function(m){
+    var a = aggModel[m];
+    a.savings_pct = a.original_tokens > 0 ? Math.round(a.saved_tokens / a.original_tokens * 1000) / 10 : 0;
+  });
+  Object.keys(aggClient).forEach(function(cl){
+    var a = aggClient[cl];
+    a.savings_pct = a.original_tokens > 0 ? Math.round(a.saved_tokens / a.original_tokens * 1000) / 10 : 0;
+  });
+  var mEl = document.getElementById('model-body-savings');
+  if (mEl) mEl.innerHTML = buildModelHtml(aggModel);
+  var cEl = document.getElementById('client-body-savings');
+  if (cEl) cEl.innerHTML = buildClientHtml(aggClient);
 }
 
 function fmtY(v) {

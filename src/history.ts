@@ -28,6 +28,9 @@ export interface SessionRecord {
   savedTokens: number
   compressions: number
   byTool: Record<string, { count: number; savedTokens: number }>
+  // Per-model / per-client breakdown (added v1.56.0) — enables period filtering in dashboard
+  byModel?: Record<string, { requests: number; originalTokens: number; savedTokens: number }>
+  byClient?: Record<string, { requests: number; originalTokens: number; savedTokens: number }>
 }
 
 interface HistoryFile {
@@ -44,6 +47,8 @@ let currentOriginalChars = 0
 let currentSavedChars = 0
 let currentCompressions = 0
 const currentByTool: Record<string, { count: number; savedTokens: number }> = {}
+const currentByModel: Record<string, { requests: number; originalTokens: number; savedTokens: number }> = {}
+const currentByClient: Record<string, { requests: number; originalTokens: number; savedTokens: number }> = {}
 
 let store: HistoryFile = { sessions: [] }
 
@@ -93,6 +98,8 @@ export function recordRequest(
   compressions: number,
   byTool: Array<{ tool: string; savedChars: number }>,
   originalChars = 0,
+  model?: string,
+  client?: string,
 ): void {
   if (project !== 'unknown') currentProject = project
   currentRequests++
@@ -103,6 +110,18 @@ export function recordRequest(
     if (!currentByTool[tool]) currentByTool[tool] = { count: 0, savedTokens: 0 }
     currentByTool[tool].count++
     currentByTool[tool].savedTokens += Math.round(sc / CHARS_PER_TOKEN)
+  }
+  if (model) {
+    if (!currentByModel[model]) currentByModel[model] = { requests: 0, originalTokens: 0, savedTokens: 0 }
+    currentByModel[model].requests++
+    currentByModel[model].originalTokens += Math.round(originalChars / CHARS_PER_TOKEN)
+    currentByModel[model].savedTokens += Math.round(savedChars / CHARS_PER_TOKEN)
+  }
+  if (client) {
+    if (!currentByClient[client]) currentByClient[client] = { requests: 0, originalTokens: 0, savedTokens: 0 }
+    currentByClient[client].requests++
+    currentByClient[client].originalTokens += Math.round(originalChars / CHARS_PER_TOKEN)
+    currentByClient[client].savedTokens += Math.round(savedChars / CHARS_PER_TOKEN)
   }
 }
 
@@ -120,6 +139,8 @@ function buildCurrentRecord(): SessionRecord {
     savedTokens: Math.round(currentSavedChars / CHARS_PER_TOKEN),
     compressions: currentCompressions,
     byTool: { ...currentByTool },
+    byModel: { ...currentByModel },
+    byClient: { ...currentByClient },
   }
 }
 
