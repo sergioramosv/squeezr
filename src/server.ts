@@ -429,8 +429,13 @@ const clientId = detectAnthropicClient(c.req.header('user-agent') ?? '', c.req.h
       ? (body.system as Array<{ text?: string }>).reduce((s, b) => s + (b.text?.length ?? 0), 0)
       : 0
 
-  // Stale turn summarization
-  if (config.staleTurns) {
+  // Stale turn summarization — DISABLED when prompt cache markers are present.
+  // Its collapse boundary moves forward one turn per request, mutating the cached
+  // prefix every turn → permanent cache invalidation (re-bills the full context).
+  // Without cache markers (clients that don't cache) it runs freely.
+  const msgsHaveCacheMarkers = (messages as Array<{ content?: unknown }>).some(m =>
+    Array.isArray(m.content) && (m.content as Array<{ cache_control?: unknown }>).some(b => b && typeof b === 'object' && b.cache_control))
+  if (config.staleTurns && !msgsHaveCacheMarkers) {
     const stale = collapseStaleTurns(
       messages as Array<{ role: string; content: string | Array<{ type?: string; text?: string }> }>,
       config.staleTurnThreshold,

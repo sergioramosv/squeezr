@@ -1,5 +1,8 @@
 # Changelog
 All notable changes to Squeezr will be documented here.
+## [1.67.1] - 2026-06-04
+### Fixed
+- **stale-turns invalidaba el prompt cache** — detectado con la nueva card Prompt Cache (hit health 23%: creation 657k vs read 200k). La frontera de colapso avanza un turno por request → muta el prefijo cacheado cada turno → invalidación permanente. Ahora stale-turns se desactiva cuando hay cache markers (Claude Code); sin markers sigue activo. Mismo patrón que las dedup en v1.63.0.
 ## [1.67.0] - 2026-06-04
 ### Added — fase 1 de REINVENT_AI
 - **Umbral mínimo AI: 1500 chars** (`AI_MIN_CHARS`). Medido en datos reales (session_cache, 161 bloques): <500 chars el AI EXPANDE (-22.7%), 500-2k gana ~42%, ≥2k gana 75-91%. El AI ya solo toca bloques donde claramente gana — nunca puede expandir.
