@@ -1,5 +1,8 @@
 # Changelog
 All notable changes to Squeezr will be documented here.
+## [1.64.2] - 2026-06-04
+### Fixed
+- **Total inflado a 125M (debía ser 25M)** — `buildStatsPayload` hacía `Math.max(persisted, suma_de_sesiones_de_history)`. history suma `savedTokens` de cada sesión del proxy, y como cada sesión re-procesa la misma conversación creciente, sobre-cuenta masivamente (~125M vs los 25.3M reales de stats.json). Ahora `stats.json` (contador continuo persistido) es la fuente de verdad; history solo se usa como fallback si stats.json fue reseteado/corrompido. El hero y la card "Savings by type" muestran el mismo 25.3M coherente (neto < bruto 43.7M, como debe ser).
 ## [1.64.1] - 2026-06-04
 ### Fixed
 - **HTML roto en el Overview** — la card "Savings by type" v1.64.0 se insertó con divs de cierre mal balanceados (+ un placeholder colado), dejando las cards de arriba en "loading" perpetuo y la nueva card pegada a "Savings by client". Corregido: card independiente.

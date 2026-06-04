@@ -815,29 +815,30 @@ async function buildStatsPayload() {
   await maybeRefreshOpenAISessionLimits().catch(() => {})
   const session = stats.summary()
 
-  // Compute all-time totals by summing ALL history sessions (history.json is the source of truth)
-  // plus comparing with stats.json — take the maximum to avoid regressions
+  // All-time totals. `stats.json` (persisted) is a single continuous counter and is
+  // the source of truth. We do NOT max() against the per-session sum from history:
+  // history sums savedTokens across many proxy sessions that each re-processed the
+  // same growing conversation, so it massively over-counts (the 125M-vs-25M bug).
+  // History is only a fallback if stats.json was reset/corrupted (persisted == 0).
   const allSessions = getAllSessionsForHistory()
   const historyTotalSavedTokens = allSessions.reduce((s, r) => s + (r.savedTokens || 0), 0)
   const historyTotalOriginalTokens = allSessions.reduce((s, r) => s + (r.originalChars ? Math.round(r.originalChars / 3.5) : 0), 0)
   const historyTotalRequests = allSessions.reduce((s, r) => s + (r.requests || 0), 0)
 
   const persisted = Stats.loadGlobal()
-  const allTimeSavedTokens = Math.max(
-    Math.round(session.total_saved_chars / 3.5),
-    Math.round(((persisted.total_saved_chars as number) ?? 0) / 3.5),
-    historyTotalSavedTokens
-  )
-  const allTimeOriginalTokens = Math.max(
-    Math.round(session.total_original_chars / 3.5),
-    Math.round(((persisted.total_original_chars as number) ?? 0) / 3.5),
-    historyTotalOriginalTokens
-  )
-  const allTimeRequests = Math.max(
-    session.requests,
-    (persisted.requests as number) ?? 0,
-    historyTotalRequests
-  )
+  const persistedSaved = Math.round(((persisted.total_saved_chars as number) ?? 0) / 3.5)
+  const persistedOriginal = Math.round(((persisted.total_original_chars as number) ?? 0) / 3.5)
+  const persistedRequests = (persisted.requests as number) ?? 0
+
+  const allTimeSavedTokens = persistedSaved > 0
+    ? persistedSaved
+    : Math.max(Math.round(session.total_saved_chars / 3.5), historyTotalSavedTokens)
+  const allTimeOriginalTokens = persistedOriginal > 0
+    ? persistedOriginal
+    : Math.max(Math.round(session.total_original_chars / 3.5), historyTotalOriginalTokens)
+  const allTimeRequests = persistedRequests > 0
+    ? persistedRequests
+    : Math.max(session.requests, historyTotalRequests)
 
   // Ratio: compute from all-time totals so it matches the all-time Tokens Saved /
   // processed cards. The session.savings_pct comes from this-process-only counters
