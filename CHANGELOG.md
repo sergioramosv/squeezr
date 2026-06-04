@@ -1,5 +1,8 @@
 # Changelog
 All notable changes to Squeezr will be documented here.
+## [1.68.1] - 2026-06-04
+### Fixed
+- **`compressWithOllama` ahora usa la API nativa de Ollama (`/api/chat`) en lugar de la compat OpenAI.** Motivo: la compat OpenAI no expone el flag `think:false` que necesitan los modelos Qwen3.5. Sin este flag, Qwen3.5 genera 2000-5000 tokens de razonamiento interno antes de comprimir (thinking mode activado por defecto). Con `think:false` en la API nativa, el output es directo y el tiempo de respuesta cae de ~30s a ~1s.
 ## [1.68.0] - 2026-06-04
 ### Added
 - **`squeezr zest` — guided install wizard para el modelo local Zest.** Un solo comando que:

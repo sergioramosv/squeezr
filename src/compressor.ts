@@ -129,15 +129,28 @@ async function compressWithGeminiFlash(text: string, apiKey: string): Promise<st
 }
 
 async function compressWithOllama(text: string, baseUrl: string, model: string): Promise<string> {
-  const client = new OpenAI({ apiKey: 'ollama', baseURL: `${baseUrl.replace(/\/$/, '')}/v1` })
-  const resp = await client.chat.completions.create({
+  const base = baseUrl.replace(/\/$/, '')
+  // Use Ollama's native API (/api/chat) instead of the OpenAI-compat endpoint so we
+  // can pass think:false — Qwen3.5 has thinking mode enabled by default and the OpenAI
+  // compat endpoint doesn't expose this flag. Without think:false the model wastes
+  // 2000-5000 tokens on internal reasoning before outputting the compression.
+  const nativeUrl = `${base}/api/chat`
+  const body = {
     model,
-    max_tokens: 300,
+    stream: false,
+    think: false,
+    options: { temperature: 0, top_p: 1, top_k: 1, num_predict: 300, num_ctx: 2048 },
     messages: [{ role: 'user', content: `${COMPRESS_PROMPT}\n\n---\n${text.slice(0, 4000)}` }],
+  }
+  const response = await fetch(nativeUrl, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
   })
-  // local model — token spend is free, but tracked under its name so it shows in By Model
-  recordAiUsage(`local:${model}`, resp.usage?.prompt_tokens ?? 0, resp.usage?.completion_tokens ?? 0)
-  return resp.choices[0].message.content ?? ''
+  if (!response.ok) throw new Error(`Ollama API error: ${response.status}`)
+  const data = await response.json() as { message?: { content?: string }; prompt_eval_count?: number; eval_count?: number }
+  recordAiUsage(`local:${model}`, data.prompt_eval_count ?? 0, data.eval_count ?? 0)
+  return data.message?.content ?? ''
 }
 
 // ── AI compression orchestrator ───────────────────────────────────────────────
