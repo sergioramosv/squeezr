@@ -30,6 +30,8 @@ export interface Savings {
   staleTurnsSavedChars?: number // stale turn summarization savings
   skillDedupSavedChars?: number // skill/plugin block dedup savings (system prompt pre-pass)
   syspromptSavedChars?: number // system prompt Haiku compression savings
+  localAiCalls?: number        // local AI (Zest) calls — free, no cloud cost
+  localAiSavedChars?: number   // chars saved by local AI (Zest)
   // Latency tracking (ms)
   detMs?: number               // deterministic preprocessing time
   aiMs?: number                // AI compression time
@@ -59,6 +61,10 @@ function estimatePressure(messages: unknown[], extraChars = 0): number {
 // Real token spend of the compression calls themselves — shown in the dashboard
 // "AI Compression" card so the user sees cost vs. benefit of the AI layer.
 export const aiUsageCounters = { calls: 0, inputTokens: 0, outputTokens: 0 }
+// Local (Zest/Ollama) usage tracked separately — local calls are FREE so their
+// token counts should NOT appear in the "cost" column of the AI Compression card.
+// Savings are still counted in the normal savedChars pipeline.
+export const localAiUsageCounters = { calls: 0, inputTokens: 0, outputTokens: 0 }
 // Per-compression-model spend — so the dashboard "By Model" section can show
 // what each compression backend (Haiku, GPT-mini, etc.) actually costs in tokens.
 export const aiUsageByModel: Record<string, { calls: number; inputTokens: number; outputTokens: number }> = {}
@@ -68,9 +74,18 @@ const HAIKU_MODEL = 'claude-haiku-4-5-20251001'
 const GPT_MINI_MODEL = 'gpt-4o-mini'
 const GEMINI_FLASH_MODEL = 'gemini-1.5-flash-8b'
 function recordAiUsage(model: string, inputTokens: number, outputTokens: number): void {
-  aiUsageCounters.calls++
-  aiUsageCounters.inputTokens += inputTokens
-  aiUsageCounters.outputTokens += outputTokens
+  const isLocal = model.startsWith('local:')
+  if (isLocal) {
+    // Local models (Zest/Ollama) are free — track calls but NOT in cost counters
+    localAiUsageCounters.calls++
+    localAiUsageCounters.inputTokens += inputTokens
+    localAiUsageCounters.outputTokens += outputTokens
+  } else {
+    // Cloud models (Haiku/GPT/Gemini) — track in cost counters
+    aiUsageCounters.calls++
+    aiUsageCounters.inputTokens += inputTokens
+    aiUsageCounters.outputTokens += outputTokens
+  }
   if (!aiUsageByModel[model]) aiUsageByModel[model] = { calls: 0, inputTokens: 0, outputTokens: 0 }
   aiUsageByModel[model].calls++
   aiUsageByModel[model].inputTokens += inputTokens

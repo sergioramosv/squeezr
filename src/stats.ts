@@ -305,7 +305,12 @@ breakdown: {
       existing.stale_turns_saved_chars = (existing.stale_turns_saved_chars ?? 0) + (savings.staleTurnsSavedChars ?? 0)
       existing.skill_dedup_saved_chars = (existing.skill_dedup_saved_chars ?? 0) + (savings.skillDedupSavedChars ?? 0)
       existing.sysprompt_saved_chars = (existing.sysprompt_saved_chars ?? 0) + (savings.syspromptSavedChars ?? 0)
-      existing.ai_compression_calls = (existing.ai_compression_calls ?? 0) + savings.compressed
+existing.ai_compression_calls = (existing.ai_compression_calls ?? 0) + savings.compressed
+      // Local AI calls (Zest/Ollama) — persisted separately, not added to cost counters
+      if (savings.localAiCalls != null && savings.localAiCalls > 0) {
+        existing.local_ai_calls = (existing.local_ai_calls ?? 0) + savings.localAiCalls
+        existing.local_ai_saved_chars = (existing.local_ai_saved_chars ?? 0) + (savings.localAiSavedChars ?? 0)
+      }
 
       // By-tool: write current session snapshot (these are already correct cumulative values)
       const bt = existing.by_tool ?? {}

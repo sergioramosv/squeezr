@@ -6,7 +6,7 @@ import { stream, streamSSE } from 'hono/streaming';
 import { config, applyMode, runtimeOverrides, anthropicNativeCompactEnabled, effectiveBackend, USER_CONFIG_DIR, USER_CONFIG_PATH } from './config.js';
 import { Stats } from './stats.js';
 import { DASHBOARD_HTML, LOGO_SVG } from './dashboard.js';
-import { getCache, emptySavings, aiUsageCounters, aiUsageByModel } from './compressor.js';
+import { getCache, emptySavings, aiUsageCounters, aiUsageByModel, localAiUsageCounters } from './compressor.js';
 import { compressAnthropicMessages, compressOpenAIMessages, compressGeminiContents, } from './compressor.js';
 import { isBypassed, setBypassed, toggleBypassed } from './bypass.js';
 import { isAiCompressionEnabled, setAiCompression, toggleAiCompression } from './aiToggle.js';
@@ -803,11 +803,16 @@ async function buildStatsPayload() {
         // AI compression card: session counters (real usage from the backend SDKs)
         // + session saved chars from the live summary (before all-time overwrite).
         ai_usage: {
+            // Cloud AI (Haiku/GPT/Gemini) — counts as cost
             calls: aiUsageCounters.calls,
             input_tokens: aiUsageCounters.inputTokens,
             output_tokens: aiUsageCounters.outputTokens,
             saved_chars: session.breakdown?.tool_results_ai ?? 0,
             by_model: aiUsageByModel,
+            // Local AI (Zest/Ollama) — free, no cost, savings still count
+            local_calls: localAiUsageCounters.calls,
+            local_input_tokens: localAiUsageCounters.inputTokens,
+            local_output_tokens: localAiUsageCounters.outputTokens,
         },
         cache: getCache(config).stats(),
         expand_store_size: expandStoreSize(),
