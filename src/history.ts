@@ -9,7 +9,7 @@
  * Sessions accumulate stats per project. History survives across restarts.
  */
 
-import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs'
+import { readFileSync, writeFileSync, mkdirSync, existsSync, renameSync } from 'node:fs'
 import { join } from 'node:path'
 import { homedir } from 'node:os'
 
@@ -78,7 +78,10 @@ export function persistHistory(): void {
       store.sessions = store.sessions.slice(-MAX_SESSIONS)
     }
 
-    writeFileSync(HISTORY_FILE, JSON.stringify(store))
+    // Atomic write — prevents half-written history.json on kill (same fix as stats.json)
+    const tmp = HISTORY_FILE + '.tmp'
+    writeFileSync(tmp, JSON.stringify(store))
+    renameSync(tmp, HISTORY_FILE)
   } catch { /* ignore */ }
 }
 

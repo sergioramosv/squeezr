@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'fs'
+import { readFileSync, writeFileSync, mkdirSync, existsSync, renameSync } from 'fs'
 import { join } from 'path'
 import { homedir } from 'os'
 import type { Savings } from './compressor.js'
@@ -272,9 +272,17 @@ breakdown: {
     try {
       const dir = join(homedir(), '.squeezr')
       if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
-      const existing = existsSync(STATS_FILE)
-        ? JSON.parse(readFileSync(STATS_FILE, 'utf-8'))
-        : {}
+      // Robust read: a corrupted stats.json (e.g. null bytes from an interrupted
+      // write) must NOT abort persistence forever — treat it as empty and rebuild.
+      let existing: Record<string, any> = {}
+      if (existsSync(STATS_FILE)) {
+        try {
+          existing = JSON.parse(readFileSync(STATS_FILE, 'utf-8'))
+        } catch {
+          console.log('[squeezr] stats.json corrupted — rebuilding from session counters')
+          existing = {}
+        }
+      }
 
       // Core counters — delta only
       existing.requests = (existing.requests ?? 0) + 1
@@ -291,9 +299,6 @@ breakdown: {
       existing.skill_dedup_saved_chars = (existing.skill_dedup_saved_chars ?? 0) + (savings.skillDedupSavedChars ?? 0)
       existing.sysprompt_saved_chars = (existing.sysprompt_saved_chars ?? 0) + (savings.syspromptSavedChars ?? 0)
       existing.ai_compression_calls = (existing.ai_compression_calls ?? 0) + savings.compressed
-      existing.sysprompt_saved_chars = (existing.sysprompt_saved_chars ?? 0) + (this.totalSyspromptSaved > 0 ? this.totalSyspromptSaved : 0)
-      // Reset sysprompt counter after persisting to avoid double-counting
-      this.totalSyspromptSaved = 0
 
       // By-tool: write current session snapshot (these are already correct cumulative values)
       const bt = existing.by_tool ?? {}
@@ -325,7 +330,11 @@ breakdown: {
         }])
       )
 
-      writeFileSync(STATS_FILE, JSON.stringify(existing))
+      // Atomic write: write to tmp then rename, so a kill mid-write can never
+      // leave stats.json half-written (the null-bytes corruption of 2026-05-24).
+      const tmp = STATS_FILE + '.tmp'
+      writeFileSync(tmp, JSON.stringify(existing))
+      renameSync(tmp, STATS_FILE)
     } catch { /* ignore */ }
   }
 

@@ -1,5 +1,14 @@
 # Changelog
 All notable changes to Squeezr will be documented here.
+## [1.55.5] - 2026-06-04
+### Fixed
+- **stats.json corrupto bloqueaba TODA la persistencia desde el 24 de mayo** — el archivo estaba lleno de null bytes (write interrumpido). `persist()` hacía `JSON.parse` → lanzaba → catch ignoraba → nunca se escribía nada más. Por eso By Model/By Client se borraban en cada reinicio. Ahora: parse corrupto se recupera (rebuild desde sesión) + escritura atómica (tmp + rename).
+- **history.json** protegido con la misma escritura atómica (fuente del Overview "Today").
+- **Double-count de sysprompt_saved_chars** en persist() — sumaba delta Y acumulado de sesión, y reseteaba el contador rompiendo el breakdown.
+## [1.55.4] - 2026-06-04
+### Fixed
+- Overview siempre muestra Today — eliminado el fallback a all-time mientras carga history.
+- Est. Cost Saved en Savings usaba un "scale factor" inconsistente con la sección By Model — ahora usa blended rate (coste all-time / tokens all-time × tokens del período).
 ## [1.55.3] - 2026-06-01
 ### Changed
 - **Overview = Today**: Los hero cards del Overview ahora muestran los datos de HOY (desde history.json, filtrado a 00:00–23:59) en vez del histórico acumulado. El histórico sigue disponible en la pestaña Savings. Badge "Today" aparece cuando los datos están listos.
