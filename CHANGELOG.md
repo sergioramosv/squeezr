@@ -1,5 +1,8 @@
 # Changelog
 All notable changes to Squeezr will be documented here.
+## [1.57.1] - 2026-06-04
+### Fixed
+- **Compresión AI fallaba con 401 para usuarios de Claude Code con suscripción** — los OAuth tokens (`sk-ant-oat...`) hacían match en `startsWith('sk-')` y se enviaban como `x-api-key` → `authentication_error`. Tras el fix v1.56.1 (que hizo que la AI compression por fin se intentara), el 401 abría el circuit breaker y la desactivaba de nuevo. Ahora los tokens OAuth van como `Authorization: Bearer` + header `anthropic-beta: oauth-2025-04-20`. Arreglado en los 3 call sites: `compressWithHaiku`, `compressSystemPrompt` (que además no forzaba baseURL — riesgo de recursión) y el endpoint `/squeezr/compress`.
 ## [1.57.0] - 2026-06-04
 ### Added
 - **MCP tool filtering per-server** (`src/mcpFilter.ts`) — elimina del `tools[]` los tools de servidores MCP bloqueados. Capture data: planning-task-mcp solo = 87 tools · ~18,500 tokens por request aunque la sesión nunca lo use. Config: `mcp_block_servers = ["server"]` (blocklist) o `mcp_allow_servers = ["server"]` (allowlist, tiene precedencia). Default OFF (ambas listas vacías). 11 tests.

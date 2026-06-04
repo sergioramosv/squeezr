@@ -54,13 +54,15 @@ function estimatePressure(messages: unknown[], extraChars = 0): number {
 // ── Compression backends ──────────────────────────────────────────────────────
 
 async function compressWithHaiku(text: string, apiKey: string): Promise<string> {
-  // apiKey can be either a real API key (sk-ant-...) or an OAuth bearer token.
-  // The Anthropic SDK accepts both: apiKey → x-api-key header,
-  // authToken → Authorization: Bearer header.
-  const authOpts = apiKey.startsWith('sk-') ? { apiKey } : { authToken: apiKey }
+  // apiKey can be a real API key (sk-ant-api...), a Claude Code OAuth access
+  // token (sk-ant-oat...), or another bearer token. OAuth tokens MUST go as
+  // Authorization: Bearer + the oauth beta header — sent as x-api-key they 401.
+  const isOAuth = apiKey.startsWith('sk-ant-oat') || !apiKey.startsWith('sk-')
+  const authOpts = isOAuth ? { authToken: apiKey } : { apiKey }
+  const oauthHeaders = isOAuth ? { 'anthropic-beta': 'oauth-2025-04-20' } : undefined
   // Force real API URL — ANTHROPIC_BASE_URL points to this proxy, which would cause
   // infinite recursion if we let the SDK inherit it from the environment.
-  const client = new Anthropic({ ...authOpts, baseURL: 'https://api.anthropic.com' })
+  const client = new Anthropic({ ...authOpts, baseURL: 'https://api.anthropic.com', defaultHeaders: oauthHeaders })
   const resp = await client.messages.create({
     model: 'claude-haiku-4-5-20251001',
     max_tokens: 300,

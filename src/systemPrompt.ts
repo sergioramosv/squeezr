@@ -68,8 +68,12 @@ export async function compressSystemPrompt(
     const input = `${PROMPT}\n\n---\n${detPrompt.slice(0, 10000)}`
 
     if (backend === 'haiku') {
-      const authOpts = apiKey.startsWith('sk-') ? { apiKey } : { authToken: apiKey }
-      const client = new Anthropic(authOpts)
+      // OAuth tokens (sk-ant-oat...) must go as Bearer + oauth beta header — as x-api-key they 401
+      const isOAuth = apiKey.startsWith('sk-ant-oat') || !apiKey.startsWith('sk-')
+      const authOpts = isOAuth ? { authToken: apiKey } : { apiKey }
+      const oauthHeaders = isOAuth ? { 'anthropic-beta': 'oauth-2025-04-20' } : undefined
+      // Force real API URL — ANTHROPIC_BASE_URL may point back to this proxy (recursion)
+      const client = new Anthropic({ ...authOpts, baseURL: 'https://api.anthropic.com', defaultHeaders: oauthHeaders })
       const resp = await client.messages.create({
         model: 'claude-haiku-4-5-20251001',
         max_tokens: 700,

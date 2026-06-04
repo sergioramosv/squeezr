@@ -1130,9 +1130,12 @@ TOOL OUTPUT TO COMPRESS:
 ${text}`
 
   try {
-    const authOpts = token.startsWith('sk-') ? { apiKey: token } : { authToken: token }
+// OAuth tokens (sk-ant-oat...) must go as Bearer + oauth beta header — as x-api-key they 401
+    const isOAuth = token.startsWith('sk-ant-oat') || !token.startsWith('sk-')
+    const authOpts = isOAuth ? { authToken: token } : { apiKey: token }
+    const oauthHeaders = isOAuth ? { 'anthropic-beta': 'oauth-2025-04-20' } : undefined
     const { default: Anthropic } = await import('@anthropic-ai/sdk')
-    const client = new Anthropic({ ...authOpts, baseURL: 'https://api.anthropic.com' })
+    const client = new Anthropic({ ...authOpts, baseURL: 'https://api.anthropic.com', defaultHeaders: oauthHeaders })
     const t0 = Date.now()
     const resp = await client.messages.create({
       model,
