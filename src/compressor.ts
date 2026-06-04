@@ -57,6 +57,23 @@ function estimatePressure(messages: unknown[], extraChars = 0): number {
 // Real token spend of the compression calls themselves — shown in the dashboard
 // "AI Compression" card so the user sees cost vs. benefit of the AI layer.
 export const aiUsageCounters = { calls: 0, inputTokens: 0, outputTokens: 0 }
+// Per-compression-model spend — so the dashboard "By Model" section can show
+// what each compression backend (Haiku, GPT-mini, etc.) actually costs in tokens.
+export const aiUsageByModel: Record<string, { calls: number; inputTokens: number; outputTokens: number }> = {}
+// Compression model IDs — single source of truth. Used both for the API call and
+// as the fallback label if the response doesn't echo back its model name.
+const HAIKU_MODEL = 'claude-haiku-4-5-20251001'
+const GPT_MINI_MODEL = 'gpt-4o-mini'
+const GEMINI_FLASH_MODEL = 'gemini-1.5-flash-8b'
+function recordAiUsage(model: string, inputTokens: number, outputTokens: number): void {
+  aiUsageCounters.calls++
+  aiUsageCounters.inputTokens += inputTokens
+  aiUsageCounters.outputTokens += outputTokens
+  if (!aiUsageByModel[model]) aiUsageByModel[model] = { calls: 0, inputTokens: 0, outputTokens: 0 }
+  aiUsageByModel[model].calls++
+  aiUsageByModel[model].inputTokens += inputTokens
+  aiUsageByModel[model].outputTokens += outputTokens
+}
 async function compressWithHaiku(text: string, apiKey: string): Promise<string> {
   // apiKey can be a real API key (sk-ant-api...), a Claude Code OAuth access
   // token (sk-ant-oat...), or another bearer token. OAuth tokens MUST go as
@@ -68,13 +85,12 @@ async function compressWithHaiku(text: string, apiKey: string): Promise<string> 
   // infinite recursion if we let the SDK inherit it from the environment.
   const client = new Anthropic({ ...authOpts, baseURL: 'https://api.anthropic.com', defaultHeaders: oauthHeaders })
   const resp = await client.messages.create({
-    model: 'claude-haiku-4-5-20251001',
+    model: HAIKU_MODEL,
     max_tokens: 300,
     messages: [{ role: 'user', content: `${COMPRESS_PROMPT}\n\n---\n${text.slice(0, 4000)}` }],
   })
-  aiUsageCounters.calls++
-  aiUsageCounters.inputTokens += resp.usage?.input_tokens ?? 0
-  aiUsageCounters.outputTokens += resp.usage?.output_tokens ?? 0
+  // Model name comes from the response, not a literal — survives model upgrades
+  recordAiUsage(resp.model ?? HAIKU_MODEL, resp.usage?.input_tokens ?? 0, resp.usage?.output_tokens ?? 0)
   return (resp.content[0] as { text: string }).text
 }
 
@@ -84,18 +100,16 @@ async function compressWithGptMini(text: string, apiKey: string): Promise<string
   // infinite recursion if we let the SDK inherit it from the environment.
   const client = new OpenAI({ apiKey, baseURL: 'https://api.openai.com/v1' })
   const resp = await client.chat.completions.create({
-    model: 'gpt-4o-mini',
+    model: GPT_MINI_MODEL,
     max_tokens: 300,
     messages: [{ role: 'user', content: `${COMPRESS_PROMPT}\n\n---\n${text.slice(0, 4000)}` }],
   })
-  aiUsageCounters.calls++
-  aiUsageCounters.inputTokens += resp.usage?.prompt_tokens ?? 0
-  aiUsageCounters.outputTokens += resp.usage?.completion_tokens ?? 0
+  recordAiUsage(resp.model ?? GPT_MINI_MODEL, resp.usage?.prompt_tokens ?? 0, resp.usage?.completion_tokens ?? 0)
   return resp.choices[0].message.content ?? ''
 }
 
 async function compressWithGeminiFlash(text: string, apiKey: string): Promise<string> {
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-8b:generateContent?key=${apiKey}`
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_FLASH_MODEL}:generateContent?key=${apiKey}`
   const resp = await fetch(url, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
@@ -106,10 +120,9 @@ async function compressWithGeminiFlash(text: string, apiKey: string): Promise<st
   const data = (await resp.json()) as {
     candidates: Array<{ content: { parts: Array<{ text: string }> } }>
     usageMetadata?: { promptTokenCount?: number; candidatesTokenCount?: number }
+    modelVersion?: string
   }
-  aiUsageCounters.calls++
-  aiUsageCounters.inputTokens += data.usageMetadata?.promptTokenCount ?? 0
-  aiUsageCounters.outputTokens += data.usageMetadata?.candidatesTokenCount ?? 0
+  recordAiUsage(data.modelVersion ?? GEMINI_FLASH_MODEL, data.usageMetadata?.promptTokenCount ?? 0, data.usageMetadata?.candidatesTokenCount ?? 0)
   return data.candidates[0].content.parts[0].text
 }
 
@@ -120,9 +133,8 @@ async function compressWithOllama(text: string, baseUrl: string, model: string):
     max_tokens: 300,
     messages: [{ role: 'user', content: `${COMPRESS_PROMPT}\n\n---\n${text.slice(0, 4000)}` }],
   })
-  aiUsageCounters.calls++  // local model — token spend is free but calls are tracked
-  aiUsageCounters.inputTokens += resp.usage?.prompt_tokens ?? 0
-  aiUsageCounters.outputTokens += resp.usage?.completion_tokens ?? 0
+  // local model — token spend is free, but tracked under its name so it shows in By Model
+  recordAiUsage(`local:${model}`, resp.usage?.prompt_tokens ?? 0, resp.usage?.completion_tokens ?? 0)
   return resp.choices[0].message.content ?? ''
 }
 

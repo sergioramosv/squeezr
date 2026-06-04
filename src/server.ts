@@ -7,7 +7,7 @@ import { config, applyMode, runtimeOverrides, anthropicNativeCompactEnabled, eff
 import { Stats } from './stats.js'
 import type { LatencyInfo } from './stats.js'
 import { DASHBOARD_HTML, LOGO_SVG } from './dashboard.js'
-import { getCache, emptySavings, aiUsageCounters } from './compressor.js'
+import { getCache, emptySavings, aiUsageCounters, aiUsageByModel } from './compressor.js'
 import {
   compressAnthropicMessages,
   compressOpenAIMessages,
@@ -854,11 +854,12 @@ anthropic_native_compact: anthropicNativeCompactEnabled(),
     compression_backend: effectiveBackend(),
     // AI compression card: session counters (real usage from the backend SDKs)
     // + session saved chars from the live summary (before all-time overwrite).
-    ai_usage: {
+ai_usage: {
       calls: aiUsageCounters.calls,
       input_tokens: aiUsageCounters.inputTokens,
       output_tokens: aiUsageCounters.outputTokens,
       saved_chars: session.breakdown?.tool_results_ai ?? 0,
+      by_model: aiUsageByModel,
     },
     cache: getCache(config).stats(),
     expand_store_size: expandStoreSize(),

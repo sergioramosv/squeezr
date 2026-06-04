@@ -2,6 +2,9 @@
 All notable changes to Squeezr will be documented here.
 ## [1.58.0] - 2026-06-04
 ### Added
+- **Coste de compresión en By Model** — bajo el desglose de ahorro por modelo, una sección "Compression cost" lista cada backend de compresión (Haiku, GPT-mini, Gemini, o local) con sus llamadas, tokens gastados (in/out) y coste en $. Los modelos locales se marcan "(local · free)".
+- Los nombres de modelo de compresión se leen de la **respuesta del API** (`resp.model` / `modelVersion`), no de literales hardcoded — sobreviven a actualizaciones de modelo. Constantes `HAIKU_MODEL`/`GPT_MINI_MODEL`/`GEMINI_FLASH_MODEL` como única fuente de verdad para la llamada + fallback.
+- `aiUsageByModel` en `compressor.ts`, expuesto en `/squeezr/stats` como `ai_usage.by_model`.
 - **Card "AI Compression" en el Overview** — muestra, para la sesión actual: Calls (nº de llamadas al backend de compresión), Saved (tokens ahorrados por la capa AI), Spent (tokens que cuestan las propias llamadas: input+output) y una línea Net (saved − spent) en verde/rojo. Permite ver de un vistazo si la compresión AI compensa.
 - Tracking real de uso vía `aiUsageCounters` en `compressor.ts` — lee `usage` de cada respuesta de Haiku/GPT-mini/Gemini/Ollama. Expuesto en `/squeezr/stats` como `ai_usage`.
 - El grid del Overview pasa de 2 a 3 columnas: Top Tools · Session Cache · AI Compression.

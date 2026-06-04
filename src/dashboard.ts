@@ -917,7 +917,7 @@ function render(d) {
   setTxt('sp-saved-pct',   (ratioPct != null ? Math.round(ratioPct) + '% · ' : '') + priceNote);
   var noteEl = document.getElementById('cost-note'); if(noteEl) noteEl.textContent = priceNote;
   // Model breakdown section
-  renderModelBreakdown(d.by_model);
+  renderModelBreakdown(d.by_model, d.ai_usage && d.ai_usage.by_model);
 
   // CLI breakdown (#8)
   renderClientBreakdown(d.by_client);
@@ -1195,9 +1195,40 @@ function buildModelHtml(byModel) {
   }).join('');
 }
 
-function renderModelBreakdown(byModel) {
+// Build the "compression cost" rows — what each compression backend (Haiku,
+// GPT-mini, etc.) actually SPENT in tokens this session. Shown below the By Model
+// savings so the user sees the cost side of the AI compression layer.
+function buildCompressionCostHtml(aiByModel) {
+  if (!aiByModel || !Object.keys(aiByModel).length) return '';
+  var rows = Object.entries(aiByModel)
+    .filter(function(e){ return (e[1].calls || 0) > 0; })
+    .sort(function(a,b){ return (b[1].inputTokens + b[1].outputTokens) - (a[1].inputTokens + a[1].outputTokens); });
+  if (!rows.length) return '';
+  var html = '<div style="margin-top:14px;padding-top:12px;border-top:1px dashed var(--surface3)">' +
+    '<div style="font-size:11px;color:var(--text3);margin-bottom:10px;text-transform:uppercase;letter-spacing:.5px">Compression cost (what the AI layer spends)</div>';
+  html += rows.map(function(e){
+    var model = e[0];
+    var data  = e[1];
+    var spentTok = (data.inputTokens || 0) + (data.outputTokens || 0);
+    var isLocal = model.indexOf('local:') === 0;
+    var priceIn = isLocal ? 0 : getModelPrice(model);
+    var spentCost = spentTok * priceIn / 1000000;
+    return '<div style="margin-bottom:10px">' +
+      '<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:3px">' +
+        '<span style="font-size:12px;font-weight:600;color:var(--text);font-family:monospace">' + esc(model.replace('local:', '')) + (isLocal ? ' <span style="color:var(--brand2);font-weight:400">(local · free)</span>' : '') + '</span>' +
+        '<span style="font-size:12px;color:var(--text2)">' + (isLocal ? '—' : fmtUsd(spentCost)) + ' spent</span>' +
+      '</div>' +
+      '<div style="font-size:11px;color:var(--text3)">' +
+        data.calls + ' call' + (data.calls !== 1 ? 's' : '') + ' · ' + fmt(spentTok) + ' tokens (' + fmt(data.inputTokens) + ' in / ' + fmt(data.outputTokens) + ' out)' +
+      '</div>' +
+    '</div>';
+  }).join('');
+  html += '</div>';
+  return html;
+}
+function renderModelBreakdown(byModel, aiByModel) {
   var el = document.getElementById('model-body');
-  if (el) el.innerHTML = buildModelHtml(byModel);
+  if (el) el.innerHTML = buildModelHtml(byModel) + buildCompressionCostHtml(aiByModel);
 }
 
 // ── Client breakdown (#8) ──────────────────────────────────────────────────
