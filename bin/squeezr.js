@@ -2071,12 +2071,72 @@ async function installZest() {
   console.log('outputs locally — zero cost, zero API calls, zero latency added.')
   console.log('Runs via Ollama on your machine.\n')
 
-  // ── Step 1: Check / install Ollama ────────────────────────────────────────
+// ── Step 1: Check / install Ollama + verify compatible version ────────────
+  // Zest is based on Qwen3.5 which requires Ollama ≥ 0.6.0 (added qwen3.5 arch)
+  const OLLAMA_MIN_MAJOR = 0
+  const OLLAMA_MIN_MINOR = 6
   console.log('[ 1 / 4 ]  Checking Ollama...')
   let ollamaOk = false
-  try { execSync('ollama --version', { stdio: 'pipe' }); ollamaOk = true } catch {}
+  let ollamaVersion = null
+  try {
+    const vOut = execSync('ollama --version', { stdio: 'pipe', encoding: 'utf-8' })
+    const m = vOut.match(/(\d+)\.(\d+)\.(\d+)/)
+    if (m) {
+      ollamaVersion = `${m[1]}.${m[2]}.${m[3]}`
+      const major = parseInt(m[1]), minor = parseInt(m[2])
+      ollamaOk = major > OLLAMA_MIN_MAJOR || (major === OLLAMA_MIN_MAJOR && minor >= OLLAMA_MIN_MINOR)
+      if (!ollamaOk) {
+        console.log(`\n  Ollama ${ollamaVersion} is too old. Zest requires Ollama ≥ ${OLLAMA_MIN_MAJOR}.${OLLAMA_MIN_MINOR}.0`)
+        console.log('  (Qwen3.5 architecture support was added in 0.6.0)\n')
+        const ans = await ask('  Update Ollama now? [Y/n] ')
+        if (ans.toLowerCase() === 'n') {
+          console.log('\n  Download the latest from https://ollama.com/download then run: squeezr zest\n')
+          rl.close(); return
+        }
+        // Update Ollama
+        if (process.platform === 'win32') {
+          console.log('\n  Downloading latest Ollama installer...')
+          const installerPath = path.join(os.tmpdir(), 'OllamaSetup.exe')
+          await new Promise((resolve, reject) => {
+            const file = require('fs').createWriteStream(installerPath)
+            require('https').get('https://ollama.com/download/OllamaSetup.exe', { headers: { 'User-Agent': 'squeezr-zest-installer' } }, res => {
+              if (res.statusCode === 302 || res.statusCode === 301) {
+                require('https').get(res.headers.location, { headers: { 'User-Agent': 'squeezr-zest-installer' } }, res2 => { res2.pipe(file); file.on('finish', resolve) }).on('error', reject)
+              } else { res.pipe(file); file.on('finish', resolve) }
+            }).on('error', reject)
+          })
+          console.log('  Installing (may show a UAC prompt)...')
+          try {
+            execSync(`"${installerPath}" /S`, { stdio: 'inherit' })
+            ollamaOk = true
+            console.log('  ✓ Ollama updated')
+          } catch {
+            console.log('\n  Automatic update failed. Download manually: https://ollama.com/download/windows')
+            const wait = await ask('  Press Enter once Ollama is updated... ')
+          }
+        } else {
+          console.log('  → Updating via official script...')
+          try { execSync('curl -fsSL https://ollama.com/install.sh | sh', { stdio: 'inherit' }); ollamaOk = true } catch {}
+        }
+        // Re-check version
+        try {
+          const vOut2 = execSync('ollama --version', { stdio: 'pipe', encoding: 'utf-8' })
+          const m2 = vOut2.match(/(\d+)\.(\d+)/)
+          if (m2) {
+            ollamaOk = parseInt(m2[1]) > OLLAMA_MIN_MAJOR || (parseInt(m2[1]) === OLLAMA_MIN_MAJOR && parseInt(m2[2]) >= OLLAMA_MIN_MINOR)
+          }
+        } catch {}
+        if (!ollamaOk) {
+          console.log('\n  Please update Ollama manually from https://ollama.com/download then run: squeezr zest\n')
+          rl.close(); return
+        }
+      }
+    } else {
+      ollamaOk = true  // version string not parseable — assume ok
+    }
+  } catch {}
 
-  if (!ollamaOk) {
+  if (!ollamaOk && !ollamaVersion) {
     console.log('\n  Ollama is not installed.')
     console.log('  Ollama is a free, open-source local model runner.\n')
     const ans = await ask('  Install Ollama now? [Y/n] ')
