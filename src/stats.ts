@@ -8,9 +8,6 @@ const CHARS_PER_TOKEN = 3.5
 
 interface ToolData { count: number; savedChars: number; originalChars: number }
 
-/** One live-log entry shown in the dashboard feed (e.g. "squeezr-det: -34,344 tokens") */
-export interface ActivityEvent { id: number; ts: number; layer: 'det' | 'dedup' | 'ai'; tokens: number }
-
 export interface LatencyInfo {
   totalMs: number
   detMs?: number
@@ -89,22 +86,6 @@ export class Stats {
   private expandHits = 0
   private expandMisses = 0
 
-  // Live activity feed (in-memory ring buffer for the dashboard Live Log card)
-  private activityLog: ActivityEvent[] = []
-  private activitySeq = 0
-
-  private pushActivity(layer: ActivityEvent['layer'], chars: number): void {
-    const tokens = Math.round(chars / CHARS_PER_TOKEN)
-    if (tokens < 1) return
-    this.activityLog.push({ id: ++this.activitySeq, ts: Date.now(), layer, tokens })
-    if (this.activityLog.length > 100) this.activityLog.splice(0, this.activityLog.length - 100)
-  }
-
-  /** Recent per-request savings events, oldest → newest. Session-only (not persisted). */
-  recentActivity(): ActivityEvent[] {
-    return this.activityLog
-  }
-
   record(originalChars: number, compressedChars: number, savings: Savings, latency?: LatencyInfo): void {
     this.requests++
     this.totalOriginalChars += originalChars
@@ -125,17 +106,6 @@ this.totalDetSaved += savings.detSavedChars ?? 0
     this.totalSkillDedupSaved += savings.skillDedupSavedChars ?? 0
     this.totalSyspromptSaved += savings.syspromptSavedChars ?? 0
     this.totalAiCompressionCalls += savings.compressed
-
-    // Live Log feed: one event per layer that saved something this request
-    const detChars = (savings.detSavedChars ?? 0)
-      + (savings.toolDescSavedChars ?? 0)
-      + (savings.mcpFilterSavedChars ?? 0)
-      + (savings.staleTurnsSavedChars ?? 0)
-      + (savings.skillDedupSavedChars ?? 0)
-      + (savings.syspromptSavedChars ?? 0)
-    this.pushActivity('det', detChars)
-    this.pushActivity('dedup', savings.dedupSavedChars ?? 0)
-    this.pushActivity('ai', savings.aiSavedChars ?? 0)
 
     // Latency tracking
     if (latency) {

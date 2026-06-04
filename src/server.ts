@@ -33,6 +33,7 @@ import { filterMcpTools } from './mcpFilter.js'
 import { anthropicDirectFetch, isAnthropicUrl } from './anthropicDirectFetch.js'
 import { sessionCacheSize } from './sessionCache.js'
 import { detPatternHits } from './deterministic.js'
+import { recentLogLines } from './logFeed.js'
 import { VERSION } from './version.js'
 import {
   recordRequest,
@@ -899,7 +900,7 @@ ai_usage: {
     limits: limitsSnapshot(),
     bypassed: isBypassed(),
     circuit_breaker: circuitBreaker.snapshot(),
-    activity: stats.recentActivity(),
+    activity: recentLogLines(),
   }
 }
 

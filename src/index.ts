@@ -9,6 +9,10 @@ import { loadHistory, persistHistory } from './history.js'
 import { probePort, findFreePort } from './probePort.js'
 import { runSelfTest, formatSelfTest } from './selfTest.js'
 import { writeRuntimeInfo, clearRuntimeInfo } from './runtimeInfo.js'
+import { installLogCapture } from './logFeed.js'
+
+// Mirror compression log lines into the dashboard Live Log feed (before anything logs)
+installLogCapture()
 
 // Load persisted caches before accepting requests
 loadSessionCache()

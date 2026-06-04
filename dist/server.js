@@ -21,6 +21,7 @@ import { filterMcpTools } from './mcpFilter.js';
 import { anthropicDirectFetch, isAnthropicUrl } from './anthropicDirectFetch.js';
 import { sessionCacheSize } from './sessionCache.js';
 import { detPatternHits } from './deterministic.js';
+import { recentLogLines } from './logFeed.js';
 import { VERSION } from './version.js';
 import { recordRequest, getHistorySessions, getCurrentSession, getProjectAggregates, getAllSessionsForHistory, setSessionExtrasProvider, } from './history.js';
 import { updateAnthropicFromHeaders, updateOpenAIFromHeaders, updateGeminiFrom429, addAnthropicUsage, addOpenAIUsage, addGeminiUsage, makeSseUsageParser, maybeRefreshOpenAIBilling, maybeRefreshOpenAISessionLimits, storeKey, storedKey, limitsSnapshot, } from './limits.js';
@@ -820,7 +821,7 @@ async function buildStatsPayload() {
         limits: limitsSnapshot(),
         bypassed: isBypassed(),
         circuit_breaker: circuitBreaker.snapshot(),
-        activity: stats.recentActivity(),
+        activity: recentLogLines(),
     };
 }
 app.get('/squeezr/stats', (c) => {

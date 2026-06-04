@@ -215,26 +215,30 @@ code{font-family:'Cascadia Code','SF Mono',Consolas,monospace;font-size:.9em}
 .rl-row{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px}
 @media (max-width:760px){.rl-row{grid-template-columns:1fr}}
 
-/* ── Live Log feed ── */
-#livelog-body{max-height:220px;overflow:hidden;display:flex;flex-direction:column-reverse}
-.ll-list{display:flex;flex-direction:column-reverse;gap:6px}
+/* ── Live Log feed (newest at the BOTTOM; older scroll up and out) ── */
+#livelog-body{height:236px;overflow:hidden;padding:12px 14px}
+.ll-list{display:flex;flex-direction:column;justify-content:flex-end;gap:5px;min-height:100%}
 .ll-empty{font-size:13px;color:var(--text3);padding:8px 0}
 .ll-row{
-  display:flex;align-items:center;gap:10px;
-  font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;
-  padding:6px 10px;border-radius:8px;background:var(--surface2);border:1px solid var(--border2);
+  display:flex;align-items:baseline;gap:8px;
+  font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px;line-height:1.45;
+  padding:5px 9px;border-radius:7px;background:var(--surface2);border:1px solid var(--border2);
+  white-space:nowrap;overflow:hidden;
 }
-.ll-row.ll-new{animation:llRise .45s ease-out}
+.ll-row.ll-new{animation:llRise .45s cubic-bezier(.22,1,.36,1)}
 @keyframes llRise{
-  0%{opacity:0;transform:translateY(10px)}
+  0%{opacity:0;transform:translateY(14px)}
   100%{opacity:1;transform:translateY(0)}
 }
-.ll-tag{font-weight:600;flex-shrink:0}
+.ll-tag{font-weight:700;flex-shrink:0}
 .ll-tag.det{color:#60a5fa}
 .ll-tag.dedup{color:#c084fc}
 .ll-tag.ai{color:var(--brand2)}
-.ll-val{font-weight:700;color:var(--brand2);font-variant-numeric:tabular-nums;margin-left:auto}
-.ll-time{font-size:11px;color:var(--text3);flex-shrink:0;width:54px;text-align:right}
+.ll-tag.tooldesc{color:#fbbf24}
+.ll-tag.other{color:var(--text3)}
+.ll-msg{color:var(--text2);overflow:hidden;text-overflow:ellipsis}
+.ll-msg .num{color:var(--brand2);font-weight:700}
+.ll-time{font-size:10.5px;color:var(--text3);flex-shrink:0;margin-left:auto}
 
 /* ── Mode controls ── */
 .controls-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
@@ -446,7 +450,7 @@ code{font-family:'Cascadia Code','SF Mono',Consolas,monospace;font-size:.9em}
         <div class="section" style="margin:0">
           <div class="section-head">
             <span class="section-title">Live Log</span>
-            <span style="font-size:11px;color:var(--text3)">real-time · tokens saved per request</span>
+            <span style="font-size:11px;color:var(--text3)">real-time · compression events</span>
           </div>
           <div class="section-body" id="livelog-body">
             <div class="ll-empty">Waiting for activity…</div>
@@ -1122,7 +1126,8 @@ function renderTools(tools) {
 }
 
 // ── Live Log feed ──────────────────────────────────────────────────────────
-var llSeen = {};       // event id → true, so we only animate genuinely new rows
+// Shows the REAL compression log lines (e.g. "[squeezr/det] Deterministic:
+// -32,323 chars (~9235 tokens) across 54 block(s)"), newest at the BOTTOM.
 var llMaxId = 0;
 function llTimeAgo(ts) {
   var s = Math.max(0, Math.round((Date.now() - ts) / 1000));
@@ -1131,6 +1136,14 @@ function llTimeAgo(ts) {
   if (m < 60) return m + 'm';
   return Math.floor(m / 60) + 'h';
 }
+// Map the "[squeezr/xxx]" tag to a colour class.
+function llTagClass(tag) {
+  if (/dedup/.test(tag)) return 'dedup';
+  if (/ai|haiku|gpt|gemini|zest|ollama/.test(tag)) return 'ai';
+  if (/tool-desc|mcp/.test(tag)) return 'tooldesc';
+  if (/det/.test(tag)) return 'det';
+  return 'other';
+}
 function renderLiveLog(activity) {
   var el = document.getElementById('livelog-body');
   if (!el) return;
@@ -1138,15 +1151,20 @@ function renderLiveLog(activity) {
     if (!el.querySelector('.ll-list')) el.innerHTML = '<div class="ll-empty">Waiting for activity…</div>';
     return;
   }
-  // Newest first, capped at 40 visible rows.
-  var rows = activity.slice(-40);
-  var labels = { det: 'squeezr-det', dedup: 'squeezr-dedup', ai: 'squeezr-ai' };
+  // Oldest → newest so the newest ends up at the bottom of the column.
+  var rows = activity.slice(-30);
   var html = rows.map(function(e){
     var isNew = e.id > llMaxId && llMaxId > 0;
-    var label = labels[e.layer] || ('squeezr-' + e.layer);
-    return '<div class="ll-row' + (isNew ? ' ll-new' : '') + '" data-id="' + e.id + '">' +
-      '<span class="ll-tag ' + esc(e.layer) + '">' + esc(label) + ':</span>' +
-      '<span class="ll-val">-' + fmt(e.tokens) + ' tokens</span>' +
+    // Split "[tag] rest of the line" so we can colour the tag.
+    var m = String(e.text).match(/^(\[[^\]]*\])\s*([\s\S]*)$/);
+    var tag = m ? m[1] : '';
+    var rest = m ? m[2] : String(e.text);
+    var cls = llTagClass(tag);
+    // Highlight the "-N chars" / "~N tokens" numbers.
+    var msg = esc(rest).replace(/(-?[\d.,]+\s*(?:chars|tokens))/g, '<span class="num">$1</span>');
+    return '<div class="ll-row' + (isNew ? ' ll-new' : '') + '" data-id="' + e.id + '" title="' + esc(e.text) + '">' +
+      '<span class="ll-tag ' + cls + '">' + esc(tag) + '</span>' +
+      '<span class="ll-msg">' + msg + '</span>' +
       '<span class="ll-time">' + llTimeAgo(e.ts) + '</span>' +
     '</div>';
   }).join('');

@@ -1,5 +1,12 @@
 # Changelog
 All notable changes to Squeezr will be documented here.
+## [1.69.1] - 2026-06-05
+### Fixed
+- **El Live Log ahora muestra los logs REALES de compresión, no eventos sintéticos.** Antes todo aparecía como `squeezr-det`; ahora se capturan las líneas tal cual las emite el proxy: `[squeezr/det] Deterministic: -32,323 chars (~9235 tokens) across 54 block(s)`, `[squeezr/tool-desc] 24/145 tool(s): …`, `[squeezr/user-det]`, `[squeezr/toolinput-det]`, `[squeezr/asst-det]`, `[squeezr/dedup]`, etc.
+- **Orden corregido: los nuevos aparecen ABAJO** (con animación de subida `llRise`) y los antiguos se desplazan hacia arriba y desaparecen por el borde superior — antes era al revés.
+- Nuevo módulo `logFeed.ts`: hace tee de `console.log` a un ring buffer en memoria (máx. 200 líneas, no persistido) filtrando solo las líneas de ahorro (`[squeezr…] … -N chars`). Se instala en `index.ts` antes de cualquier log. El tag entre corchetes se colorea por capa (det=azul, dedup=morado, ai=verde, tool-desc/mcp=ámbar) y los números `-N chars`/`~N tokens` se resaltan.
+### Changed
+- `buildStatsPayload().activity` ahora devuelve líneas de log `{id, ts, text}` en vez de eventos `{layer, tokens}`. Se eliminó el ring buffer sintético de `stats.ts`.
 ## [1.69.0] - 2026-06-04
 ### Added
 - **Live Log card en el dashboard, en la misma fila que Rate Limits.** La sección "Rate Limits" pasa a ser una fila de dos tarjetas (`.rl-row`, grid de 2 columnas): a la izquierda los rate limits de siempre, a la derecha un feed en tiempo real de tokens ahorrados por request.
