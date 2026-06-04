@@ -494,12 +494,17 @@ code{font-family:'Cascadia Code','SF Mono',Consolas,monospace;font-size:.9em}
         <div class="section-body" id="client-body-overview">
           <div style="font-size:13px;color:var(--text3)">No data yet — starts after first request.</div>
         </div>
-  ... [repeated 2 more times]
+      </div>
+
       <!-- Savings by compression type (all-time, persisted) -->
       <div class="section">
         <div class="section-head"><span class="section-title">Savings by type</span><span style="font-size:11px;color:var(--text3)">all time · persisted</span></div>
         <div class="section-body" id="breakdown-body">
           <div style="font-size:13px;color:var(--text3)">No data yet.</div>
+        </div>
+      </div>
+    </div>
+
     <!-- ── Savings page ── -->
     <div id="page-savings" style="display:none">
 
@@ -969,7 +974,7 @@ function render(d) {
 
   // CLI breakdown (#8)
   renderClientBreakdown(d.by_client);
-  renderBreakdown(d.breakdown);
+  renderBreakdown(d.breakdown, tokensSaved);
 
   // Mode & bypass
   updateMode(mode, byp);
@@ -1388,7 +1393,7 @@ var BREAKDOWN_LABELS = {
   skill_dedup:      'Skill/plugin dedup',
   system_prompt:    'System prompt',
 };
-function renderBreakdown(bd) {
+function renderBreakdown(bd, netTokens) {
   var el = document.getElementById('breakdown-body');
   if (!el) return;
   if (!bd || typeof bd !== 'object') {
@@ -1419,9 +1424,20 @@ function renderBreakdown(bd) {
       '</div>' +
     '</div>';
   }).join('');
-  html += '<div style="margin-top:6px;padding-top:10px;border-top:1px solid var(--surface3);display:flex;justify-content:space-between;font-size:12px">' +
-    '<span style="color:var(--text2);font-weight:600">Total</span>' +
-    '<span style="color:var(--brand2);font-weight:700">' + fmt(totalTok) + ' tokens saved</span></div>';
+  // The per-technique numbers are GROSS (each counts what it removed on its own).
+  // They overlap and don't subtract the [squeezr:ID] tag overhead, so their sum is
+  // larger than the real net saving. Show the net (same as the hero card) as the
+  // authoritative total, and label the gross sum separately so it's not confusing.
+  var grossTok = totalTok;
+  var netTok = (netTokens != null && netTokens > 0) ? netTokens : grossTok;
+  html += '<div style="margin-top:6px;padding-top:10px;border-top:1px solid var(--surface3)">' +
+    '<div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:3px">' +
+      '<span style="color:var(--text2);font-weight:600">Net saved (real)</span>' +
+      '<span style="color:var(--brand2);font-weight:700">' + fmt(netTok) + ' tokens</span></div>' +
+    '<div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text3)">' +
+      '<span>gross per-technique (overlaps + tag overhead)</span>' +
+      '<span>' + fmt(grossTok) + '</span></div>' +
+  '</div>';
   el.innerHTML = html;
 }
 

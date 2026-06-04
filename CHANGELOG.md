@@ -1,5 +1,9 @@
 # Changelog
 All notable changes to Squeezr will be documented here.
+## [1.64.1] - 2026-06-04
+### Fixed
+- **HTML roto en el Overview** — la card "Savings by type" v1.64.0 se insertó con divs de cierre mal balanceados (+ un placeholder colado), dejando las cards de arriba en "loading" perpetuo y la nueva card pegada a "Savings by client". Corregido: card independiente.
+- **Total del breakdown engañoso (42M vs 25M)** — la suma por técnica es BRUTA (cada técnica cuenta lo suyo; se solapan y no descuentan el overhead de los tags), por eso sumaba más que el ahorro real. Ahora muestra **Net saved (real)** (mismo número que el hero) como total, y la suma bruta aparte y etiquetada. El real es el neto (~25M), no la suma bruta (~42M).
 ## [1.64.0] - 2026-06-04
 ### Added
 - **Card "Savings by type"** en el Overview (debajo de Savings by client) — desglosa el ahorro acumulado por técnica: Deterministic, Repeated-read dedup, Tool descriptions, Stale turn summaries, AI compression, MCP filtering, Skill/plugin dedup, System prompt. Cada una con tokens + barra, y un Total al final. Datos all-time, ya persistidos en stats.json → sobreviven reinicios.
