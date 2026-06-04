@@ -166,7 +166,10 @@ async function runCompression(
     }),
   )
   const failures = results.filter(r => r.status === 'rejected').length
-  if (failures > 0) console.log(`[squeezr] ${failures} AI compression(s) failed (circuit: ${circuitBreaker.getState()})`)
+  if (failures > 0) {
+    const firstErr = (results.find(r => r.status === 'rejected') as PromiseRejectedResult | undefined)?.reason
+    console.log(`[squeezr] ${failures} AI compression(s) failed (circuit: ${circuitBreaker.getState()}): ${firstErr}`)
+  }
   return results
     .filter((r) => r.status === 'fulfilled')
     .map((r) => (r as PromiseFulfilledResult<{ index: number; subIndex?: number; original: string; result: string; tool: string }>).value)
@@ -582,17 +585,25 @@ const attDedup = dedupAttachments(msgs as Parameters<typeof dedupAttachments>[0]
 
   // Differential: split session cache hits from uncached
   const sessionHits: Array<{ index: number; subIndex: number; tool: string; block: SessionBlock }> = []
-  const toCompress: Array<{ index: number; subIndex: number; text: string; tool: string }> = []
-  const lastMsgIdx = messages.length - 1
+  let toCompress: Array<{ index: number; subIndex: number; text: string; tool: string }> = []
   for (const c of toProcess) {
     const cached = getBlock(hashText(c.text))
     if (cached) {
       sessionHits.push({ index: c.index, subIndex: c.subIndex, tool: c.tool, block: cached })
-    } else if (aiEnabled() && c.index === lastMsgIdx && !config.aiSkipTools.has(c.tool.toLowerCase())) {
-      // Only AI-compress genuinely new blocks (from the last user message).
-      // Historical uncached blocks skip AI compression → prevents burst on first activation.
+    } else if (aiEnabled() && !config.aiSkipTools.has(c.tool.toLowerCase())) {
       toCompress.push(c)
     }
+  }
+  // Cap AI calls per request to avoid a burst when first activating on a long
+  // conversation. Largest blocks first (max gain); the rest compress on later
+  // requests — session cache makes this converge in a few turns.
+  // (The previous guard `c.index === lastMsgIdx` was dead logic: the last message
+  // is always inside keepRecent, so AI compression never fired for Anthropic.)
+  const MAX_AI_BLOCKS_PER_REQUEST = 5
+  if (toCompress.length > MAX_AI_BLOCKS_PER_REQUEST) {
+    toCompress = [...toCompress]
+      .sort((a, b) => b.text.length - a.text.length)
+      .slice(0, MAX_AI_BLOCKS_PER_REQUEST)
   }
 
   const aiT0 = Date.now()
@@ -792,18 +803,23 @@ export async function compressOpenAIMessages(
   }
 
   const sessionHits: Array<{ index: number; tool: string; block: SessionBlock }> = []
-  const toCompress: Array<{ index: number; text: string; tool: string }> = []
-  const lastOAIMsgIdx = messages.length - 1
-  const lastAssistantIdx = (messages as Array<{ role: string }>).reduce(
-    (best, m, i) => (m.role === 'assistant' ? i : best), -1)
-  const newStartIdx = lastAssistantIdx >= 0 ? lastAssistantIdx : lastOAIMsgIdx
+  let toCompress: Array<{ index: number; text: string; tool: string }> = []
   for (const c of toProcess) {
     const cached = getBlock(hashText(c.text))
     if (cached) {
       sessionHits.push({ index: c.index, tool: c.tool, block: cached })
-    } else if (aiEnabled() && c.index > newStartIdx && !config.aiSkipTools.has(c.tool.toLowerCase())) {
+    } else if (aiEnabled() && !config.aiSkipTools.has(c.tool.toLowerCase())) {
       toCompress.push(c)
     }
+  }
+  // Cap per request — same anti-burst strategy as the Anthropic path.
+  // (Previous `c.index > newStartIdx` guard was dead logic: blocks after the last
+  // assistant message are inside keepRecent, so AI compression never fired.)
+  const MAX_OAI_AI_BLOCKS = 5
+  if (toCompress.length > MAX_OAI_AI_BLOCKS) {
+    toCompress = [...toCompress]
+      .sort((a, b) => b.text.length - a.text.length)
+      .slice(0, MAX_OAI_AI_BLOCKS)
   }
 
   const defaultFn: CompressFn = isLocal

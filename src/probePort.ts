@@ -14,7 +14,11 @@ function tryBind(port: number): Promise<boolean> {
     const srv = createServer()
     srv.once('error', () => resolve(false))
     srv.once('listening', () => srv.close(() => resolve(true)))
-    srv.listen(port)
+    // Bind explicitly to 127.0.0.1: a bare listen(port) binds the IPv6 wildcard
+    // (::), which on Windows does NOT collide with a service bound only to
+    // 127.0.0.1 — probePort would report 'free' for an occupied port.
+    // Loopback is what matters: every client targets http://localhost:PORT.
+    srv.listen(port, '127.0.0.1')
   })
 }
 

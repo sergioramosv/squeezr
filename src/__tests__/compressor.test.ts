@@ -4,25 +4,30 @@ import { clearSessionCache } from '../sessionCache.js'
 
 // Mock AI SDKs before importing compressor
 vi.mock('@anthropic-ai/sdk', () => ({
-  default: vi.fn().mockImplementation(() => ({
-    messages: {
-      create: vi.fn().mockResolvedValue({
-        content: [{ text: 'AI compressed summary' }],
-      }),
-    },
-  })),
+  // function (not arrow) — `new Anthropic()` requires a constructable implementation
+  default: vi.fn().mockImplementation(function () {
+    return {
+      messages: {
+        create: vi.fn().mockResolvedValue({
+          content: [{ text: 'AI compressed summary' }],
+        }),
+      },
+    }
+  }),
 }))
 
 vi.mock('openai', () => ({
-  default: vi.fn().mockImplementation(() => ({
-    chat: {
-      completions: {
-        create: vi.fn().mockResolvedValue({
-          choices: [{ message: { content: 'AI compressed summary' } }],
-        }),
+  default: vi.fn().mockImplementation(function () {
+    return {
+      chat: {
+        completions: {
+          create: vi.fn().mockResolvedValue({
+            choices: [{ message: { content: 'AI compressed summary' } }],
+          }),
+        },
       },
-    },
-  })),
+    }
+  }),
 }))
 
 // Mock fetch for Gemini
@@ -60,6 +65,10 @@ const baseConfig = {
   shouldSkipTool: () => false,
   skipTools: new Set<string>(),
   onlyTools: new Set<string>(),
+  aiSkipTools: new Set<string>(),
+  compressConversation: false,
+  keepRecentAssistant: 3,
+  assistantThreshold: 300,
 } as any
 
 beforeEach(() => {
@@ -106,9 +115,8 @@ describe('compressAnthropicMessages', () => {
   })
 
   it('compresses old blocks beyond keepRecent', async () => {
-    const longText = 'x'.repeat(200)
-    // 2 messages: first is old, second is recent
-    const msgs = makeMessages([longText, longText])
+    // distinct texts — identical blocks would be collapsed by cross-turn dedup first
+    const msgs = makeMessages(['x'.repeat(200), 'y'.repeat(200)])
     const [result, savings] = await compressAnthropicMessages(msgs as any, 'key', baseConfig)
     // First block should be compressed
     const firstBlock = (result[1] as any).content[0]
@@ -117,8 +125,7 @@ describe('compressAnthropicMessages', () => {
   })
 
   it('embeds squeezr ID and ratio in compressed content', async () => {
-    const longText = 'x'.repeat(200)
-    const msgs = makeMessages([longText, longText])
+    const msgs = makeMessages(['x'.repeat(200), 'y'.repeat(200)])
     const [result] = await compressAnthropicMessages(msgs as any, 'key', baseConfig)
     const compressed = (result[1] as any).content[0].content as string
     expect(compressed).toMatch(/\[squeezr:[a-f0-9]{6} -\d+%\]/)
@@ -132,8 +139,7 @@ describe('compressAnthropicMessages', () => {
   })
 
   it('returns dry-run savings without modifying messages', async () => {
-    const longText = 'x'.repeat(200)
-    const msgs = makeMessages([longText, longText])
+    const msgs = makeMessages(['x'.repeat(200), 'y'.repeat(200)])
     const [result, savings] = await compressAnthropicMessages(msgs as any, 'key', { ...baseConfig, dryRun: true })
     expect(savings.dryRun).toBe(true)
     // Messages should not be modified
@@ -143,8 +149,7 @@ describe('compressAnthropicMessages', () => {
 
   it('uses session cache on second call with same content', async () => {
     const Anthropic = (await import('@anthropic-ai/sdk')).default as any
-    const longText = 'x'.repeat(200)
-    const msgs = makeMessages([longText, longText])
+    const msgs = makeMessages(['x'.repeat(200), 'y'.repeat(200)])
 
     // First call — compresses
     await compressAnthropicMessages(msgs as any, 'key', baseConfig)
@@ -169,8 +174,7 @@ describe('compressAnthropicMessages', () => {
   })
 
   it('tracks savings correctly', async () => {
-    const longText = 'x'.repeat(500)
-    const msgs = makeMessages([longText, longText])
+    const msgs = makeMessages(['x'.repeat(500), 'y'.repeat(500)])
     const [, savings] = await compressAnthropicMessages(msgs as any, 'key', baseConfig)
     expect(savings.savedChars).toBeGreaterThan(0)
     expect(savings.originalChars).toBeGreaterThan(0)
@@ -202,8 +206,7 @@ describe('compressOpenAIMessages', () => {
   })
 
   it('compresses old tool messages', async () => {
-    const longText = 'y'.repeat(200)
-    const msgs = makeMessages([longText, longText])
+    const msgs = makeMessages(['y'.repeat(200), 'w'.repeat(200)])
     const [result, savings] = await compressOpenAIMessages(msgs as any, 'key', baseConfig)
     expect((result[1] as any).content).toContain('[squeezr:')
     expect(savings.compressed).toBe(1)
@@ -211,8 +214,7 @@ describe('compressOpenAIMessages', () => {
 
   it('uses Ollama backend for local keys', async () => {
     const OpenAI = (await import('openai')).default as any
-    const longText = 'z'.repeat(200)
-    const msgs = makeMessages([longText, longText])
+    const msgs = makeMessages(['z'.repeat(200), 'v'.repeat(200)])
     await compressOpenAIMessages(msgs as any, 'ollama-key', { ...baseConfig, isLocalKey: () => true }, true)
     // OpenAI client should be called (Ollama uses OpenAI-compatible API)
     expect(OpenAI).toHaveBeenCalled()
@@ -227,11 +229,11 @@ describe('compressOpenAIMessages', () => {
   })
 
   it('returns dry-run without modifications', async () => {
-    const longText = 'z'.repeat(200)
-    const msgs = makeMessages([longText, longText])
+    const oldText = 'z'.repeat(200)
+    const msgs = makeMessages([oldText, 'v'.repeat(200)])
     const [result, savings] = await compressOpenAIMessages(msgs as any, 'key', { ...baseConfig, dryRun: true })
     expect(savings.dryRun).toBe(true)
-    expect((result[1] as any).content).toBe(longText)
+    expect((result[1] as any).content).toBe(oldText)
   })
 })
 
@@ -258,8 +260,7 @@ describe('compressGeminiContents', () => {
   })
 
   it('compresses old function responses', async () => {
-    const longText = 'g'.repeat(200)
-    const cts = makeContents([longText, longText])
+    const cts = makeContents(['g'.repeat(200), 'h'.repeat(200)])
     const [result, savings] = await compressGeminiContents(cts as any, 'key', baseConfig)
     const response = (result[1] as any).parts[0].functionResponse.response
     expect(JSON.stringify(response)).toContain('[squeezr:')
@@ -267,8 +268,7 @@ describe('compressGeminiContents', () => {
   })
 
   it('uses fetch with Gemini API URL', async () => {
-    const longText = 'g'.repeat(200)
-    const cts = makeContents([longText, longText])
+    const cts = makeContents(['g'.repeat(200), 'h'.repeat(200)])
     await compressGeminiContents(cts as any, 'my-google-key', baseConfig)
     expect(mockFetch).toHaveBeenCalledWith(
       expect.stringContaining('generativelanguage.googleapis.com'),
@@ -281,30 +281,31 @@ describe('compressGeminiContents', () => {
   })
 
   it('returns dry-run without modifications', async () => {
-    const longText = 'g'.repeat(200)
-    const cts = makeContents([longText, longText])
+    const oldText = 'g'.repeat(200)
+    const cts = makeContents([oldText, 'h'.repeat(200)])
     const [result, savings] = await compressGeminiContents(cts as any, 'key', { ...baseConfig, dryRun: true })
     expect(savings.dryRun).toBe(true)
     const response = (result[1] as any).parts[0].functionResponse.response
-    expect(response).toBe(longText)
+    expect(response).toBe(oldText)
   })
 })
 
 // ── skip_tools / only_tools / squeezr:skip ────────────────────────────────────
 
 describe('skip_tools and squeezr:skip', () => {
-  function makeMessages(toolName: string, text: string) {
+  // Per-block texts — identical blocks would be collapsed by cross-turn dedup
+  function makeMessages(toolName: string, textOld: string, textRecent: string) {
     return [
       { role: 'assistant', content: [{ type: 'tool_use', id: 'tool_0', name: toolName }] },
-      { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'tool_0', content: text }] },
+      { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'tool_0', content: textOld }] },
       { role: 'assistant', content: [{ type: 'tool_use', id: 'tool_1', name: toolName }] },
-      { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'tool_1', content: text }] },
+      { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'tool_1', content: textRecent }] },
     ]
   }
 
   it('skips tool when shouldSkipTool returns true', async () => {
     const longText = 'x'.repeat(200)
-    const msgs = makeMessages('Read', longText)
+    const msgs = makeMessages('Read', longText, 'y'.repeat(200))
     const skipConfig = { ...baseConfig, shouldSkipTool: (t: string) => t.toLowerCase() === 'read' }
     const [result, savings] = await compressAnthropicMessages(msgs as any, 'key', skipConfig)
     expect(savings.compressed).toBe(0)
@@ -312,35 +313,35 @@ describe('skip_tools and squeezr:skip', () => {
   })
 
   it('compresses tool when shouldSkipTool returns false', async () => {
-    const longText = 'x'.repeat(200)
-    const msgs = makeMessages('Bash', longText)
+    const msgs = makeMessages('Bash', 'x'.repeat(200), 'y'.repeat(200))
     const [, savings] = await compressAnthropicMessages(msgs as any, 'key', baseConfig)
     expect(savings.compressed).toBe(1)
   })
 
   it('respects squeezr:skip inline marker — does not compress that block', async () => {
-    const longText = 'x'.repeat(200)
+    // Unique text per block — identical blocks would be collapsed by cross-turn dedup
+    const skipText = 'x'.repeat(200)
     // 3 tool calls: tool_0 (skip marker), tool_1 (old, compressible), tool_2 (recent, kept)
     const msgs = [
       {
         role: 'assistant',
         content: [{ type: 'tool_use', id: 'tool_0', name: 'Bash', input: { command: 'git diff HEAD~3  # squeezr:skip' } }],
       },
-      { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'tool_0', content: longText }] },
+      { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'tool_0', content: skipText }] },
       {
         role: 'assistant',
         content: [{ type: 'tool_use', id: 'tool_1', name: 'Bash', input: { command: 'some other command' } }],
       },
-      { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'tool_1', content: longText }] },
+      { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'tool_1', content: 'y'.repeat(200) }] },
       {
         role: 'assistant',
         content: [{ type: 'tool_use', id: 'tool_2', name: 'Bash', input: { command: 'another command' } }],
       },
-      { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'tool_2', content: longText }] },
+      { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'tool_2', content: 'z'.repeat(200) }] },
     ]
     const [result, savings] = await compressAnthropicMessages(msgs as any, 'key', baseConfig)
     // tool_0 has squeezr:skip → not compressed
-    expect((result[1] as any).content[0].content).toBe(longText)
+    expect((result[1] as any).content[0].content).toBe(skipText)
     // tool_1 is old and not skipped → compressed
     expect(savings.compressed).toBe(1)
   })

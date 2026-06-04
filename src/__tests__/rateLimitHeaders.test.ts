@@ -8,6 +8,12 @@
 
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import { createServer, type Server, type IncomingMessage, type ServerResponse } from 'node:http'
+// The proxy routes api.anthropic.com through anthropicDirectFetch (direct DNS,
+// bypasses global fetch). Mock it to use global fetch so the stub below applies.
+vi.mock('../anthropicDirectFetch.js', () => ({
+  isAnthropicUrl: (url: string) => url.includes('api.anthropic.com'),
+  anthropicDirectFetch: (url: string, init?: RequestInit) => fetch(url, init),
+}))
 
 // ── Helper: start a minimal mock Anthropic server ─────────────────────────────
 

@@ -1,5 +1,12 @@
 # Changelog
 All notable changes to Squeezr will be documented here.
+## [1.56.1] - 2026-06-04
+### Fixed
+- **La compresión AI nunca se disparaba en Anthropic ni OpenAI** (bug de producción). El guard `c.index === lastMsgIdx` (Anthropic) y `c.index > newStartIdx` (OpenAI) eran lógica muerta: el último mensaje siempre está dentro de `keepRecent`, así que `toCompress` siempre quedaba vacío. Por eso el dashboard mostraba "No tools recorded yet" y 0 compresiones AI. Reemplazado por un cap anti-burst: máximo 5 bloques AI por request, los más grandes primero — la session cache hace converger el resto en pocos turnos.
+- **Suite de tests 100% verde (297/297)** — arreglados los 18 tests rotos pre-existentes:
+- `compressor.test.ts` (12): los tests usaban textos idénticos en bloques que el cross-turn dedup (v1.49) colapsa antes de llegar a la compresión AI → textos únicos por bloque. Además los mocks de los SDK usaban arrow functions, que no son construibles con `new` en vitest 4.x → function expressions.
+- `probePort.test.ts` (5): `tryBind` hacía `listen(port)` sin host → bindea el wildcard IPv6 (`::`) que en Windows no colisiona con un servicio en `127.0.0.1` → reportaba 'free' para puertos ocupados. Ahora binde explícito a `127.0.0.1`.
+- `rateLimitHeaders.test.ts` (1): el test stubea `global.fetch`, pero el proxy enruta api.anthropic.com via `anthropicDirectFetch` (v1.46, DNS directo) que lo bypasea → mock del módulo en el test.
 ## [1.56.0] - 2026-06-04
 ### Added
 - **By Model / By Client filtran por período en Savings** — los SessionRecord de history.json ahora guardan `byModel` y `byClient` (requests, originalTokens, savedTokens por modelo/cliente). El dashboard agrega esos datos de las sesiones del período seleccionado (Day/Week/Month/All) y los muestra en las secciones By Model y By Client de Savings, que ahora cambian al navegar entre días/semanas/meses. Las del Overview/Settings siguen siendo all-time.
