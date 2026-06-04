@@ -1,6 +1,6 @@
 # Squeezr
 
-**Token compression proxy for AI coding CLIs.** Sits between your CLI and the API, compresses context on the fly, saves thousands of tokens per session. Includes a real-time web dashboard and MCP integration.
+**Token compression proxy for AI coding CLIs.** Sits between your CLI and the API, compresses context on the fly — **without ever breaking Anthropic's prompt cache** — and saves thousands of tokens per session. Real-time dashboard, MCP integration, and an optional AI compression layer powered by **Zest**, Squeezr's own model.
 
 [![npm](https://img.shields.io/npm/v/squeezr-ai)](https://www.npmjs.com/package/squeezr-ai) [![license](https://img.shields.io/npm/l/squeezr-ai)](LICENSE)
 
@@ -9,14 +9,14 @@
 | Client | Protocol | Proxy method |
 |--------|----------|--------------|
 | Claude Code | HTTP to Anthropic API | `ANTHROPIC_BASE_URL=http://localhost:8080` |
-| **Claude Desktop** | **HTTP to Anthropic API** | **Windows: `setx ANTHROPIC_BASE_URL` (set by `squeezr setup`); macOS: `launchctl setenv`; Linux: `~/.config/environment.d/`** |
+| Claude Desktop | HTTP to Anthropic API | Windows: `setx` (via `squeezr setup`); macOS: `launchctl setenv`; Linux: `environment.d` |
 | Aider | HTTP to Anthropic/OpenAI API | `ANTHROPIC_BASE_URL` / `openai_base_url` |
 | OpenCode | HTTP to Anthropic/OpenAI API | `ANTHROPIC_BASE_URL` / `openai_base_url` |
 | Gemini CLI | HTTP to Gemini API | `GEMINI_API_BASE_URL=http://localhost:8080` |
 | Ollama | HTTP (local) | Transparent via dummy API key detection |
-| **Codex Desktop** | **HTTP to OpenAI API** | **`~/.codex/config.toml` → `openai_base_url` (set by `squeezr setup`)** |
-| **Codex CLI** | **WebSocket to chatgpt.com** | **TLS-terminating MITM proxy on :8081** |
-| Cursor IDE | HTTP to OpenAI API (BYOK mode only) | `localhost:8080` directly (CORS supported) or `squeezr tunnel` if calls come from Cursor's servers |
+| Codex Desktop | HTTP to OpenAI API | `~/.codex/config.toml` → `openai_base_url` (via `squeezr setup`) |
+| Codex CLI | WebSocket to chatgpt.com | TLS-terminating MITM proxy on :8081 |
+| Cursor IDE | HTTP to OpenAI API (BYOK only) | `localhost:8080` directly (CORS) or `squeezr tunnel` |
 | Continue (VS Code) | HTTP to OpenAI-compat | `apiBase: http://localhost:8080/v1` |
 
 Works with both API keys and subscription plans (OAuth) — Claude Code Max/Pro, OpenAI Plus, etc.
@@ -25,290 +25,164 @@ Works with both API keys and subscription plans (OAuth) — Claude Code Max/Pro,
 
 ```bash
 npm install -g squeezr-ai
-squeezr setup   # configures env vars, auto-start, CA trust, and MCP server
+squeezr setup   # env vars, auto-start, CA trust, MCP server — all automatic
 squeezr start
 ```
 
-`squeezr setup` handles everything automatically:
-- Sets `ANTHROPIC_BASE_URL`, `GEMINI_API_BASE_URL`, `NODE_EXTRA_CA_CERTS`
-- Installs a shell wrapper (PowerShell on Windows, bash/zsh on Linux/macOS/WSL) that auto-refreshes env vars after `squeezr start/setup/update` — no need to restart the terminal
-- Registers auto-start (launchd on macOS, systemd on Linux, Task Scheduler/NSSM on Windows)
-- Registers the MCP server in Claude Code, Cursor, Windsurf, and Cline
-- **Windows:** imports the MITM CA into the Windows Certificate Store (user-level, no admin required) so Rust-based CLIs like Codex trust the proxy's TLS certificates
-- **macOS/Linux/WSL:** generates a CA bundle at `~/.squeezr/mitm-ca/bundle.crt` for `NODE_EXTRA_CA_CERTS`
+## Prompt-cache safety (the core design principle)
+
+Anthropic bills cached context at **0.1x** — but only if the request prefix arrives **byte-for-byte identical** between requests. A proxy that mutates history differently on each request silently invalidates that cache and re-bills the full context at full price, costing far more than compression saves.
+
+Squeezr is built around this constraint:
+
+- **Deterministic compression is byte-stable** — same input always produces the same output (fixed-pressure rules), so the cached prefix never changes → Anthropic's cache keeps hitting.
+- **Unstable passes never touch the cached prefix** — AI compression, cross-turn dedup, diff-reads and stale-turn summaries only operate past the last `cache_control` marker (or freely for clients that don't use caching).
+- **Live cache health monitoring** — the dashboard's *Prompt Cache* card shows `cache_read` vs `cache_creation` tokens and a Hit Health %. Green (≥80%) means you're paying the minimum possible; red means something is invalidating your prefix.
+
+Full write-up: [docs/PROMPT_CACHE.md](docs/PROMPT_CACHE.md)
 
 ## How it works
 
-Every request from your AI CLI passes through Squeezr on `localhost:8080`. The proxy applies three compression layers before forwarding to the upstream API:
+Every request passes through Squeezr on `localhost:8080`. Compression layers, in order:
 
-### Layer 1: System prompt compression
+1. **MCP tool filtering** (opt-in) — drop tool definitions from MCP servers you block (`mcp_block_servers`) or that aren't allow-listed. A single chatty MCP server can cost ~18k tokens *per request*. Servers used in the conversation are never filtered.
+2. **Tool description compression** — tool descriptions are truncated to their first paragraph (Bash: 10,441 → 53 chars), with the full spec stored in the expand store. The model retrieves it on demand via `squeezr_expand`. Saves ~17k tokens/request on a stock Claude Code session.
+3. **System prompt compression** — skill/plugin duplicate blocks deduplicated; optional AI summarization (gated behind `ai_compression`).
+4. **Deterministic preprocessing** — zero-latency regex rules on every tool result: ANSI/progress-bar/timestamp stripping, line dedup, JSON minification, plus ~30 tool-specific patterns (git, vitest/jest, tsc, eslint, cargo, pytest, docker, kubectl, gh…). Byte-stable → cache-safe.
+5. **Cross-turn dedup & diff-reads** — repeated tool outputs collapse to references; repeated file reads become diffs against the latest read. (Only past the cache barrier.)
+6. **Stale-turn summarization** — conversations >40 turns get old assistant prose collapsed to keyword summaries. (Only for clients without prompt caching.)
+7. **AI compression** (opt-in, off by default) — blocks ≥1500 chars summarized by a small model. Measured on real data: 75–91% compression on large blocks. Backends: **Zest (local, free, deterministic)**, Haiku, GPT-4o-mini, Gemini Flash. Guarded by a rate limiter (20 calls/5 min), a persistent on/off toggle, and the cache barrier.
 
-The system prompt (~13KB for Claude Code) is compressed once using an AI model and cached. Subsequent requests reuse the cached version. Saves ~3,000 tokens per request.
+### Recovery: nothing is ever lost
 
-### Layer 2: Deterministic preprocessing
-
-Zero-latency, rule-based transformations applied to every tool result:
-
-- **Noise removal:** ANSI escape codes, progress bars, timestamps, spinner output
-- **Deduplication:** repeated stack frames, duplicate lines, redundant git hunks
-- **Minification:** JSON whitespace, collapsed blank lines
-
-### Layer 3: Tool-specific patterns (~30 rules)
-
-Each tool result is matched against specialized compression rules:
-
-| Category | Tools | What it does |
-|----------|-------|--------------|
-| Git | diff, log, status, branch | 1-line diff context, capped log, compact status |
-| JS/TS | vitest, jest, playwright, tsc, eslint, biome, prettier | Failures/errors only, grouped by file |
-| Package managers | pnpm, npm | Install summary, list capped at 30, outdated only |
-| Build | next build, cargo build | Errors only |
-| Test | cargo test, pytest, go test | FAIL blocks + tracebacks only |
-| Infra | terraform, docker, kubectl | Resource changes, compact tables, last 50 log lines |
-| Other | prisma, gh CLI, curl/wget | Strip ASCII art, cap output, remove verbose headers |
-
-### Exclusive patterns
-
-Applied to specific content types regardless of tool:
-
-- **Lockfiles** (package-lock.json, Cargo.lock, etc.) → dependency count summary
-- **Large code files** (>500 lines) → imports + function/class signatures only
-- **Long output** (>200 lines) → head + tail + omission note
-- **Grep results** → grouped by file, matches capped
-- **Glob results** (>30 files) → directory tree summary
-- **Noisy output** (>50% non-essential) → auto-extract errors/warnings
+Every compressed block embeds a `squeezr_expand(id)` reference. A `squeezr_expand` tool is injected into each request — if the model needs the original content, it retrieves it in one call. The dashboard tracks expand rate as the compression-quality metric (0 = nothing important was lost).
 
 ### Adaptive pressure
 
-Compression aggressiveness scales with context window usage:
-
-| Context usage | Threshold | Behavior |
-|---------------|-----------|----------|
-| < 50% | 1,500 chars | Light — only compress large results |
-| 50–75% | 800 chars | Normal — standard compression |
-| 75–90% | 400 chars | Aggressive — compress most results |
-| > 90% | 150 chars | Critical — compress everything, 0 git diff context |
-
-### Session optimizations
-
-- **Session cache:** Each compressed tool result is stored by MD5 hash. If the same content appears again in a later request, the cached version is reused instantly with no API call
-- **KV cache warming:** IDs are deterministic (MD5) so the compressed string is byte-for-byte identical across requests — Anthropic's KV cache stays warm and historical tokens cost zero compute
-- **Cross-turn dedup:** If the same file is read multiple times, earlier reads are replaced with reference pointers
-- **Expand on demand:** Compressed blocks include a `squeezr_expand(id)` callback to retrieve full content
+Compression aggressiveness scales with context usage: <50% → light (1500-char threshold), 50–75% → normal (800), 75–90% → aggressive (400), >90% → critical (150).
 
 ## Web dashboard
 
-Live dashboard at `http://localhost:PORT/squeezr/dashboard` with 5 pages:
+`http://localhost:8080/squeezr/dashboard` — 3 pages, SSE-updated:
 
 | Page | What it shows |
 |------|---------------|
-| **Overview** | Tokens saved, compression %, requests, cost saved, per-tool breakdown, sparkline chart, context pressure bars, active project badge, savings breakdown (deterministic, AI, dedup, system prompt, overhead) |
-| **Projects** | Per-project aggregate stats across all sessions, auto-detected from working directory or set manually via MCP |
-| **History** | Past proxy sessions grouped by project and day — start/end time, duration, request count, tokens saved, relative timestamps |
-| **Limits** | Real-time rate limit gauges per CLI: Anthropic token/request limits, OpenAI billing & credit balance, Gemini 429 tracking, input/output token usage (session + daily), personal monthly budget bar |
-| **Settings** | Compression mode selector (Soft/Normal/Aggressive/Critical), threshold tuning |
+| **Overview** | All-time tokens saved (single source of truth), ratio + per-request average, cost saved, Top Tools (real per-tool block counts), Session Cache (AI layer), AI Compression card (calls / saved / spent / net), **Prompt Cache health** (read vs creation + hit %), Savings by type (per-technique breakdown), by model (incl. what compression backends spend), by client, compression mode + **Bypass / AI Compression toggles** |
+| **Savings** | Day / Week / Month / All-time filters with period navigation — per-period tokens, cost, sessions, charts, By Model / By Client / Top Tools / AI Compression / Session Cache, all persisted across restarts |
+| **Settings** | Client base-URL reference, ports, version/uptime, bypass & circuit breaker state, **AI Compression on/off**, **Restart / Stop buttons**, update check |
 
-Updates every 2 seconds via SSE. Works with both API key and subscription (OAuth) authentication.
+## Safety & resilience
+
+Squeezr sits in the critical path. It is designed to never break your workflow — and never burn your plan:
+
+- **Bypass mode (persisted)** — one click/command disables all compression; survives restarts. The emergency stop.
+- **AI compression master switch (persisted, default OFF)** — with a subscription OAuth token, AI compression calls bill against *your own plan*; only enable it with a separately billed API key or the free local Zest backend.
+- **AI rate limiter** — hard cap of 20 AI calls per 5-minute sliding window, process-global.
+- **AI minimum block size (1500 chars)** — measured on real data: small blocks *expand* under AI compression; Squeezr never AI-compresses them.
+- **Cache barrier** — unstable passes can't touch the cached prefix (see prompt-cache safety above).
+- **Circuit breaker** — 3 consecutive AI backend failures → AI compression disabled for 60s, deterministic continues.
+- **Atomic persistence** — stats, history, caches and toggles are written atomically (tmp + rename); a crash can't corrupt them.
+- **Self-test on startup** — detects port squatting (the classic `$.speed` Claude Code error), env-var drift, and pipeline issues.
+
+## Honest metrics
+
+One source of truth (`~/.squeezr/stats.json`, continuous net counters — never inflated per-session sums):
+
+- **Net saved** = what actually left your requests, after `[squeezr:id]` tag overhead.
+- **Savings by type** — deterministic, dedup, tool descriptions, stale turns, AI, MCP filter, system prompt (gross per-technique, labeled as such).
+- **AI spend tracking** — every compression backend call's real token usage (input/output, per model) is counted and shown against what it saved.
+- **Prompt cache** — `cache_read` vs `cache_creation` from Anthropic's real usage fields. Anthropic's cache discount is shown separately and *not* claimed as Squeezr savings.
+
+## Zest — Squeezr's own compression model
+
+Zest (`zest-0.8b`, fine-tuned from Qwen3.5-0.8B with LoRA) is Squeezr's local compression model: free, runs on CPU via Ollama, and **deterministic in greedy decoding** — which makes AI compression byte-stable and therefore cache-safe. Status: v3 trained (89% eval accuracy), GGUF packaging in progress. Design doc: [docs/REINVENT_AI.md](docs/REINVENT_AI.md)
 
 ## MCP server
 
-Built-in MCP server (`squeezr-mcp`) that gives any MCP-capable AI CLI real-time awareness and control of Squeezr.
+Installed automatically into Claude Code, Cursor, Windsurf and Cline by `squeezr setup`.
 
-**Installed automatically** by `squeezr setup` into Claude Code, Cursor, Windsurf, and Cline.
-
-| Tool | Description |
-|------|-------------|
-| `squeezr_status` | Is proxy running? Version, port, uptime, mode, circuit breaker state, bypass status |
-| `squeezr_stats` | Token savings, compression %, cost saved, savings breakdown, per-tool breakdown, latency (p50/p95/p99), expand rate |
-| `squeezr_set_mode` | Change compression mode instantly (soft / normal / aggressive / critical) |
-| `squeezr_config` | Current thresholds, keepRecent, cache sizes, AI-skipped tools |
-| `squeezr_habits` | Detect wasteful patterns this session (duplicate reads, high Bash count, cache efficiency) |
-| `squeezr_stop` | Stop the proxy gracefully (persists caches before exit) |
-| `squeezr_check_updates` | Check npm for newer Squeezr version |
-| `squeezr_update` | Update to latest version via `npm install -g squeezr-ai@latest` |
-| `squeezr_set_project` | Manually set/clear the current project name (overrides auto-detection) |
-| `squeezr_bypass` | Toggle bypass mode — disable compression instantly without restart (runtime-only) |
-
-Every MCP tool response automatically checks for updates and appends a notification banner when a new version is available.
-
-## Honest savings tracking
-
-Squeezr tracks token savings with full transparency. `squeezr gain` and the dashboard break down savings by source:
-
-| Source | Description |
-|--------|-------------|
-| Deterministic | Rule-based preprocessing (ANSI strip, dedup, minification) — free, zero latency |
-| AI compression | Haiku/GPT-mini summarization of tool results — near-free, slight latency |
-| Read dedup | Cross-turn deduplication of repeated file reads |
-| System prompt | One-time AI compression of the system prompt, cached across requests |
-| Tag overhead | Bytes added by `[squeezr:ID]` markers (subtracted from savings) |
-| AI cost | Estimated token cost of compression API calls (subtracted from NET) |
-
-**NET savings** = total savings − tag overhead − AI compression cost.
-
-### `squeezr gain` subcommands
-
-```bash
-squeezr gain              # all-time savings summary
-squeezr gain --session    # live session savings from the running proxy
-squeezr gain --details    # all-time stats with per-tool breakdown
-squeezr gain --reset      # reset all-time counters
-```
-
-## Project tracking
-
-Squeezr automatically detects the active project from the CLI's working directory (e.g. Claude Code's `<cwd>` tag in the system prompt). Per-project stats are tracked across sessions.
-
-- **Auto-detection:** extracts the project name from the last meaningful path segment
-- **Manual override:** `squeezr_set_project` MCP tool or `POST /squeezr/project` REST endpoint
-- **Per-project stats:** visible on the Dashboard's Projects page and in `squeezr gain --session`
-
-## Codex support (MITM proxy)
-
-Codex uses WebSocket over TLS to `chatgpt.com` with OAuth authentication — it cannot be proxied via `OPENAI_BASE_URL`. Squeezr runs a TLS-terminating MITM proxy on port 8081 that intercepts and compresses WebSocket frames. See [CODEX.md](CODEX.md) for the full technical breakdown.
-
-The MITM proxy **only intercepts `chatgpt.com`** traffic. All other HTTPS requests (npm, git, curl, etc.) pass through as a transparent TCP tunnel — no certificate needed, no interference.
+Tools: `squeezr_status`, `squeezr_stats`, `squeezr_set_mode`, `squeezr_config`, `squeezr_habits`, `squeezr_stop`, `squeezr_check_updates`, `squeezr_update`, `squeezr_set_project`, `squeezr_bypass`.
 
 ## Configuration
 
-### Global config: `squeezr.toml` (next to the binary)
+User config lives at **`~/.squeezr/squeezr.toml`** (survives npm updates). A project-local `.squeezr.toml` deep-merges on top.
 
 ```toml
-# Compression thresholds
-threshold = 800         # min chars to apply compression
-keep_recent = 3         # skip the N most recent tool results
-ai_compression = false  # enable AI (Haiku) for tool result compression
+[compression]
+threshold = 800              # min chars to compress a tool result
+keep_recent = 3              # recent tool results never touched
+ai_compression = false       # MASTER switch for AI calls — default OFF (see Safety)
+compress_system_prompt = true
+compress_conversation = true
+stale_turns = true           # auto-disabled when prompt-cache markers are present
+tool_desc_compress = true    # first-paragraph truncation + expand recovery
+tool_desc_expand = true
+# mcp_block_servers = ["some-mcp"]   # drop these servers' tools (~18k tok/req each)
+# mcp_allow_servers = ["github-mcp"] # if set, only these survive
+# skip_tools = ["Read"]              # never compress these tool types
+# Per-command: append "# squeezr:skip" to any Bash command to skip its result
 
-# Ports
-port = 8080             # HTTP proxy port
-mitm_port = 8081        # MITM proxy port (Codex)
+[cache]
+enabled = true
+max_entries = 1000
 
-# Models
-local_model = "qwen2.5-coder:1.5b"  # model for local compression
-local_upstream = "http://localhost:11434"
+[adaptive]
+enabled = true               # pressure-based thresholds (see Adaptive pressure)
 
-# Tools to never AI-compress (deterministic-only)
-ai_skip_tools = ["Read", "View"]
-
-# Compression modes override thresholds
-[modes.soft]
-threshold = 1500
-keep_recent = 10
-ai_compression = false
-
-[modes.normal]
-threshold = 800
-keep_recent = 3
-
-[modes.aggressive]
-threshold = 200
-keep_recent = 1
-ai_compression = true
-
-[modes.critical]
-threshold = 50
-keep_recent = 0
-ai_compression = true
+[local]
+enabled = true
+upstream_url = "http://localhost:11434"
+compression_model = "qwen2.5-coder:1.5b"   # or zest-0.8b once published
 ```
 
-### Project-level config: `squeezr.project.toml` (in project root)
-
-Project-level config is deep-merged over global config. Useful for per-repo tuning.
-
-### Environment variables
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `SQUEEZR_PORT` | `8080` | HTTP proxy port (Claude, Aider, Gemini) |
-| `SQUEEZR_MITM_PORT` | `8081` | MITM proxy port (Codex) — defaults to SQUEEZR_PORT + 1 |
-| `SQUEEZR_THRESHOLD` | `800` | Min chars to compress |
-| `SQUEEZR_KEEP_RECENT` | `3` | Recent results to skip |
-| `SQUEEZR_DISABLED` | `false` | Disable all compression |
-| `SQUEEZR_DRY_RUN` | `false` | Log savings without compressing |
-| `SQUEEZR_LOCAL_UPSTREAM` | `http://localhost:11434` | Ollama/LM Studio URL |
-| `SQUEEZR_LOCAL_MODEL` | `qwen2.5-coder:1.5b` | Local model for compression |
-
-### Per-command skip
-
-Add `# squeezr:skip` anywhere in a Bash command to bypass compression for that result.
+Env vars: `SQUEEZR_PORT`, `SQUEEZR_MITM_PORT`, `SQUEEZR_THRESHOLD`, `SQUEEZR_KEEP_RECENT`, `SQUEEZR_DISABLED`, `SQUEEZR_DRY_RUN`, `SQUEEZR_LOCAL_UPSTREAM`, `SQUEEZR_LOCAL_MODEL`.
 
 ## CLI commands
 
 ```bash
-squeezr setup          # configure env vars, auto-start, CA trust, install MCP server
-squeezr start          # start the proxy (auto-restarts if version mismatch after update)
-squeezr update         # kill old processes, install latest from npm, restart
+squeezr setup          # configure everything (env, auto-start, CA, MCP)
+squeezr start          # start the proxy
+squeezr restart        # stop + start (reloads config)
 squeezr stop           # stop the proxy
-squeezr status         # check if proxy is running
-squeezr logs           # show last 50 log lines
+squeezr update         # install latest from npm + restart
+squeezr status         # is it running? version, port, self-test
+squeezr logs           # last 50 log lines
 squeezr config         # print current config
-squeezr ports          # change HTTP and MITM proxy ports
-squeezr gain           # all-time token savings summary
-squeezr gain --session # live session savings from the running proxy
-squeezr gain --details # all-time stats with per-tool breakdown
-squeezr gain --reset   # reset all-time counters
-squeezr discover       # detect which AI CLIs are installed
-squeezr bypass         # toggle bypass mode (skip compression, keep logging)
-squeezr bypass --on    # enable bypass (disable compression)
-squeezr bypass --off   # disable bypass (resume compression)
-squeezr tunnel         # expose proxy via Cloudflare Tunnel (for Cursor IDE)
-squeezr mcp install    # register MCP server in Claude Code, Cursor, Windsurf, Cline
-squeezr mcp uninstall  # remove MCP server registration
-squeezr uninstall      # remove Squeezr completely (env vars, CA, auto-start, logs)
-squeezr version        # print version
+squeezr ports          # change HTTP / MITM ports
+squeezr gain           # all-time savings (--session, --details, --reset)
+squeezr discover       # detect installed AI CLIs
+squeezr bypass         # toggle bypass (--on / --off) — persisted
+squeezr tunnel         # Cloudflare Tunnel (Cursor IDE)
+squeezr mcp install    # register MCP server (mcp uninstall to remove)
+squeezr desktop start  # separate proxy for Claude/Codex Desktop (stop/status)
+squeezr uninstall      # remove completely
+squeezr version
 ```
 
-## Resilience
+## REST endpoints
 
-Squeezr sits in the critical path between your AI CLI and the upstream API. It's designed to never break your workflow:
-
-- **Circuit breaker** — If the AI compression backend (Haiku, GPT-4o-mini, etc.) fails 3 times in a row, Squeezr automatically skips AI compression for 60 seconds, then probes recovery. Deterministic compression continues working. Visible in dashboard, `squeezr status`, and MCP.
-- **5-second AI timeout** — Each AI compression call has a hard 5s timeout. If the backend is slow, the original content passes through unmodified.
-- **Bypass mode** — `squeezr bypass` instantly disables all compression without restarting. Requests still pass through and are logged. Toggle via CLI, MCP, dashboard, or REST API.
-- **Expand rate tracking** — Monitors how often the model calls `squeezr_expand` to recover compressed content. High expand rate signals the compression is too aggressive.
-- **Latency tracking** — p50/p95/p99 compression latency visible in dashboard and MCP stats.
-
-## Compression backends
-
-Squeezr uses cheap/free models for AI compression (the deterministic layer is pure regex, no API calls):
-
-| Backend | Model | Used for | Cost |
-|---------|-------|----------|------|
-| Anthropic | Haiku | System prompt, session cache | ~$0.0001/call |
-| OpenAI | GPT-4o-mini | Fallback compression | ~$0.0001/call |
-| Gemini | Flash-8B | Fallback compression | Free |
-| Local | qwen2.5-coder:1.5b | Compression when using Ollama | Free |
-| ChatGPT (WS) | GPT-5.4-mini | Codex frame compression | $0 (same subscription) |
+`/squeezr/stats` · `/squeezr/history` · `/squeezr/health` · `/squeezr/bypass` (GET/POST) · `/squeezr/ai-compression` (GET/POST) · `/squeezr/config` · `/squeezr/native-compact` · `/squeezr/control/restart` · `/squeezr/control/stop` · `/squeezr/dashboard`
 
 ## Requirements
 
-- Node.js 18+ (compatible with Node.js 24)
-- For Codex MITM: set `HTTPS_PROXY=http://localhost:8081` in the terminal where you run Codex (not set globally to avoid interfering with other tools)
-- For local compression: [Ollama](https://ollama.ai) with `qwen2.5-coder:1.5b`
+Node.js ≥18, ~140 MB RAM, no GPU. Full details: [docs/HARDWARE_REQUIREMENTS.md](docs/HARDWARE_REQUIREMENTS.md)
+
+## Documentation
+
+| Doc | Contents |
+|-----|----------|
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Internal architecture |
+| [docs/PROMPT_CACHE.md](docs/PROMPT_CACHE.md) | How Anthropic's prompt cache works + the 3 cache-breakers we found and fixed |
+| [docs/REINVENT_AI.md](docs/REINVENT_AI.md) | Data-driven design of the AI compression layer (Zest) |
+| [docs/HARDWARE_REQUIREMENTS.md](docs/HARDWARE_REQUIREMENTS.md) | Measured hardware requirements |
+| [docs/TOOLS_ISSUE.md](docs/TOOLS_ISSUE.md) | The 28k-tokens-per-request tool descriptions problem |
+| [CHANGELOG.md](CHANGELOG.md) | Full version history |
 
 ## Troubleshooting
 
-### Claude Code throws `undefined is not an object (evaluating '$.speed')`
+**Claude Code throws `undefined is not an object (evaluating '$.speed')`** — something that isn't Squeezr is squatting on the port (often a Docker container on 8080). Run `squeezr status`; if it reports a foreign service: `squeezr ports` to move, or stop the offender. `cat ~/.squeezr/runtime.json` shows the actual bound port.
 
-Symptom: every prompt in Claude Code immediately errors with `undefined is not an object (evaluating '$.speed')` (or similar `$.X` parse errors). This means Claude Code is sending its API requests to **something that is not Squeezr** but happens to occupy Squeezr's port — typically a Docker container (Apache, nginx, WordPress) bound to `8080`.
-
-To diagnose, run:
-
-```bash
-squeezr status
-```
-
-If the output says `a foreign service is` listening on the port, you have three options:
-
-1. **Move Squeezr to a different port** (recommended): `squeezr ports` and pick something free, then reopen your terminal.
-2. **Stop the offending service**: `docker ps` to find what owns 8080, then `docker stop <id>`.
-3. **Inspect runtime info**: `cat ~/.squeezr/runtime.json` shows the *actual* port Squeezr is bound to. If it differs from your `ANTHROPIC_BASE_URL`, run `squeezr setup` to refresh your shell profile.
-
-Squeezr v1.24.0+ runs a self-test on every startup that detects this exact failure mode and prints actionable hints. You can re-run it any time with:
-
-```bash
-curl -s "http://localhost:$(jq -r .port ~/.squeezr/runtime.json)/squeezr/selftest?run=1" | jq
-```
+**Dashboard shows 0 AI calls with AI Compression ON** — expected with Claude Code: the prompt-cache barrier leaves nothing safe for AI to compress (everything cacheable is protected, everything recent is preserved). AI compression shines for clients without prompt caching, or via the (upcoming) stable Zest pipeline.
 
 ## License
 

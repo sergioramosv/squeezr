@@ -6,17 +6,23 @@ import { stream, streamSSE } from 'hono/streaming';
 import { config, applyMode, runtimeOverrides, anthropicNativeCompactEnabled, effectiveBackend, USER_CONFIG_DIR, USER_CONFIG_PATH } from './config.js';
 import { Stats } from './stats.js';
 import { DASHBOARD_HTML, LOGO_SVG } from './dashboard.js';
-import { getCache, emptySavings } from './compressor.js';
+import { getCache, emptySavings, aiUsageCounters, aiUsageByModel } from './compressor.js';
 import { compressAnthropicMessages, compressOpenAIMessages, compressGeminiContents, } from './compressor.js';
 import { isBypassed, setBypassed, toggleBypassed } from './bypass.js';
+import { isAiCompressionEnabled, setAiCompression, toggleAiCompression } from './aiToggle.js';
 import { circuitBreaker } from './circuitBreaker.js';
 import { injectExpandToolAnthropic, injectExpandToolOpenAI, handleAnthropicExpandCall, handleOpenAIExpandCall, retrieveOriginal, expandStoreSize, } from './expand.js';
 import { compressSystemPrompt } from './systemPrompt.js';
+import { captureRequest } from './requestCapture.js';
+import { dedupSkillBlocks } from './skillDedup.js';
+import { collapseStaleTurns } from './staleTurns.js';
+import { compressToolDescriptions } from './toolDescComp.js';
+import { filterMcpTools } from './mcpFilter.js';
 import { anthropicDirectFetch, isAnthropicUrl } from './anthropicDirectFetch.js';
 import { sessionCacheSize } from './sessionCache.js';
 import { detPatternHits } from './deterministic.js';
 import { VERSION } from './version.js';
-import { recordRequest, getHistorySessions, getCurrentSession, getProjectAggregates, getAllSessionsForHistory, } from './history.js';
+import { recordRequest, getHistorySessions, getCurrentSession, getProjectAggregates, getAllSessionsForHistory, setSessionExtrasProvider, } from './history.js';
 import { updateAnthropicFromHeaders, updateOpenAIFromHeaders, updateGeminiFrom429, addAnthropicUsage, addOpenAIUsage, addGeminiUsage, makeSseUsageParser, maybeRefreshOpenAIBilling, maybeRefreshOpenAISessionLimits, storeKey, storedKey, limitsSnapshot, } from './limits.js';
 // ── Project name extraction ────────────────────────────────────────────────────
 // Manual project override — set via /squeezr/project endpoint or MCP tool
@@ -94,6 +100,23 @@ function readCodexToken() {
 }
 const SKIP_RESP_HEADERS = new Set(['content-encoding', 'transfer-encoding', 'connection', 'content-length']);
 export const stats = new Stats();
+// Feed AI-usage + session-cache totals into each persisted SessionRecord so the
+// Savings page can filter them by day/week/month (v1.61.0).
+setSessionExtrasProvider(() => {
+    const s = stats.summary();
+    return {
+        aiUsage: {
+            calls: aiUsageCounters.calls,
+            inputTokens: aiUsageCounters.inputTokens,
+            outputTokens: aiUsageCounters.outputTokens,
+            savedTokens: Math.round((s.breakdown?.tool_results_ai ?? 0) / 3.5),
+        },
+        sessionCache: {
+            reuses: s.session_cache_hits ?? 0,
+            expands: s.expand?.calls ?? 0,
+        },
+    };
+});
 function forwardHeaders(headers) {
     const out = {};
     for (const [k, v] of headers.entries()) {
@@ -119,6 +142,18 @@ function detectUpstream(headers) {
 }
 function estimateChars(data) {
     return JSON.stringify(data).length;
+}
+function estimateSystemChars(system) {
+    if (typeof system === 'string')
+        return system.length;
+    if (Array.isArray(system))
+        return JSON.stringify(system).length;
+    return 0;
+}
+function estimateFullRequestChars(body) {
+    return estimateChars(body.messages ?? [])
+        + estimateChars(body.tools ?? [])
+        + estimateSystemChars(body.system);
 }
 // Outgoing fetch — uses Node's native fetch for everything EXCEPT
 // api.anthropic.com, which is forced through direct DNS so that the system
@@ -220,10 +255,26 @@ app.post('/v1/messages', async (c) => {
         ?? '';
     const clientId = detectAnthropicClient(c.req.header('user-agent') ?? '', c.req.header('x-squeezr-client'));
     const modelId = String(body.model ?? 'unknown');
+    // Request capture (opt-in via compression.capture_requests = true).
+    // Saves anonymized payloads to ~/.squeezr/captures/ for offline analysis.
+    // Auth headers are redacted; first N requests only (bounded disk use).
+    if (config.captureRequests) {
+        const allHeaders = {};
+        c.req.raw.headers.forEach((value, key) => { allHeaders[key] = value; });
+        captureRequest(body, {
+            client: clientId,
+            model: modelId,
+            method: 'POST',
+            path: '/v1/messages',
+            headers: allHeaders,
+        }, { enabled: true, limit: config.captureLimit });
+    }
     // Extract project name BEFORE compressing system prompt (compression destroys <cwd> tags)
     const project = extractProjectName(body);
     const messages = (body.messages ?? []);
-    const originalChars = estimateChars(messages);
+    // Measure FULL request (messages + tools + system) before ANY compression
+    const originalRequestChars = estimateFullRequestChars(body);
+    const originalChars = estimateChars(messages); // kept for compressAnthropicMessages pressure calc
     // Dry-run mode: exercises the compression pipeline but does NOT forward to
     // upstream. Used by the post-start self-test to verify the request path is
     // wired correctly without consuming any API quota.
@@ -242,8 +293,8 @@ app.post('/v1/messages', async (c) => {
     }
     // Bypass mode: skip all compression, still record request stats
     if (isBypassed()) {
-        stats.recordWithProject(project, originalChars, originalChars, emptySavings(), undefined, clientId, modelId);
-        recordRequest(project, 0, 0, [], originalChars);
+        stats.recordWithProject(project, originalRequestChars, originalRequestChars, emptySavings(), undefined, clientId, modelId);
+        recordRequest(project, 0, 0, [], originalRequestChars);
         storeKey('anthropic', apiKey);
         const fwdHeaders = forwardHeaders(c.req.raw.headers);
         if (body.stream) {
@@ -256,7 +307,7 @@ app.post('/v1/messages', async (c) => {
             return stream(c, async (s) => {
                 const reader = upstream.body.getReader();
                 const decoder = new TextDecoder();
-                const sseParser = makeSseUsageParser('anthropic', (inp, out) => addAnthropicUsage(inp, out));
+                const sseParser = makeSseUsageParser('anthropic', (inp, out, cc, cr) => addAnthropicUsage(inp, out, cc ?? 0, cr ?? 0));
                 while (true) {
                     const { done, value } = await reader.read();
                     if (done)
@@ -280,19 +331,54 @@ app.post('/v1/messages', async (c) => {
         }
         return c.json(respBody, resp.status, respHeaders);
     }
+    // Track savings from each pre-pass for accurate stats reporting
+    let toolDescSaved = 0;
+    let mcpFilterSaved = 0;
+    let skillDedupSaved = 0;
+    let syspromptSaved = 0;
+    let staleTurnsSaved = 0;
+    // MCP tool filtering per-server — drop tools from blocked servers entirely.
+    // Runs BEFORE tool desc compression so dropped tools never reach later passes.
+    if (Array.isArray(body.tools) && (config.mcpBlockServers.size > 0 || config.mcpAllowServers.size > 0)) {
+        const mf = filterMcpTools(body.tools, messages, config.mcpBlockServers, config.mcpAllowServers);
+        if (mf.result.removedTools > 0) {
+            body.tools = mf.tools;
+            mcpFilterSaved = mf.result.savedChars;
+            const tokens = Math.round(mf.result.savedChars / 3.5);
+            console.log(`[squeezr/mcp-filter] ${mf.result.removedTools} tool(s) from [${mf.result.removedServers.join(', ')}]: -${mf.result.savedChars.toLocaleString()} chars (~${tokens} tokens)`);
+        }
+        if (mf.result.keptUsedServers.length > 0) {
+            console.log(`[squeezr/mcp-filter] kept (in use): ${mf.result.keptUsedServers.join(', ')}`);
+        }
+    }
+    // Tool description compression
+    if (config.toolDescCompress && Array.isArray(body.tools)) {
+        const td = compressToolDescriptions(body.tools, config.toolDescMaxChars, config.toolDescFirstPara, config.toolDescSafeOnly, config.toolDescExpand);
+        toolDescSaved = td.savedChars;
+        if (td.savedChars > 0) {
+            const tokens = Math.round(td.savedChars / 3.5);
+            console.log(`[squeezr/tool-desc] ${td.compressedTools}/${td.totalTools} tool(s): -${td.savedChars.toLocaleString()} chars (~${tokens} tokens)`);
+        }
+    }
     // System prompt compression (handles both string and array formats — Claude Code sends array)
     if (config.compressSystemPrompt && !config.dryRun) {
         if (typeof body.system === 'string') {
+            const dd = dedupSkillBlocks(body.system);
+            skillDedupSaved += dd.savedChars;
+            body.system = dd.text;
             const sp = await compressSystemPrompt(body.system, apiKey, 'haiku');
+            syspromptSaved += sp.originalLen - sp.compressedLen;
             body.system = sp.text;
-            stats.recordSystemPromptSaved(sp.originalLen, sp.compressedLen);
         }
         else if (Array.isArray(body.system)) {
             for (const block of body.system) {
                 if (block.type === 'text' && typeof block.text === 'string') {
+                    const dd = dedupSkillBlocks(block.text);
+                    skillDedupSaved += dd.savedChars;
+                    block.text = dd.text;
                     const sp = await compressSystemPrompt(block.text, apiKey, 'haiku');
+                    syspromptSaved += sp.originalLen - sp.compressedLen;
                     block.text = sp.text;
-                    stats.recordSystemPromptSaved(sp.originalLen, sp.compressedLen);
                 }
             }
         }
@@ -302,16 +388,37 @@ app.post('/v1/messages', async (c) => {
         : Array.isArray(body.system)
             ? body.system.reduce((s, b) => s + (b.text?.length ?? 0), 0)
             : 0;
+    // Stale turn summarization — DISABLED when prompt cache markers are present.
+    // Its collapse boundary moves forward one turn per request, mutating the cached
+    // prefix every turn → permanent cache invalidation (re-bills the full context).
+    // Without cache markers (clients that don't cache) it runs freely.
+    const msgsHaveCacheMarkers = messages.some(m => Array.isArray(m.content) && m.content.some(b => b && typeof b === 'object' && b.cache_control));
+    if (config.staleTurns && !msgsHaveCacheMarkers) {
+        const stale = collapseStaleTurns(messages, config.staleTurnThreshold, config.staleTurnKeepRecent);
+        staleTurnsSaved = stale.savedChars;
+        if (stale.savedChars > 0) {
+            const tokens = Math.round(stale.savedChars / 3.5);
+            console.log(`[squeezr/stale-turns] ${stale.collapsedBlocks} block(s) in ${stale.staleCount} old turn(s): -${stale.savedChars.toLocaleString()} chars (~${tokens} tokens)`);
+        }
+    }
     const compT0 = Date.now();
     const [compressedMsgs, savings] = await compressAnthropicMessages(messages, apiKey, config, systemExtraChars);
     const compLatency = { totalMs: Date.now() - compT0, detMs: savings.detMs, aiMs: savings.aiMs };
     body.messages = compressedMsgs;
-    // Inject expand tool
+    // Measure AFTER all compression, BEFORE expand tool injection (inject adds ~1K to tools)
+    const compressedRequestChars = estimateChars(compressedMsgs)
+        + estimateChars(body.tools ?? [])
+        + estimateSystemChars(body.system);
+    // Inject expand tool (after measurement so its size doesn't distort savings_pct)
     injectExpandToolAnthropic(body);
-    const _claudeCompChars = estimateChars(compressedMsgs);
-    stats.recordWithProject(project, originalChars, _claudeCompChars, savings, compLatency, clientId, modelId);
-    // Record TOTAL saved (originalChars - compressedChars), not just AI savings
-    recordRequest(project, Math.max(0, originalChars - _claudeCompChars), savings.compressed, savings.byTool, originalChars);
+    // Attach per-feature savings to the savings object for accurate breakdown reporting
+    savings.toolDescSavedChars = toolDescSaved;
+    savings.mcpFilterSavedChars = mcpFilterSaved;
+    savings.staleTurnsSavedChars = staleTurnsSaved;
+    savings.skillDedupSavedChars = skillDedupSaved;
+    savings.syspromptSavedChars = syspromptSaved;
+    stats.recordWithProject(project, originalRequestChars, compressedRequestChars, savings, compLatency, clientId, modelId);
+    recordRequest(project, Math.max(0, originalRequestChars - compressedRequestChars), savings.compressed, savings.byTool, originalRequestChars, modelId, clientId);
     storeKey('anthropic', apiKey);
     const fwdHeaders = forwardHeaders(c.req.raw.headers);
     // Anthropic native context compaction beta (compact-2026-01-12)
@@ -338,7 +445,7 @@ app.post('/v1/messages', async (c) => {
         return stream(c, async (s) => {
             const reader = upstream.body.getReader();
             const decoder = new TextDecoder();
-            const sseParser = makeSseUsageParser('anthropic', (inp, out) => addAnthropicUsage(inp, out));
+            const sseParser = makeSseUsageParser('anthropic', (inp, out, cc, cr) => addAnthropicUsage(inp, out, cc ?? 0, cr ?? 0));
             while (true) {
                 const { done, value } = await reader.read();
                 if (done)
@@ -358,7 +465,7 @@ app.post('/v1/messages', async (c) => {
     const respBody = await resp.json();
     if (respBody.usage) {
         const u = respBody.usage;
-        addAnthropicUsage(u.input_tokens ?? 0, u.output_tokens ?? 0);
+        addAnthropicUsage(u.input_tokens ?? 0, u.output_tokens ?? 0, u.cache_creation_input_tokens ?? 0, u.cache_read_input_tokens ?? 0);
     }
     // Handle expand() call if model requested one (track expand rate)
     const expandCall = handleAnthropicExpandCall(respBody);
@@ -406,11 +513,12 @@ app.post('/v1/chat/completions', async (c) => {
     // Extract project name BEFORE compressing system prompt
     const oaiProject = extractProjectName(body);
     const messages = (body.messages ?? []);
-    const originalChars = estimateChars(messages);
+    const originalOaiRequestChars = estimateFullRequestChars(body);
+    const originalChars = estimateChars(messages); // kept for compressOpenAIMessages pressure calc
     // Bypass mode: skip all compression, still record request stats
     if (isBypassed()) {
-        stats.recordWithProject(oaiProject, originalChars, originalChars, emptySavings(), undefined, oaiClientId, oaiModelId);
-        recordRequest(oaiProject, 0, 0, [], originalChars);
+        stats.recordWithProject(oaiProject, originalOaiRequestChars, originalOaiRequestChars, emptySavings(), undefined, oaiClientId, oaiModelId);
+        recordRequest(oaiProject, 0, 0, [], originalOaiRequestChars);
         if (!isLocal)
             storeKey('openai', openAIKey);
         const fwdHeaders = forwardHeaders(c.req.raw.headers);
@@ -448,23 +556,28 @@ app.post('/v1/chat/completions', async (c) => {
         return c.json(respBody, resp.status, respHeaders);
     }
     // Compress system message for non-local
+    let oaiSyspromptSaved = 0;
     if (!isLocal && config.compressSystemPrompt && !config.dryRun) {
         const msgs = messages;
         if (msgs[0]?.role === 'system' && typeof msgs[0].content === 'string') {
             const sp = await compressSystemPrompt(msgs[0].content, openAIKey, 'gpt-mini');
             msgs[0].content = sp.text;
-            stats.recordSystemPromptSaved(sp.originalLen, sp.compressedLen);
+            oaiSyspromptSaved = sp.originalLen - sp.compressedLen;
         }
     }
     const oaiCompT0 = Date.now();
     const [compressedMsgs, savings] = await compressOpenAIMessages(messages, openAIKey, config, isLocal);
     const oaiCompLatency = { totalMs: Date.now() - oaiCompT0, detMs: savings.detMs, aiMs: savings.aiMs };
     body.messages = compressedMsgs;
+    // Measure after all compressions, before expand injection
+    const oaiCompressedRequestChars = estimateChars(compressedMsgs)
+        + estimateChars(body.tools ?? [])
+        + estimateSystemChars(body.system);
     if (!isLocal)
         injectExpandToolOpenAI(body);
-    const _oaiCompChars = estimateChars(compressedMsgs);
-    stats.recordWithProject(oaiProject, originalChars, _oaiCompChars, savings, oaiCompLatency, oaiClientId, oaiModelId);
-    recordRequest(oaiProject, Math.max(0, originalChars - _oaiCompChars), savings.compressed, savings.byTool, originalChars);
+    savings.syspromptSavedChars = oaiSyspromptSaved;
+    stats.recordWithProject(oaiProject, originalOaiRequestChars, oaiCompressedRequestChars, savings, oaiCompLatency, oaiClientId, oaiModelId);
+    recordRequest(oaiProject, Math.max(0, originalOaiRequestChars - oaiCompressedRequestChars), savings.compressed, savings.byTool, originalOaiRequestChars, oaiModelId, oaiClientId);
     if (!isLocal)
         storeKey('openai', openAIKey);
     const fwdHeaders = forwardHeaders(c.req.raw.headers);
@@ -537,14 +650,16 @@ app.post('/v1beta/models/*', async (c) => {
     const googleKey = extractGoogleKey(c.req.raw.headers, url);
     const modelPath = c.req.path.replace('/v1beta/models/', '');
     const contents = (body.contents ?? []);
-    const originalChars = estimateChars(contents);
     const geminiProject = extractProjectName(body);
-    // Gemini model is in the URL path: /v1beta/models/gemini-2.5-pro:generateContent
     const geminiModelId = modelPath.split(':')[0] || 'gemini';
+    const originalGeminiRequestChars = estimateChars(body.contents ?? [])
+        + estimateChars(body.tools ?? [])
+        + estimateSystemChars(body.systemInstruction);
+    const originalChars = estimateChars(contents); // kept for pressure calc
     // Bypass mode: skip all compression, still record request stats
     if (isBypassed()) {
-        stats.recordWithProject(geminiProject, originalChars, originalChars, emptySavings(), undefined, 'gemini', geminiModelId);
-        recordRequest(geminiProject, 0, 0, [], originalChars);
+        stats.recordWithProject(geminiProject, originalGeminiRequestChars, originalGeminiRequestChars, emptySavings(), undefined, 'gemini', geminiModelId);
+        recordRequest(geminiProject, 0, 0, [], originalGeminiRequestChars);
         const targetUrl = `${GOOGLE_API}/v1beta/models/${modelPath}`;
         const fwdHeaders = forwardHeaders(c.req.raw.headers);
         const params = url.searchParams;
@@ -568,9 +683,11 @@ app.post('/v1beta/models/*', async (c) => {
     const [compressedContents, savings] = await compressGeminiContents(contents, googleKey, config);
     const gemCompLatency = { totalMs: Date.now() - gemCompT0, detMs: savings.detMs, aiMs: savings.aiMs };
     body.contents = compressedContents;
-    const _gemCompChars = estimateChars(compressedContents);
-    stats.recordWithProject(geminiProject, originalChars, _gemCompChars, savings, gemCompLatency, 'gemini', geminiModelId);
-    recordRequest(geminiProject, Math.max(0, originalChars - _gemCompChars), savings.compressed, savings.byTool, originalChars);
+    const gemCompressedRequestChars = estimateChars(compressedContents)
+        + estimateChars(body.tools ?? [])
+        + estimateSystemChars(body.systemInstruction);
+    stats.recordWithProject(geminiProject, originalGeminiRequestChars, gemCompressedRequestChars, savings, gemCompLatency, 'gemini', geminiModelId);
+    recordRequest(geminiProject, Math.max(0, originalGeminiRequestChars - gemCompressedRequestChars), savings.compressed, savings.byTool, originalGeminiRequestChars, geminiModelId, 'gemini');
     const targetUrl = `${GOOGLE_API}/v1beta/models/${modelPath}`;
     const fwdHeaders = forwardHeaders(c.req.raw.headers);
     const params = url.searchParams;
@@ -629,16 +746,28 @@ app.post('/v1beta/models/*', async (c) => {
 async function buildStatsPayload() {
     await maybeRefreshOpenAISessionLimits().catch(() => { });
     const session = stats.summary();
-    // Compute all-time totals by summing ALL history sessions (history.json is the source of truth)
-    // plus comparing with stats.json — take the maximum to avoid regressions
+    // All-time totals. `stats.json` (persisted) is a single continuous counter and is
+    // the source of truth. We do NOT max() against the per-session sum from history:
+    // history sums savedTokens across many proxy sessions that each re-processed the
+    // same growing conversation, so it massively over-counts (the 125M-vs-25M bug).
+    // History is only a fallback if stats.json was reset/corrupted (persisted == 0).
     const allSessions = getAllSessionsForHistory();
     const historyTotalSavedTokens = allSessions.reduce((s, r) => s + (r.savedTokens || 0), 0);
     const historyTotalOriginalTokens = allSessions.reduce((s, r) => s + (r.originalChars ? Math.round(r.originalChars / 3.5) : 0), 0);
     const historyTotalRequests = allSessions.reduce((s, r) => s + (r.requests || 0), 0);
     const persisted = Stats.loadGlobal();
-    const allTimeSavedTokens = Math.max(Math.round(session.total_saved_chars / 3.5), Math.round((persisted.total_saved_chars ?? 0) / 3.5), historyTotalSavedTokens);
-    const allTimeOriginalTokens = Math.max(Math.round(session.total_original_chars / 3.5), Math.round((persisted.total_original_chars ?? 0) / 3.5), historyTotalOriginalTokens);
-    const allTimeRequests = Math.max(session.requests, persisted.requests ?? 0, historyTotalRequests);
+    const persistedSaved = Math.round((persisted.total_saved_chars ?? 0) / 3.5);
+    const persistedOriginal = Math.round((persisted.total_original_chars ?? 0) / 3.5);
+    const persistedRequests = persisted.requests ?? 0;
+    const allTimeSavedTokens = persistedSaved > 0
+        ? persistedSaved
+        : Math.max(Math.round(session.total_saved_chars / 3.5), historyTotalSavedTokens);
+    const allTimeOriginalTokens = persistedOriginal > 0
+        ? persistedOriginal
+        : Math.max(Math.round(session.total_original_chars / 3.5), historyTotalOriginalTokens);
+    const allTimeRequests = persistedRequests > 0
+        ? persistedRequests
+        : Math.max(session.requests, historyTotalRequests);
     // Ratio: compute from all-time totals so it matches the all-time Tokens Saved /
     // processed cards. The session.savings_pct comes from this-process-only counters
     // and shows misleading 0-2% values right after restart when the persisted history
@@ -649,9 +778,13 @@ async function buildStatsPayload() {
     // Breakdown: prefer persisted all-time values over session-only counters so
     // deterministic/dedup/sysprompt numbers stay consistent with the hero cards.
     const allTimeBreakdown = {
-        deterministic: persisted.det_saved_chars ?? (session.breakdown?.deterministic ?? 0),
-        ai_compression: persisted.ai_saved_chars ?? (session.breakdown?.ai_compression ?? 0),
+        tool_results_det: persisted.det_saved_chars ?? (session.breakdown?.tool_results_det ?? 0),
+        tool_results_ai: persisted.ai_saved_chars ?? (session.breakdown?.tool_results_ai ?? 0),
         read_dedup: persisted.dedup_saved_chars ?? (session.breakdown?.read_dedup ?? 0),
+        tool_desc: persisted.tool_desc_saved_chars ?? (session.breakdown?.tool_desc ?? 0),
+        mcp_filter: persisted.mcp_filter_saved_chars ?? (session.breakdown?.mcp_filter ?? 0),
+        stale_turns: persisted.stale_turns_saved_chars ?? (session.breakdown?.stale_turns ?? 0),
+        skill_dedup: persisted.skill_dedup_saved_chars ?? (session.breakdown?.skill_dedup ?? 0),
         system_prompt: persisted.sysprompt_saved_chars ?? (session.breakdown?.system_prompt ?? 0),
         overhead: persisted.overhead_chars ?? (session.breakdown?.overhead ?? 0),
         ai_calls: persisted.ai_compression_calls ?? (session.breakdown?.ai_calls ?? 0),
@@ -666,10 +799,20 @@ async function buildStatsPayload() {
         breakdown: allTimeBreakdown,
         anthropic_native_compact: anthropicNativeCompactEnabled(),
         compression_backend: effectiveBackend(),
+        // AI compression card: session counters (real usage from the backend SDKs)
+        // + session saved chars from the live summary (before all-time overwrite).
+        ai_usage: {
+            calls: aiUsageCounters.calls,
+            input_tokens: aiUsageCounters.inputTokens,
+            output_tokens: aiUsageCounters.outputTokens,
+            saved_chars: session.breakdown?.tool_results_ai ?? 0,
+            by_model: aiUsageByModel,
+        },
         cache: getCache(config).stats(),
         expand_store_size: expandStoreSize(),
         session_cache_size: sessionCacheSize(),
         dry_run: config.dryRun,
+        ai_compression_enabled: isAiCompressionEnabled(),
         pattern_hits: detPatternHits,
         version: VERSION,
         port: config.port,
@@ -833,6 +976,39 @@ app.post('/squeezr/control/stop', (c) => {
     setTimeout(() => process.emit('SIGTERM'), 200);
     return c.json({ ok: true, message: 'Squeezr proxy shutting down…' });
 });
+app.post('/squeezr/control/restart', (c) => {
+    // Spawn a fresh instance then exit so config changes take effect
+    import('node:child_process').then(({ spawn }) => {
+        import('node:url').then(({ fileURLToPath }) => {
+            import('node:path').then(({ dirname, join }) => {
+                import('node:os').then(({ homedir }) => {
+                    import('node:fs').then(({ openSync, closeSync }) => {
+                        const distDir = dirname(fileURLToPath(import.meta.url));
+                        const distIndex = join(distDir, 'index.js');
+                        const logFile = join(homedir(), '.squeezr', 'squeezr.log');
+                        try {
+                            const logFd = openSync(logFile, 'a');
+                            const child = spawn(process.execPath, [distIndex], {
+                                detached: true,
+                                stdio: ['ignore', logFd, logFd],
+                                windowsHide: true,
+                                env: { ...process.env, SQUEEZR_DAEMON: '1', SQUEEZR_RESTART: '1' },
+                            });
+                            child.unref();
+                            closeSync(logFd);
+                            console.log(`[squeezr] Restart: new instance spawned (pid ${child.pid})`);
+                        }
+                        catch (e) {
+                            console.log(`[squeezr] Restart spawn failed: ${e.message}`);
+                        }
+                        setTimeout(() => process.emit('SIGTERM'), 300);
+                    });
+                });
+            });
+        });
+    });
+    return c.json({ ok: true, message: 'Restarting Squeezr…' });
+});
 app.post('/squeezr/config', async (c) => {
     const body = await c.req.json();
     if (body.mode && ['soft', 'normal', 'aggressive', 'critical'].includes(body.mode)) {
@@ -859,9 +1035,26 @@ app.post('/squeezr/bypass', async (c) => {
     }
     return c.json({ bypassed: isBypassed() });
 });
+// AI compression master toggle (persisted). When off, zero AI calls happen.
+app.get('/squeezr/ai-compression', (c) => {
+    return c.json({ enabled: isAiCompressionEnabled() });
+});
+app.post('/squeezr/ai-compression', async (c) => {
+    try {
+        const body = await c.req.json().catch(() => ({}));
+        if (typeof body.enabled === 'boolean')
+            setAiCompression(body.enabled);
+        else
+            toggleAiCompression();
+    }
+    catch {
+        toggleAiCompression();
+    }
+    return c.json({ enabled: isAiCompressionEnabled() });
+});
 // ── Distillation endpoint — uses captured OAuth token to compress with Opus ──
 // Allows external scripts to do high-quality compression using the user's Claude
-// Pro/Max subscription (no API key needed). Used by recipes/squeezr-1B for training.
+// Pro/Max subscription (no API key needed). Used by recipes/Zest (zest-0.8b) for training.
 app.post('/squeezr/distill', async (c) => {
     const rawBody = await c.req.json().catch(() => ({}));
     const text = String(rawBody.text ?? '');
@@ -891,9 +1084,12 @@ TOOL OUTPUT TO COMPRESS:
 
 ${text}`;
     try {
-        const authOpts = token.startsWith('sk-') ? { apiKey: token } : { authToken: token };
+        // OAuth tokens (sk-ant-oat...) must go as Bearer + oauth beta header — as x-api-key they 401
+        const isOAuth = token.startsWith('sk-ant-oat') || !token.startsWith('sk-');
+        const authOpts = isOAuth ? { authToken: token } : { apiKey: token };
+        const oauthHeaders = isOAuth ? { 'anthropic-beta': 'oauth-2025-04-20' } : undefined;
         const { default: Anthropic } = await import('@anthropic-ai/sdk');
-        const client = new Anthropic({ ...authOpts, baseURL: 'https://api.anthropic.com' });
+        const client = new Anthropic({ ...authOpts, baseURL: 'https://api.anthropic.com', defaultHeaders: oauthHeaders });
         const t0 = Date.now();
         const resp = await client.messages.create({
             model,
