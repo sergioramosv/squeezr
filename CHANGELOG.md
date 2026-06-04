@@ -1,5 +1,8 @@
 # Changelog
 All notable changes to Squeezr will be documented here.
+## [1.55.6] - 2026-06-04
+### Fixed
+- Restaurado el comando `squeezr restart` — se perdió en el rewrite de historia del 2026-06-01 (reset a v1.51.0).
 ## [1.55.5] - 2026-06-04
 ### Fixed
 - **stats.json corrupto bloqueaba TODA la persistencia desde el 24 de mayo** — el archivo estaba lleno de null bytes (write interrumpido). `persist()` hacía `JSON.parse` → lanzaba → catch ignoraba → nunca se escribía nada más. Por eso By Model/By Client se borraban en cada reinicio. Ahora: parse corrupto se recupera (rebuild desde sesión) + escritura atómica (tmp + rename).

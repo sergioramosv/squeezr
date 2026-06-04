@@ -245,6 +245,7 @@ Usage:
   squeezr start            Start the proxy
   squeezr setup            One-time setup: auto-start on login + configure all CLIs
   squeezr stop             Stop the running proxy
+  squeezr restart          Stop and restart the proxy (reloads config)
   squeezr logs             Show last 50 lines of the log file
   squeezr gain             Show token savings stats
   squeezr gain --reset     Reset saved stats
@@ -2150,6 +2151,15 @@ switch (command) {
       installShellWrapper()
     })()
     break
+  case 'restart':
+    await (async () => {
+      console.log('Stopping Squeezr...')
+      stopProxy()
+      await new Promise(r => setTimeout(r, 1500))
+      await startDaemon()
+    })()
+    break
+
   case 'stop':
     stopProxy()
     break
