@@ -495,6 +495,16 @@ export async function compressAnthropicMessages(
   // Zero quality risk: original content is always recoverable via squeezr_expand.
   const dedupedSet = new Set<string>()  // "index:subIndex" keys — skip in later steps
   let readDedupSaved = 0
+  // Per-tool tally for the "Top Tools" panel. Counts deterministic + dedup work,
+  // not just AI — so the panel shows activity even when AI compression is off.
+  const detByTool: Record<string, { count: number; savedChars: number; originalChars: number }> = {}
+  const tallyTool = (tool: string, saved: number, original: number) => {
+    const k = tool || 'unknown'
+    if (!detByTool[k]) detByTool[k] = { count: 0, savedChars: 0, originalChars: 0 }
+    detByTool[k].count++
+    detByTool[k].savedChars += saved
+    detByTool[k].originalChars += original
+  }
   // Per-tool short label used in the dedup placeholder text
   const DEDUP_TOOLS: Record<string, string> = {
     read: 'file content as a later read',
@@ -527,6 +537,7 @@ export async function compressAnthropicMessages(
         dedupedSet.add(`${index}:${subIndex}`)
         dedupCount++
         readDedupSaved += text.length
+        tallyTool(tool, text.length, text.length)
       }
     }
     if (readDedupSaved > 0) {
@@ -551,6 +562,7 @@ export async function compressAnthropicMessages(
     if (det !== text) {
       ;(msgs[index].content as Array<{ content?: unknown }>)[subIndex].content = det
       detSaved += text.length - det.length
+      tallyTool(tool, text.length - det.length, text.length)
     }
   }
   const detMs = Date.now() - detT0
@@ -643,6 +655,10 @@ export async function compressAnthropicMessages(
     detSaved += tuSaved
   }
 
+  // Deterministic per-tool tally → byTool array (Top Tools shows det work, not just AI)
+  const detByToolArr = (): Savings['byTool'] =>
+    Object.entries(detByTool).map(([tool, d]) => ({ tool, savedChars: d.savedChars, originalChars: d.originalChars }))
+
   // ── Step 2: AI compression for old blocks above threshold ─────────────────
   // AI output is NOT byte-stable (Haiku varies; session cache only stabilizes it
   // AFTER the first call). So AI must NEVER touch the cached prefix — only blocks
@@ -654,18 +670,18 @@ export async function compressAnthropicMessages(
     !dedupedSet.has(`${c.index}:${c.subIndex}`) &&
     c.index > cacheBarrier)
 
-  if (toProcess.length === 0) return [msgs, emptySavings(false, detSaved, readDedupSaved, detMs)]
+  if (toProcess.length === 0) return [msgs, emptySavings(false, detSaved, readDedupSaved, detMs, detByToolArr())]
 
   // Circuit breaker: skip AI compression entirely if backend is down
   if (!circuitBreaker.shouldAllow()) {
     console.log(`[squeezr] Circuit breaker open — skipping AI compression for ${toProcess.length} block(s)`)
-    return [msgs, emptySavings(false, detSaved, readDedupSaved, detMs)]
+    return [msgs, emptySavings(false, detSaved, readDedupSaved, detMs, detByToolArr())]
   }
 
   if (config.dryRun) {
     const potential = toProcess.reduce((sum, c) => sum + c.text.length, 0)
     console.log(`[squeezr dry-run] Would AI-compress ${toProcess.length} block(s) | potential -${potential.toLocaleString()} chars | pressure=${Math.round(pressure * 100)}%`)
-    return [msgs, emptySavings(true, detSaved, readDedupSaved, detMs)]
+    return [msgs, emptySavings(true, detSaved, readDedupSaved, detMs, detByToolArr())]
   }
 
   // Differential: split session cache hits from uncached
@@ -703,7 +719,8 @@ export async function compressAnthropicMessages(
   let totalCompressed = 0
   let totalOverhead = 0
   let totalAiSaved = 0
-  const byTool: Savings['byTool'] = []
+  // Start from the deterministic tally so Top Tools reflects det + dedup + AI.
+  const byTool: Savings['byTool'] = detByToolArr()
 
   for (const { index, subIndex, tool, block } of sessionHits) {
     ;(msgs[index].content as Array<{ content?: unknown }>)[subIndex].content = block.fullString
@@ -1121,6 +1138,6 @@ export async function compressGeminiContents(
   return [cts, { compressed: freshlyCompressed.length, savedChars: totalOriginal - totalCompressed, originalChars: totalOriginal, byTool, dryRun: false, sessionCacheHits: sessionHits.length, detSavedChars: detSaved, dedupSavedChars: geminiReadDedupSaved, aiSavedChars: totalAiSaved, overheadChars: totalOverhead, detMs: gemDetMs, aiMs: gemAiMs }]
 }
 
-export function emptySavings(dryRun = false, detSavedChars = 0, dedupSavedChars = 0, detMs = 0): Savings {
-  return { compressed: 0, savedChars: 0, originalChars: 0, byTool: [], dryRun, sessionCacheHits: 0, detSavedChars, dedupSavedChars, aiSavedChars: 0, overheadChars: 0, detMs, aiMs: 0 }
+export function emptySavings(dryRun = false, detSavedChars = 0, dedupSavedChars = 0, detMs = 0, byTool: Savings['byTool'] = []): Savings {
+  return { compressed: 0, savedChars: 0, originalChars: 0, byTool, dryRun, sessionCacheHits: 0, detSavedChars, dedupSavedChars, aiSavedChars: 0, overheadChars: 0, detMs, aiMs: 0 }
 }

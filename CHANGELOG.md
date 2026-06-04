@@ -1,5 +1,8 @@
 # Changelog
 All notable changes to Squeezr will be documented here.
+## [1.66.0] - 2026-06-04
+### Changed
+- **Top Tools cuenta ahora la compresión determinística + dedup, no solo AI.** Antes `byTool` solo se poblaba con bloques AI-comprimidos → con AI off el panel estaba vacío aunque la det ahorrara 47k tok/request. Ahora cada bloque procesado por la determinística y el cross-turn dedup se cuenta por herramienta. Top Tools refleja la actividad real.
 ## [1.65.0] - 2026-06-04
 ### Changed — métricas con UNA sola fuente
 - **El Overview ya no usa history.json** (suma por sesión, sobre-contaba ~5x → el "30M today" vs "26M card"). Ahora hero y todas las cards leen de stats.json (neto continuo) = misma cifra coherente en todo el dashboard.
