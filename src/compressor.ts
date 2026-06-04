@@ -462,27 +462,32 @@ export async function compressAnthropicMessages(
   // marker — doing so invalidates Anthropic's prompt cache and re-bills the whole
   // prefix at full price. -1 = no cache markers, compress everything.
   const cacheBarrier = lastCacheControlMessageIndex(messages)
+  const hasCacheMarkers = cacheBarrier >= 0
   const allResults = extractAnthropicToolResults(messages, toolIdMap)
     .filter(r => !skipIds.has(r.toolUseId) && !config.shouldSkipTool(r.tool))
-    .filter(r => r.index > cacheBarrier)
+  // NOTE: we do NOT filter allResults by the barrier. Deterministic compression
+  // (Step 1) is applied to the whole history with a FIXED pressure so its output
+  // is byte-stable between requests → the cached prefix stays identical → cache
+  // hits. The UNSTABLE passes (cross-turn/image/attachment/diff dedup, AI) are the
+  // ones that must respect the barrier; they're gated individually below.
 
   if (allResults.length === 0) return [messages, emptySavings()]
 
 // Clone once — all modifications go here
   const msgs = structuredClone(messages) as AnthropicMessage[]
+  // These dedup passes MOVE/REPLACE content (the "kept" occurrence shifts as new
+  // duplicates arrive) → not byte-stable between requests → they'd invalidate the
+  // prompt cache. So when Claude Code is using the cache (markers present), we skip
+  // them entirely. Without cache markers they run freely (max compression).
+  // Note: cached content is already cheap via cache-read, so not deduping it costs
+  // almost nothing; deduping it would re-bill the whole prefix.
+  const ZERO_DEDUP = { savedChars: 0, dedupCount: 0 }
   // ── Image dedup (vision tokens are ~$15/MTok) ───────────────────────────────
-  // Hash each image content block; keep the last occurrence at full fidelity,
-  // replace earlier ones with a text placeholder + squeezr_expand id.
-const imgDedup = dedupImagesAnthropic(msgs as Parameters<typeof dedupImagesAnthropic>[0])
+  const imgDedup = hasCacheMarkers ? ZERO_DEDUP : dedupImagesAnthropic(msgs as Parameters<typeof dedupImagesAnthropic>[0])
   // ── Attachment / artifact dedup (large repeated text blocks) ────────────────
-  // Hash text blocks ≥500 chars; keep latest, replace earlier with placeholder
-  // + squeezr_expand id. Skips last user/assistant (live turns).
-const attDedup = dedupAttachments(msgs as Parameters<typeof dedupAttachments>[0])
+  const attDedup = hasCacheMarkers ? ZERO_DEDUP : dedupAttachments(msgs as Parameters<typeof dedupAttachments>[0])
   // ── Diff-based repeated Read ────────────────────────────────────────────────
-  // When same file is Read multiple times in a session, keep the latest at full
-  // fidelity and express earlier reads as a unified diff vs the latest. Falls
-  // back to a reference placeholder if the diff would be too big.
-  const diffReads = compressRepeatedReads(msgs as Parameters<typeof compressRepeatedReads>[0])
+  const diffReads = hasCacheMarkers ? { savedChars: 0, collapsedCount: 0 } : compressRepeatedReads(msgs as Parameters<typeof compressRepeatedReads>[0])
   // ── Step 0: Cross-turn dedup (Read / Bash / Grep) ────────────────────────────
   // If the exact same tool output appears multiple times in the conversation,
   // keep the most recent occurrence at full fidelity and replace earlier ones
@@ -503,6 +508,9 @@ const attDedup = dedupAttachments(msgs as Parameters<typeof dedupAttachments>[0]
     // Scan newest → oldest: first encounter of each hash = most recent
     for (let i = allResults.length - 1; i >= 0; i--) {
       const { index, subIndex, text, tool } = allResults[i]
+      // Cross-turn dedup moves the "kept" occurrence → not cache-stable. Skip
+      // anything in the cached prefix so we never invalidate the prompt cache.
+      if (index <= cacheBarrier) continue
       const toolLower = tool.toLowerCase()
       const label = DEDUP_TOOLS[toolLower]
       if (!label) continue
@@ -529,12 +537,17 @@ const attDedup = dedupAttachments(msgs as Parameters<typeof dedupAttachments>[0]
   }
 
   // ── Step 1: Deterministic preprocessing on ALL tool results (turn 1+) ───────
-  // Replaces RTK: applied to recent blocks too, no manual `rtk` prefix needed.
+  // Applied to the WHOLE history. Uses a FIXED pressure (DET_PRESSURE) instead of
+  // the live `pressure` so the output is byte-identical between requests — that's
+  // what keeps Anthropic's prompt cache valid (variable pressure = the prefix
+  // changes every turn = cache miss = the 2026-06-04 over-bill). One cache miss
+  // happens the first time the level changes; stable forever after.
+  const DET_PRESSURE = 0
   const detT0 = Date.now()
   let detSaved = 0
   for (const { index, subIndex, text, tool } of allResults) {
     if (dedupedSet.has(`${index}:${subIndex}`)) continue  // already replaced by dedup
-    const det = preprocessForTool(text, tool, pressure)
+    const det = preprocessForTool(text, tool, DET_PRESSURE)
     if (det !== text) {
       ;(msgs[index].content as Array<{ content?: unknown }>)[subIndex].content = det
       detSaved += text.length - det.length
@@ -630,21 +643,16 @@ const attDedup = dedupAttachments(msgs as Parameters<typeof dedupAttachments>[0]
     detSaved += tuSaved
   }
 
-  // ── Cache barrier safety net ─────────────────────────────────────────────
-  // Restore the cached prefix [0..cacheBarrier] byte-for-byte from the original.
-  // This reverts ANY mutation (image/attachment/diff dedup, assistant/user/tool
-  // deterministic cleanup) that touched the cached region, guaranteeing Anthropic's
-  // prompt cache still hits. allResults was already filtered, so AI/det of tool
-  // results never touched it — this covers the passes that operate on msgs directly.
-  if (cacheBarrier >= 0) {
-    for (let i = 0; i <= cacheBarrier && i < msgs.length; i++) {
-      msgs[i] = messages[i]
-    }
-  }
-
   // ── Step 2: AI compression for old blocks above threshold ─────────────────
+  // AI output is NOT byte-stable (Haiku varies; session cache only stabilizes it
+  // AFTER the first call). So AI must NEVER touch the cached prefix — only blocks
+  // past the barrier are eligible. The deterministic pass above already handled
+  // the prefix (stably). Without cache markers (cacheBarrier=-1) everything is eligible.
   const candidates = allResults.slice(0, Math.max(0, allResults.length - effectiveKeepRecent(config)))
-  const toProcess = candidates.filter(c => c.text.length >= threshold && !dedupedSet.has(`${c.index}:${c.subIndex}`))
+  const toProcess = candidates.filter(c =>
+    c.text.length >= threshold &&
+    !dedupedSet.has(`${c.index}:${c.subIndex}`) &&
+    c.index > cacheBarrier)
 
   if (toProcess.length === 0) return [msgs, emptySavings(false, detSaved, readDedupSaved, detMs)]
 

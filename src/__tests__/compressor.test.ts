@@ -190,26 +190,48 @@ describe('compressAnthropicMessages', () => {
     expect(savings.byTool.length).toBeGreaterThan(0)
   })
 
-  it('NEVER compresses tool results at or before the cache_control barrier', async () => {
-    // Build: [asst tool_use, user tool_result(OLD, cached), asst tool_use, user tool_result(NEW)]
-    // Put cache_control on the OLD tool_result → it must stay byte-identical.
-    const oldText = 'a'.repeat(400)
-    const newText = 'b'.repeat(400)
+  it('NEVER AI-compresses tool results at or before the cache_control barrier', async () => {
+    // AI compression is not byte-stable → would invalidate the prompt cache.
+    // A block under (or before) the last cache_control marker must never get an
+    // [squeezr:ID] AI placeholder. Deterministic cleanup MAY touch it (it's stable).
+    const oldText = 'old line\n'.repeat(50)   // compressible (dup lines) but cached
+    const newText = 'new line\n'.repeat(50)
     const msgs = [
       { role: 'assistant', content: [{ type: 'tool_use', id: 't0', name: 'Bash' }] },
       { role: 'user', content: [{ type: 'tool_result', tool_use_id: 't0', content: oldText, cache_control: { type: 'ephemeral' } }] },
       { role: 'assistant', content: [{ type: 'tool_use', id: 't1', name: 'Bash' }] },
       { role: 'user', content: [{ type: 'tool_result', tool_use_id: 't1', content: newText }] },
     ]
-    const [result] = await compressAnthropicMessages(msgs as any, 'key', baseConfig)
-    // The cached block (index 1) must be returned untouched — same reference/content
-    expect((result[1] as any).content[0].content).toBe(oldText)
+    const [result, savings] = await compressAnthropicMessages(msgs as any, 'key', baseConfig)
+    // Cached block must NOT have an AI placeholder, and cache_control must survive.
+    expect(String((result[1] as any).content[0].content)).not.toContain('[squeezr:')
     expect((result[1] as any).content[0].cache_control).toEqual({ type: 'ephemeral' })
+    // AI compression count is 0 here: the only old block is the cached one (skipped),
+    // the new block is within keepRecent.
+    expect(savings.compressed).toBe(0)
+  })
+  it('deterministic cleanup IS allowed on the cached prefix (it is byte-stable)', async () => {
+    // A block with duplicate lines under cache_control: det dedup may shrink it,
+    // but the result is identical every request → cache stays valid.
+    const dupText = 'same\n'.repeat(60)  // dedup-able by deterministic pass
+    const msgs = [
+      { role: 'assistant', content: [{ type: 'tool_use', id: 't0', name: 'Bash' }] },
+      { role: 'user', content: [{ type: 'tool_result', tool_use_id: 't0', content: dupText, cache_control: { type: 'ephemeral' } }] },
+      { role: 'assistant', content: [{ type: 'tool_use', id: 't1', name: 'Bash' }] },
+      { role: 'user', content: [{ type: 'tool_result', tool_use_id: 't1', content: 'tail\n'.repeat(60) }] },
+    ]
+    // Run twice — the cached block's output must be byte-identical (stable).
+    const [r1] = await compressAnthropicMessages(msgs as any, 'key', baseConfig)
+    const [r2] = await compressAnthropicMessages(msgs as any, 'key', baseConfig)
+    const out1 = String((r1[1] as any).content[0].content)
+    const out2 = String((r2[1] as any).content[0].content)
+    expect(out1).toBe(out2)  // stable between requests → cache-safe
+    expect((r1[1] as any).content[0].cache_control).toEqual({ type: 'ephemeral' })
   })
   it('compresses freely when there is no cache_control marker', async () => {
     const msgs = makeMessages(['x'.repeat(400), 'y'.repeat(400)])
     const [, savings] = await compressAnthropicMessages(msgs as any, 'key', baseConfig)
-    // No barrier → old block is eligible for compression
+    // No barrier → old block is eligible for AI compression
     expect(savings.compressed).toBe(1)
   })
 })

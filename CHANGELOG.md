@@ -1,5 +1,14 @@
 # Changelog
 All notable changes to Squeezr will be documented here.
+## [1.63.0] - 2026-06-04
+### Fixed — la barrera de v1.60.0 mataba TODA la compresión
+- v1.60.0 filtraba `allResults` por la barrera de cache. Como Claude Code pone el `cache_control` casi al final (ej. mensaje 241 de 243), se descartaban ~125 de 126 tool_results → 0 compresión determinística, Top Tools vacío, 0 ahorro. Sobrecorrección.
+- **Nuevo enfoque por estabilidad, no por exclusión:**
+  - **Determinística** (Step 1) ahora se aplica a TODO el historial con **pressure fijo** (`DET_PRESSURE=0`) → salida byte-idéntica entre requests → el prefijo cacheado no cambia → el cache de Anthropic sigue acertando. (El pressure variable de antes era lo que cambiaba el prefijo cada turno y rompía el cache.)
+  - **Pasadas inestables** (cross-turn/image/attachment/diff dedup, AI) → siguen SIN tocar el prefijo cacheado: dedup se desactiva si hay cache markers; AI solo comprime bloques pasada la barrera. Sin cache markers, todo opera libre.
+  - Eliminada la red de seguridad que restauraba el prefijo entero (deshacía la det estable).
+- Resultado: con Claude Code, Top Tools y el ahorro determinístico VUELVEN (cache-safe). El AI solo toca lo no cacheado.
+- 2 tests nuevos: AI nunca toca el prefijo cacheado; la det es byte-estable entre requests sobre el prefijo. 314 tests.
 ## [1.62.1] - 2026-06-04
 ### Changed (claridad dashboard)
 - "N compressed" del Overview → "N AI-compressed · det. always on". Antes parecía que no comprimía nada con la IA off, pero la compresión determinística (gratis, ~18%) sigue activa y no cuenta en ese número.
