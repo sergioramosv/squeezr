@@ -455,6 +455,19 @@ code{font-family:'Cascadia Code','SF Mono',Consolas,monospace;font-size:.9em}
         </div>
       </div>
 
+      <!-- Prompt Cache health (Anthropic) — the metric that caught the 2026-06-04 over-billing -->
+      <div class="section">
+        <div class="section-head"><span class="section-title">Prompt Cache (Anthropic)</span><span style="font-size:11px;color:var(--text3)">this session · read=cheap (0.1x) · creation=re-billed (1.25x)</span></div>
+        <div class="section-body">
+          <div class="cache-row">
+            <div class="cache-card"><div class="cache-label">Cache Read</div><div class="cache-val" id="pc-read" style="color:var(--brand2)">—</div></div>
+            <div class="cache-card"><div class="cache-label">Cache Creation</div><div class="cache-val" id="pc-create">—</div></div>
+            <div class="cache-card"><div class="cache-label">Hit Health</div><div class="cache-val" id="pc-health">—</div></div>
+          </div>
+          <div id="pc-note" style="margin-top:8px;font-size:11px;color:var(--text3);text-align:center">High read vs creation = cache working. High creation = something is invalidating the prefix.</div>
+        </div>
+      </div>
+
       <!-- Spend: theoretical vs real -->
       <div class="section">
         <div class="section-head"><span class="section-title">Cost Comparison</span><span style="font-size:11px;color:var(--text3)" id="cost-note">per-model pricing</span></div>
@@ -948,6 +961,25 @@ function render(d) {
 
   // Limits
   renderLimits(d.limits);
+  // Prompt cache health (Anthropic) — read vs creation tokens this session
+  var au = d.limits && d.limits.anthropic && d.limits.anthropic.usage;
+  if (au) {
+    var pcRead = au.cacheReadSession || 0;
+    var pcCreate = au.cacheCreationSession || 0;
+    var setPc = function(id, v){ var e = document.getElementById(id); if(e) e.textContent = v; };
+    setPc('pc-read', pcRead > 0 ? fmt(pcRead) : '—');
+    setPc('pc-create', pcCreate > 0 ? fmt(pcCreate) : '—');
+    var healthEl = document.getElementById('pc-health');
+    if (healthEl) {
+      if (pcRead + pcCreate === 0) {
+        healthEl.textContent = '—';
+      } else {
+        var hitPct = Math.round(pcRead / (pcRead + pcCreate) * 100);
+        healthEl.textContent = hitPct + '%';
+        healthEl.style.color = hitPct >= 80 ? 'var(--brand2)' : hitPct >= 50 ? '#fbbf24' : 'var(--red, #e5484d)';
+      }
+    }
+  }
   var actualTokens = tokensIn - tokensSaved;
   var costSaved, costWithout, costWith, priceNote;
   if (modelCosts && modelCosts.totalCost > 0) {

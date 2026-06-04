@@ -340,7 +340,7 @@ const clientId = detectAnthropicClient(c.req.header('user-agent') ?? '', c.req.h
       return stream(c, async (s) => {
         const reader = upstream.body!.getReader()
         const decoder = new TextDecoder()
-        const sseParser = makeSseUsageParser('anthropic', (inp, out) => addAnthropicUsage(inp, out))
+        const sseParser = makeSseUsageParser('anthropic', (inp, out, cc, cr) => addAnthropicUsage(inp, out, cc ?? 0, cr ?? 0))
         while (true) {
           const { done, value } = await reader.read()
           if (done) break
@@ -493,7 +493,7 @@ body.messages = compressedMsgs
     return stream(c, async (s) => {
       const reader = upstream.body!.getReader()
       const decoder = new TextDecoder()
-      const sseParser = makeSseUsageParser('anthropic', (inp, out) => addAnthropicUsage(inp, out))
+      const sseParser = makeSseUsageParser('anthropic', (inp, out, cc, cr) => addAnthropicUsage(inp, out, cc ?? 0, cr ?? 0))
       while (true) {
         const { done, value } = await reader.read()
         if (done) break
@@ -513,8 +513,8 @@ body.messages = compressedMsgs
   updateAnthropicFromHeaders(resp.headers)
   const respBody = await resp.json() as Record<string, unknown>
   if (respBody.usage) {
-    const u = respBody.usage as { input_tokens?: number; output_tokens?: number }
-    addAnthropicUsage(u.input_tokens ?? 0, u.output_tokens ?? 0)
+    const u = respBody.usage as { input_tokens?: number; output_tokens?: number; cache_creation_input_tokens?: number; cache_read_input_tokens?: number }
+    addAnthropicUsage(u.input_tokens ?? 0, u.output_tokens ?? 0, u.cache_creation_input_tokens ?? 0, u.cache_read_input_tokens ?? 0)
   }
 
   // Handle expand() call if model requested one (track expand rate)

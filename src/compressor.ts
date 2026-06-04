@@ -664,9 +664,14 @@ export async function compressAnthropicMessages(
   // AFTER the first call). So AI must NEVER touch the cached prefix — only blocks
   // past the barrier are eligible. The deterministic pass above already handled
   // the prefix (stably). Without cache markers (cacheBarrier=-1) everything is eligible.
+// AI minimum block size. Measured from real session data (REINVENT_AI.md):
+  // blocks <500 chars EXPAND under AI (-22%), 500-2k gain ~42%, ≥2k gain 75-91%.
+  // Floor at 1500 so AI only touches blocks where it clearly wins — never expands.
+  const AI_MIN_CHARS = 1500
+  const aiThreshold = Math.max(threshold, AI_MIN_CHARS)
   const candidates = allResults.slice(0, Math.max(0, allResults.length - effectiveKeepRecent(config)))
   const toProcess = candidates.filter(c =>
-    c.text.length >= threshold &&
+    c.text.length >= aiThreshold &&
     !dedupedSet.has(`${c.index}:${c.subIndex}`) &&
     c.index > cacheBarrier)
 

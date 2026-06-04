@@ -1,5 +1,11 @@
 # Changelog
 All notable changes to Squeezr will be documented here.
+## [1.67.0] - 2026-06-04
+### Added — fase 1 de REINVENT_AI
+- **Umbral mínimo AI: 1500 chars** (`AI_MIN_CHARS`). Medido en datos reales (session_cache, 161 bloques): <500 chars el AI EXPANDE (-22.7%), 500-2k gana ~42%, ≥2k gana 75-91%. El AI ya solo toca bloques donde claramente gana — nunca puede expandir.
+- **Card "Prompt Cache (Anthropic)"** en el Overview — muestra cache_read vs cache_creation tokens de la sesión y un "Hit Health %" (verde ≥80%, amarillo ≥50%, rojo <50%). Es la métrica que habría detectado el over-billing del 2026-06-04 al instante: creation alto = algo está invalidando el prefijo.
+- Captura de `cache_creation_input_tokens` / `cache_read_input_tokens` del usage de Anthropic (streaming via SSE message_start + non-streaming).
+- `session_cache.json` con escritura atómica (tmp+rename) — ahora es el caché persistente all-time de compresiones, una corrupción perdería todas.
 ## [1.66.0] - 2026-06-04
 ### Changed
 - **Top Tools cuenta ahora la compresión determinística + dedup, no solo AI.** Antes `byTool` solo se poblaba con bloques AI-comprimidos → con AI off el panel estaba vacío aunque la det ahorrara 47k tok/request. Ahora cada bloque procesado por la determinística y el cross-turn dedup se cuenta por herramienta. Top Tools refleja la actividad real.

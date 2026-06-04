@@ -41,6 +41,8 @@ export interface UsageState {
   outputToday: number
   requestsSession: number
   dateKey: string                // YYYY-MM-DD
+  cacheCreationSession?: number  // tokens written to prompt cache (1.25x, once)
+  cacheReadSession?: number      // tokens read from prompt cache (0.1x, cheap)
 }
 
 export interface OpenAIBillingState {
@@ -289,12 +291,14 @@ function rolloverIfNeeded(u: UsageState): void {
   }
 }
 
-export function addAnthropicUsage(input: number, output: number): void {
+export function addAnthropicUsage(input: number, output: number, cacheCreation = 0, cacheRead = 0): void {
   rolloverIfNeeded(anthropicUsage)
   anthropicUsage.inputSession   += input
   anthropicUsage.outputSession  += output
   anthropicUsage.inputToday     += input
   anthropicUsage.outputToday    += output
+  anthropicUsage.cacheCreationSession = (anthropicUsage.cacheCreationSession ?? 0) + cacheCreation
+  anthropicUsage.cacheReadSession     = (anthropicUsage.cacheReadSession ?? 0) + cacheRead
   // Only count as new request when input tokens arrive (message_start),
   // not on output (message_delta) — avoids double-counting in streaming.
   if (input > 0) anthropicUsage.requestsSession++
@@ -325,7 +329,7 @@ export function addGeminiUsage(input: number, output: number): void {
 
 export function makeSseUsageParser(
   cli: 'anthropic' | 'openai',
-  onUsage: (input: number, output: number) => void,
+  onUsage: (input: number, output: number, cacheCreation?: number, cacheRead?: number) => void,
 ): (chunk: string) => void {
   let buf = ''
   return function feed(chunk: string) {
@@ -339,9 +343,10 @@ export function makeSseUsageParser(
       try {
         const ev = JSON.parse(raw)
         if (cli === 'anthropic') {
-          // message_start carries input_tokens in its usage field
+          // message_start carries input_tokens + cache token counts in its usage field
           if (ev.type === 'message_start' && ev.message?.usage) {
-            onUsage(ev.message.usage.input_tokens ?? 0, 0)
+            const u = ev.message.usage
+            onUsage(u.input_tokens ?? 0, 0, u.cache_creation_input_tokens ?? 0, u.cache_read_input_tokens ?? 0)
           }
           // message_delta carries cumulative output_tokens
           if (ev.type === 'message_delta' && ev.usage) {

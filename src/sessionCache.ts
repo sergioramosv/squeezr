@@ -1,5 +1,5 @@
 import { createHash } from 'crypto'
-import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs'
+import { readFileSync, writeFileSync, mkdirSync, existsSync, renameSync } from 'node:fs'
 import { join } from 'node:path'
 import { homedir } from 'node:os'
 
@@ -70,6 +70,10 @@ export function persistSessionCache(): void {
   try {
     const dir = join(homedir(), '.squeezr')
     if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
-    writeFileSync(SESSION_CACHE_PATH, JSON.stringify(Object.fromEntries(cache)))
+    // Atomic write — this is now the all-time persistent compression cache; a
+    // half-written file would lose every cached compression (and force re-billing).
+    const tmp = SESSION_CACHE_PATH + '.tmp'
+    writeFileSync(tmp, JSON.stringify(Object.fromEntries(cache)))
+    renameSync(tmp, SESSION_CACHE_PATH)
   } catch { /* ignore */ }
 }
