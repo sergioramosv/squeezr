@@ -2058,10 +2058,10 @@ async function installZest() {
   const rl = createInterface({ input: process.stdin, output: process.stdout })
   const ask = (q) => new Promise(res => rl.question(q, res))
   const ZEST_DIR = path.join(os.homedir(), '.squeezr', 'zest')
-  const GGUF_PATH = path.join(ZEST_DIR, 'zest-0.5b-Q4_K_M.gguf')
+  const GGUF_PATH = path.join(ZEST_DIR, 'zest-Q4_K_M.gguf')
   const MODELFILE_PATH = path.join(ZEST_DIR, 'Modelfile.zest')
   // GGUF download URL — hosted on HuggingFace (replace with actual URL when published)
-  const GGUF_URL = 'https://huggingface.co/ramosvs/zest-0.5b/resolve/main/zest-0.5b-Q4_K_M.gguf'
+  const GGUF_URL = 'https://huggingface.co/ramosvs/zest/resolve/main/zest-Q4_K_M.gguf'
   const COMPRESS_SYSTEM = 'You are compressing a coding tool output to save tokens. Extract ONLY what is essential: errors, file paths, function names, test failures, key values, warnings. Be extremely concise, target under 150 tokens. Output only the compressed content, nothing else.'
 
   console.log('\n╔══════════════════════════════════════════════════════╗')
@@ -2171,7 +2171,7 @@ async function installZest() {
         request(GGUF_URL)
       }).catch(err => {
         console.log(`\n  ✗ Download failed: ${err.message}`)
-        console.log('  The model will be available at https://huggingface.co/ramosvs/zest-0.5b')
+        console.log('  The model will be available at https://huggingface.co/ramosvs/zest')
         console.log('  Download the GGUF manually and place it at:')
         console.log(`  ${GGUF_PATH}`)
         console.log('  Then run: squeezr zest\n')
