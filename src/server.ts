@@ -1009,6 +1009,38 @@ app.post('/squeezr/control/stop', (c) => {
   setTimeout(() => process.emit('SIGTERM' as any), 200)
   return c.json({ ok: true, message: 'Squeezr proxy shutting down…' })
 })
+app.post('/squeezr/control/restart', (c) => {
+  // Spawn a fresh instance then exit so config changes take effect
+  import('node:child_process').then(({ spawn }) => {
+    import('node:url').then(({ fileURLToPath }) => {
+      import('node:path').then(({ dirname, join }) => {
+        import('node:os').then(({ homedir }) => {
+          import('node:fs').then(({ openSync, closeSync }) => {
+            const distDir = dirname(fileURLToPath(import.meta.url))
+            const distIndex = join(distDir, 'index.js')
+            const logFile = join(homedir(), '.squeezr', 'squeezr.log')
+            try {
+              const logFd = openSync(logFile, 'a')
+              const child = spawn(process.execPath, [distIndex], {
+                detached: true,
+                stdio: ['ignore', logFd, logFd] as const,
+                windowsHide: true,
+                env: { ...process.env, SQUEEZR_DAEMON: '1', SQUEEZR_RESTART: '1' },
+              })
+              child.unref()
+              closeSync(logFd)
+              console.log(`[squeezr] Restart: new instance spawned (pid ${child.pid})`)
+            } catch (e) {
+              console.log(`[squeezr] Restart spawn failed: ${(e as Error).message}`)
+            }
+            setTimeout(() => process.emit('SIGTERM' as any), 300)
+          })
+        })
+      })
+    })
+  })
+  return c.json({ ok: true, message: 'Restarting Squeezr…' })
+})
 
 app.post('/squeezr/config', async (c) => {
   const body = await c.req.json<{ mode?: string }>()

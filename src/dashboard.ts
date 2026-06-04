@@ -359,7 +359,12 @@ code{font-family:'Cascadia Code','SF Mono',Consolas,monospace;font-size:.9em}
     <!-- ── Overview page ── -->
     <div id="page-overview">
 
-      <!-- Hero stats -->
+<!-- Hero stats — Today (populated from history.json once loaded) -->
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
+        <span style="font-size:13px;font-weight:600;color:var(--text)">Overview</span>
+        <span id="overview-period-badge" class="badge" style="font-size:11px;background:var(--brand);color:#fff;display:none">Today</span>
+        <span id="overview-loading-badge" class="badge" style="font-size:11px;color:var(--text3)">loading…</span>
+      </div>
       <div class="hero-grid">
         <div class="hero-card accent">
           <div class="hc-label">Tokens Saved</div>
@@ -423,14 +428,14 @@ code{font-family:'Cascadia Code','SF Mono',Consolas,monospace;font-size:.9em}
             <div class="sk" style="height:14px;width:65%"></div>
           </div>
         </div>
-        <!-- Cache -->
+<!-- Session Cache -->
         <div class="section" style="margin:0">
-          <div class="section-head"><span class="section-title">Cache</span></div>
+          <div class="section-head"><span class="section-title">Session Cache</span><span style="font-size:11px;color:var(--text3)">this session</span></div>
           <div class="section-body">
             <div class="cache-row">
-              <div class="cache-card"><div class="cache-label">Hits</div><div class="cache-val" id="c-hits">—</div></div>
-              <div class="cache-card"><div class="cache-label">Misses</div><div class="cache-val" id="c-miss">—</div></div>
-              <div class="cache-card"><div class="cache-label">Rate</div><div class="cache-val" id="c-rate">—</div></div>
+              <div class="cache-card"><div class="cache-label">Reuses</div><div class="cache-val" id="c-hits">—</div></div>
+              <div class="cache-card"><div class="cache-label">Expands</div><div class="cache-val" id="c-miss">—</div></div>
+              <div class="cache-card"><div class="cache-label">LRU Size</div><div class="cache-val" id="c-rate">—</div></div>
             </div>
           </div>
         </div>
@@ -675,6 +680,13 @@ code{font-family:'Cascadia Code','SF Mono',Consolas,monospace;font-size:.9em}
         </div>
         <div class="settings-row" style="flex-direction:column;align-items:flex-start">
           <div style="display:flex;align-items:center;justify-content:space-between;width:100%">
+            <span class="s-key">Restart Proxy</span>
+            <button class="action-btn" onclick="runAction('restart')">Restart</button>
+          </div>
+          <div class="action-result" id="action-result-restart"></div>
+        </div>
+        <div class="settings-row" style="flex-direction:column;align-items:flex-start">
+          <div style="display:flex;align-items:center;justify-content:space-between;width:100%">
             <span class="s-key">Stop Proxy</span>
             <button class="action-btn danger" onclick="runAction('stop')">Stop Proxy</button>
           </div>
@@ -778,6 +790,8 @@ function esc(s) {
 
 // ── Render ─────────────────────────────────────────────────────────────────
 var lastStats = null;
+// When true, overview hero cards show today's data from history — render() won't overwrite them
+var overviewFromHistory = false;
 
 function render(d) {
   if (!d) return;
@@ -804,9 +818,10 @@ function render(d) {
   var p50         = lat.p50 != null ? lat.p50 : d.latency_p50;
   var p95         = lat.p95 != null ? lat.p95 : d.latency_p95;
   var p99         = lat.p99 != null ? lat.p99 : d.latency_p99;
-  // cache: nested { hits, misses } or flat
-  var cacheHits   = (d.cache && d.cache.hits != null) ? d.cache.hits : (d.cache_hits || 0);
-  var cacheMiss   = (d.cache && d.cache.misses != null) ? d.cache.misses : (d.cache_miss || 0);
+  // Session cache: reuses = session_cache_hits, expands = Claude expand calls, lru = AI compression LRU size
+  var cacheHits   = d.session_cache_hits || 0;
+  var cacheMiss   = (d.expand && d.expand.calls != null) ? d.expand.calls : 0;
+  var cacheSize   = (d.cache && d.cache.size != null) ? d.cache.size : 0;
   // bypass
   var byp         = !!(d.bypassed || d.bypass);
   var mode        = d.mode || 'normal';
@@ -817,25 +832,26 @@ function render(d) {
   // Cost comparison (#7) — weighted by actual models used (computed first so hero card can use it)
   var modelCosts = calcCostFromModels(d.by_model, true);
 
-  // Hero cards
-  document.getElementById('h-saved').textContent = fmt(tokensSaved);
-  document.getElementById('h-in').textContent    = fmt(tokensIn);
-  document.getElementById('h-ratio').textContent = ratioPct != null ? Math.round(ratioPct) + '%' : '—';
-  // Hero cost: use model-weighted price when available, fall back to flat $3/1M
-  var heroCost = (modelCosts && modelCosts.savedCost > 0) ? modelCosts.savedCost : costUsd;
-  document.getElementById('h-cost').textContent  = fmtUsd(heroCost);
-  document.getElementById('h-reqs').textContent  = fmt(reqs);
+// Hero cards — only update savings cards from /stats if history hasn't loaded today's data
+  if (!overviewFromHistory) {
+    document.getElementById('h-saved').textContent = fmt(tokensSaved);
+    document.getElementById('h-in').textContent    = fmt(tokensIn);
+    document.getElementById('h-ratio').textContent = ratioPct != null ? Math.round(ratioPct) + '%' : '—';
+    var heroCost = (modelCosts && modelCosts.savedCost > 0) ? modelCosts.savedCost : costUsd;
+    document.getElementById('h-cost').textContent  = fmtUsd(heroCost);
+    document.getElementById('h-reqs').textContent  = fmt(reqs);
+  }
+  // Compressions counter always stays live from current session
   document.getElementById('h-comp').textContent  = fmt(comps);
 
   // Latency (elements removed from Overview but kept for potential future use)
   var lp = function(id, v){ var e = document.getElementById(id); if(e) e.textContent = v != null ? v : '—'; };
   lp('l-50', p50); lp('l-95', p95); lp('l-99', p99);
 
-  // Cache
-  var tot = cacheHits + cacheMiss;
+  // Session cache
   document.getElementById('c-hits').textContent = fmt(cacheHits);
   document.getElementById('c-miss').textContent = fmt(cacheMiss);
-  document.getElementById('c-rate').textContent = tot > 0 ? Math.round(cacheHits/tot*100) + '%' : '—';
+  document.getElementById('c-rate').textContent = cacheSize > 0 ? fmt(cacheSize) : '—';
 
   // Tools
   renderTools(d.by_tool || d.tools);
@@ -1338,6 +1354,18 @@ function runAction(action) {
     }).catch(function(e) {
       showResult('status', 'err', 'Error: ' + e.message);
     });
+  } else if (action === 'restart') {
+    showResult('restart', 'ok', 'Restarting…');
+    fetch('/squeezr/control/restart', {method:'POST'}).then(function(r) {
+      if (r.ok) {
+        showResult('restart', 'ok', 'Restarted — reconnecting in 3s');
+        setTimeout(function(){ connect(); loadSavings(); }, 3000);
+      } else {
+        showResult('restart', 'err', 'Run in terminal: squeezr restart');
+      }
+    }).catch(function() {
+      showResult('restart', 'err', 'Run in terminal: squeezr restart');
+    });
   } else if (action === 'stop') {
     fetch('/squeezr/control/stop', {method:'POST'}).then(function(r) {
       if (r.ok) {
@@ -1369,7 +1397,7 @@ function runAction(action) {
       body: JSON.stringify({ port: httpN, mitm_port: mitmN })
     }).then(function(r) {
       if (r.ok) {
-        showResult('ports', 'ok', 'Ports saved to squeezr.toml — restart Squeezr to apply (squeezr stop && squeezr start)');
+showResult('ports', 'ok', 'Ports saved to squeezr.toml — run: squeezr restart');
       } else {
         r.text().then(function(t) { showResult('ports', 'err', 'Failed: ' + t); });
       }
@@ -1505,7 +1533,7 @@ function renderSavingsData(d) {
     svCost = totalSaved * 0.000003;
     svCostNote = 'est. at $3/1M tokens';
   }
-  document.getElementById('sv-tokens').textContent    = fmt(totalSaved);
+document.getElementById('sv-tokens').textContent    = fmt(totalSaved);
   document.getElementById('sv-tokens-sub').textContent = hasOrigData && totalOrig > 0
     ? 'of ~' + fmt(totalOrig) + ' processed'
     : 'tokens saved';
@@ -1514,6 +1542,21 @@ function renderSavingsData(d) {
   document.getElementById('sv-sessions').textContent  = String(filtered.length);
   document.getElementById('sv-requests').textContent  = totalReqs + ' requests';
   document.getElementById('sv-pct').textContent       = avgPct > 0 ? avgPct + '%' : '—';
+  // Sync Overview hero cards with today's data from history (authoritative source)
+  if (savingsPeriod === 'day' && savingsOffset === 0) {
+    overviewFromHistory = true;
+    document.getElementById('h-saved').textContent = fmt(totalSaved);
+    document.getElementById('h-in').textContent    = fmt(totalOrig);
+    var ovRatio = totalOrig > 0 ? Math.round(totalSaved / totalOrig * 1000) / 10 : 0;
+    document.getElementById('h-ratio').textContent = ovRatio > 0 ? ovRatio + '%' : '—';
+    document.getElementById('h-cost').textContent  = fmtUsd(svCost);
+    document.getElementById('h-reqs').textContent  = fmt(totalReqs);
+    // Show "Today" badge, hide loading
+    var pb = document.getElementById('overview-period-badge');
+    var lb = document.getElementById('overview-loading-badge');
+    if (pb) { pb.style.display = ''; }
+    if (lb) { lb.style.display = 'none'; }
+  }
 
   // Chart title
   var titles = { day: 'Today (by session)', week: 'Last 7 days', month: 'Last 30 days', all: 'All time' };
@@ -1658,6 +1701,8 @@ function renderSavingsChart(sessions, period) {
 
 poll();
 connect();
+// Load history immediately so Overview shows Today's data without needing to visit Savings tab
+loadSavings();
 checkLatestVersion();
 </script>
 </body>

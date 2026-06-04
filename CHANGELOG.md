@@ -1,5 +1,13 @@
 # Changelog
 All notable changes to Squeezr will be documented here.
+## [1.55.3] - 2026-06-01
+### Changed
+- **Overview = Today**: Los hero cards del Overview ahora muestran los datos de HOY (desde history.json, filtrado a 00:00–23:59) en vez del histórico acumulado. El histórico sigue disponible en la pestaña Savings. Badge "Today" aparece cuando los datos están listos.
+- **Session Cache** (antes "Cache"): La sección renombrada ahora muestra Reuses (session_cache_hits), Expands (veces que Claude pidió el contenido completo), y LRU Size (entradas en caché de compresión AI). Los valores ya no son siempre 0.
+- **Botón Restart**: Añadido en Settings → llama al nuevo endpoint `/squeezr/control/restart` (spawn nueva instancia + exit). La nueva instancia espera 700ms para que el puerto quede libre.
+- **Texto restart**: "squeezr stop && squeezr start" → "squeezr restart" en todos los mensajes del dashboard.
+### Added
+- `/squeezr/control/restart` endpoint — reinicia el proxy desde el dashboard sin abrir terminal.
 ## [1.55.2] - 2026-06-01
 ### Fixed
 - **4 bugs de stats restantes tras v1.55.1:**

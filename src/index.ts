@@ -23,6 +23,10 @@ loadHistory()
 // like `undefined is not an object (evaluating '$.speed')` in Claude Code, so
 // we surface it loudly.
 
+// When restarted via /squeezr/control/restart, wait for the old instance to exit
+if (process.env.SQUEEZR_RESTART === '1') {
+  await new Promise<void>(r => setTimeout(r, 700))
+}
 const initialState = await probePort(config.port)
 if (initialState.kind === 'squeezr') {
   console.error(
