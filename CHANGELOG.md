@@ -1,5 +1,10 @@
 # Changelog
 All notable changes to Squeezr will be documented here.
+## [1.62.1] - 2026-06-04
+### Changed (claridad dashboard)
+- "N compressed" del Overview → "N AI-compressed · det. always on". Antes parecía que no comprimía nada con la IA off, pero la compresión determinística (gratis, ~18%) sigue activa y no cuenta en ese número.
+- Session Cache marcado "AI layer only" + nota "0 here is normal when AI compression is off". Reuses/Expands/LRU son exclusivas de la capa AI; con AI off son 0 por diseño.
+- Log: "block(s) compressed" → "block(s) AI-compressed | ... (% total saved, incl. deterministic)".
 ## [1.62.0] - 2026-06-04
 ### Added
 - **Toggle de AI Compression on/off** (`src/aiToggle.ts`) — botón en Overview (junto a Toggle Bypass, con badge "AI: on/off") y en Settings. Apaga/enciende SOLO las llamadas AI (Haiku/GPT/Gemini); la compresión determinística gratis sigue siempre. Persiste en `~/.squeezr/ai-compression.json` (sobrevive reinicios). Endpoint `/squeezr/ai-compression` (GET/POST). Default OFF (lee del toml `ai_compression` la primera vez).

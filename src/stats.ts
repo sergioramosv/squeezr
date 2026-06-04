@@ -124,7 +124,7 @@ this.totalDetSaved += savings.detSavedChars ?? 0
     if (savings.savedChars > 0) {
       const pct = Math.round((savings.savedChars / Math.max(savings.originalChars, 1)) * 100)
       const tokens = Math.round(savings.savedChars / CHARS_PER_TOKEN)
-      console.log(`[squeezr] ${savings.compressed} block(s) compressed | -${savings.savedChars.toLocaleString()} chars (~${tokens.toLocaleString()} tokens) (${pct}% saved)`)
+      console.log(`[squeezr] ${savings.compressed} block(s) AI-compressed | -${savings.savedChars.toLocaleString()} chars (~${tokens.toLocaleString()} tokens) (${pct}% total saved, incl. deterministic)`)
     }
 
     this.persist(originalChars, compressedChars, savings)

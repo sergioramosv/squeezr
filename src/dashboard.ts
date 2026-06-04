@@ -384,7 +384,7 @@ code{font-family:'Cascadia Code','SF Mono',Consolas,monospace;font-size:.9em}
         <div class="hero-card">
           <div class="hc-label">Requests</div>
           <div class="hc-val" id="h-reqs">—</div>
-          <div class="hc-sub"><span id="h-comp">—</span> compressed</div>
+          <div class="hc-sub"><span id="h-comp">—</span> AI-compressed · det. always on</div>
         </div>
       </div>
 
@@ -432,13 +432,14 @@ code{font-family:'Cascadia Code','SF Mono',Consolas,monospace;font-size:.9em}
         </div>
 <!-- Session Cache -->
         <div class="section" style="margin:0">
-          <div class="section-head"><span class="section-title">Session Cache</span><span style="font-size:11px;color:var(--text3)">this session</span></div>
+          <div class="section-head"><span class="section-title">Session Cache</span><span style="font-size:11px;color:var(--text3)">AI layer only</span></div>
           <div class="section-body">
             <div class="cache-row">
               <div class="cache-card"><div class="cache-label">Reuses</div><div class="cache-val" id="c-hits">—</div></div>
               <div class="cache-card"><div class="cache-label">Expands</div><div class="cache-val" id="c-miss">—</div></div>
               <div class="cache-card"><div class="cache-label">LRU Size</div><div class="cache-val" id="c-rate">—</div></div>
             </div>
+            <div style="margin-top:8px;font-size:11px;color:var(--text3);text-align:center">0 here is normal when AI compression is off</div>
           </div>
         </div>
         <!-- AI Compression -->
