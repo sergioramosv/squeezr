@@ -28,6 +28,7 @@ import { captureRequest } from './requestCapture.js'
 import { dedupSkillBlocks } from './skillDedup.js'
 import { collapseStaleTurns } from './staleTurns.js'
 import { compressToolDescriptions } from './toolDescComp.js'
+import { filterMcpTools } from './mcpFilter.js'
 import { anthropicDirectFetch, isAnthropicUrl } from './anthropicDirectFetch.js'
 import { sessionCacheSize } from './sessionCache.js'
 import { detPatternHits } from './deterministic.js'
@@ -344,9 +345,30 @@ const clientId = detectAnthropicClient(c.req.header('user-agent') ?? '', c.req.h
 
 // Track savings from each pre-pass for accurate stats reporting
   let toolDescSaved = 0
+  let mcpFilterSaved = 0
   let skillDedupSaved = 0
   let syspromptSaved = 0
   let staleTurnsSaved = 0
+
+  // MCP tool filtering per-server — drop tools from blocked servers entirely.
+  // Runs BEFORE tool desc compression so dropped tools never reach later passes.
+  if (Array.isArray(body.tools) && (config.mcpBlockServers.size > 0 || config.mcpAllowServers.size > 0)) {
+    const mf = filterMcpTools(
+      body.tools as unknown[],
+      messages as Parameters<typeof filterMcpTools>[1],
+      config.mcpBlockServers,
+      config.mcpAllowServers,
+    )
+    if (mf.result.removedTools > 0) {
+      body.tools = mf.tools
+      mcpFilterSaved = mf.result.savedChars
+      const tokens = Math.round(mf.result.savedChars / 3.5)
+      console.log(`[squeezr/mcp-filter] ${mf.result.removedTools} tool(s) from [${mf.result.removedServers.join(', ')}]: -${mf.result.savedChars.toLocaleString()} chars (~${tokens} tokens)`)
+    }
+    if (mf.result.keptUsedServers.length > 0) {
+      console.log(`[squeezr/mcp-filter] kept (in use): ${mf.result.keptUsedServers.join(', ')}`)
+    }
+  }
 
   // Tool description compression
   if (config.toolDescCompress && Array.isArray(body.tools)) {
@@ -416,6 +438,7 @@ body.messages = compressedMsgs
 
   // Attach per-feature savings to the savings object for accurate breakdown reporting
   savings.toolDescSavedChars = toolDescSaved
+  savings.mcpFilterSavedChars = mcpFilterSaved
   savings.staleTurnsSavedChars = staleTurnsSaved
   savings.skillDedupSavedChars = skillDedupSaved
   savings.syspromptSavedChars = syspromptSaved
@@ -811,6 +834,7 @@ async function buildStatsPayload() {
     tool_results_ai:  (persisted.ai_saved_chars as number) ?? (session.breakdown?.tool_results_ai ?? 0),
     read_dedup:       (persisted.dedup_saved_chars as number) ?? (session.breakdown?.read_dedup ?? 0),
     tool_desc:        (persisted.tool_desc_saved_chars as number) ?? (session.breakdown?.tool_desc ?? 0),
+    mcp_filter:       (persisted.mcp_filter_saved_chars as number) ?? (session.breakdown?.mcp_filter ?? 0),
     stale_turns:      (persisted.stale_turns_saved_chars as number) ?? (session.breakdown?.stale_turns ?? 0),
     skill_dedup:      (persisted.skill_dedup_saved_chars as number) ?? (session.breakdown?.skill_dedup ?? 0),
     system_prompt:    (persisted.sysprompt_saved_chars as number) ?? (session.breakdown?.system_prompt ?? 0),

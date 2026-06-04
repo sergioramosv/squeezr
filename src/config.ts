@@ -37,6 +37,8 @@ interface TomlConfig {
     tool_desc_safe_only?: boolean    // only truncate known built-ins (default true)
     tool_desc_expand?: boolean       // store full spec in expand store, add squeezr_expand hint (default true)
     tool_desc_max_chars?: number     // hard-truncate to N chars after first-para (0 = off)
+    mcp_block_servers?: string[]     // drop tools from these MCP servers (unless used in conversation)
+    mcp_allow_servers?: string[]     // if set, ONLY these MCP servers survive (block list ignored)
   }
   cache?: { enabled?: boolean; max_entries?: number }
   adaptive?: {
@@ -137,6 +139,8 @@ readonly toolDescCompress: boolean
   readonly toolDescSafeOnly: boolean
   readonly toolDescExpand: boolean
   readonly toolDescMaxChars: number
+  readonly mcpBlockServers: Set<string>
+  readonly mcpAllowServers: Set<string>
   readonly keepRecentAssistant: number
   readonly assistantThreshold: number
   readonly anthropicNativeCompact: boolean
@@ -182,6 +186,8 @@ this.toolDescCompress = c.tool_desc_compress ?? false
     this.toolDescSafeOnly = c.tool_desc_safe_only ?? true
     this.toolDescExpand = c.tool_desc_expand ?? true
     this.toolDescMaxChars = c.tool_desc_max_chars ?? 0
+    this.mcpBlockServers = new Set(c.mcp_block_servers ?? [])
+    this.mcpAllowServers = new Set(c.mcp_allow_servers ?? [])
     this.keepRecentAssistant = c.keep_recent_assistant ?? 3
     this.assistantThreshold = c.assistant_threshold ?? 300
     this.anthropicNativeCompact = c.anthropic_native_compact ?? false  // opt-in beta

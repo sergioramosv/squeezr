@@ -24,6 +24,7 @@ export interface Savings {
   aiSavedChars?: number        // AI compression savings (net, after tag overhead)
   overheadChars?: number       // chars added by [squeezr:XXXX] tags
   toolDescSavedChars?: number  // tool description compression savings
+  mcpFilterSavedChars?: number // MCP tool filtering savings
   staleTurnsSavedChars?: number // stale turn summarization savings
   skillDedupSavedChars?: number // skill/plugin block dedup savings (system prompt pre-pass)
   syspromptSavedChars?: number // system prompt Haiku compression savings

@@ -71,6 +71,7 @@ export class Stats {
   private totalOverheadChars = 0
   private totalSyspromptSaved = 0
   private totalToolDescSaved = 0
+  private totalMcpFilterSaved = 0
   private totalStaleTurnsSaved = 0
   private totalSkillDedupSaved = 0
   private totalAiCompressionCalls = 0
@@ -100,6 +101,7 @@ this.totalDetSaved += savings.detSavedChars ?? 0
     this.totalAiSaved += savings.aiSavedChars ?? 0
     this.totalOverheadChars += savings.overheadChars ?? 0
     this.totalToolDescSaved += savings.toolDescSavedChars ?? 0
+    this.totalMcpFilterSaved += savings.mcpFilterSavedChars ?? 0
     this.totalStaleTurnsSaved += savings.staleTurnsSavedChars ?? 0
     this.totalSkillDedupSaved += savings.skillDedupSavedChars ?? 0
     this.totalSyspromptSaved += savings.syspromptSavedChars ?? 0
@@ -211,6 +213,7 @@ breakdown: {
         tool_results_ai: this.totalAiSaved,
         read_dedup: this.totalDedupSaved,
         tool_desc: this.totalToolDescSaved,
+        mcp_filter: this.totalMcpFilterSaved,
         stale_turns: this.totalStaleTurnsSaved,
         skill_dedup: this.totalSkillDedupSaved,
         system_prompt: this.totalSyspromptSaved,
@@ -295,6 +298,7 @@ breakdown: {
       existing.ai_saved_chars = (existing.ai_saved_chars ?? 0) + (savings.aiSavedChars ?? 0)
       existing.overhead_chars = (existing.overhead_chars ?? 0) + (savings.overheadChars ?? 0)
       existing.tool_desc_saved_chars = (existing.tool_desc_saved_chars ?? 0) + (savings.toolDescSavedChars ?? 0)
+      existing.mcp_filter_saved_chars = (existing.mcp_filter_saved_chars ?? 0) + (savings.mcpFilterSavedChars ?? 0)
       existing.stale_turns_saved_chars = (existing.stale_turns_saved_chars ?? 0) + (savings.staleTurnsSavedChars ?? 0)
       existing.skill_dedup_saved_chars = (existing.skill_dedup_saved_chars ?? 0) + (savings.skillDedupSavedChars ?? 0)
       existing.sysprompt_saved_chars = (existing.sysprompt_saved_chars ?? 0) + (savings.syspromptSavedChars ?? 0)

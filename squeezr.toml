@@ -18,6 +18,9 @@ tool_desc_expand = true          # store full spec in expand store — Claude ll
                                  # para recuperar el spec completo si lo necesita (ej: antes de escribir workflow)
 # tool_desc_safe_only = true    # modo alternativo: solo built-ins sin expand (7K tokens saved, 0 riesgo)
 # tool_desc_max_chars = 0       # hard-truncate adicional tras first-para (0 = off)
+# mcp_block_servers = ["planning-task-mcp"]  # drop these MCP servers' tools (~18K tokens/req each)
+# mcp_allow_servers = ["github-mcp"]         # if set, ONLY these MCP servers survive
+# Safety: a server USED in the current conversation is never filtered.
 # skip_tools = ["Read"]         # never compress these tool types (Bash, Read, Grep, Glob...)
 # only_tools = ["Bash"]         # only compress these tool types — overrides skip_tools
 # Per-command: add "# squeezr:skip" anywhere in a Bash command to skip that result:

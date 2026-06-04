@@ -1,5 +1,13 @@
 # Changelog
 All notable changes to Squeezr will be documented here.
+## [1.57.0] - 2026-06-04
+### Added
+- **MCP tool filtering per-server** (`src/mcpFilter.ts`) — elimina del `tools[]` los tools de servidores MCP bloqueados. Capture data: planning-task-mcp solo = 87 tools · ~18,500 tokens por request aunque la sesión nunca lo use. Config: `mcp_block_servers = ["server"]` (blocklist) o `mcp_allow_servers = ["server"]` (allowlist, tiene precedencia). Default OFF (ambas listas vacías). 11 tests.
+- Nuevo contador `mcp_filter` en el breakdown de stats (sesión + persistido + dashboard).
+### Safety
+- SOLO filtra tools `mcp__<server>__*` — los built-ins jamás se tocan.
+- Un servidor USADO en la conversación actual (tool_use en messages) NUNCA se filtra — el modelo puede necesitar llamarlo otra vez.
+- Default OFF — opt-in explícito por config.
 ## [1.56.1] - 2026-06-04
 ### Fixed
 - **La compresión AI nunca se disparaba en Anthropic ni OpenAI** (bug de producción). El guard `c.index === lastMsgIdx` (Anthropic) y `c.index > newStartIdx` (OpenAI) eran lógica muerta: el último mensaje siempre está dentro de `keepRecent`, así que `toCompress` siempre quedaba vacío. Por eso el dashboard mostraba "No tools recorded yet" y 0 compresiones AI. Reemplazado por un cap anti-burst: máximo 5 bloques AI por request, los más grandes primero — la session cache hace converger el resto en pocos turnos.
