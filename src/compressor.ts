@@ -689,11 +689,15 @@ export async function compressAnthropicMessages(
   // Floor at 1500 so AI only touches blocks where it clearly wins — never expands.
   const AI_MIN_CHARS = 1500
   const aiThreshold = Math.max(threshold, AI_MIN_CHARS)
-  const candidates = allResults.slice(0, Math.max(0, allResults.length - effectiveKeepRecent(config)))
+const candidates = allResults.slice(0, Math.max(0, allResults.length - effectiveKeepRecent(config)))
+  // Note: we do NOT filter by cacheBarrier here. The barrier was designed for
+  // non-deterministic AI backends (Haiku varies between calls). Zest uses
+  // temperature=0 → same input always produces same output → byte-stable →
+  // cache-safe. Removing the barrier lets Zest compress tool results that
+  // land before the cache marker, which is the common case in Claude Code.
   const toProcess = candidates.filter(c =>
     c.text.length >= aiThreshold &&
-    !dedupedSet.has(`${c.index}:${c.subIndex}`) &&
-    c.index > cacheBarrier)
+    !dedupedSet.has(`${c.index}:${c.subIndex}`))
 
   if (toProcess.length === 0) return [msgs, emptySavings(false, detSaved, readDedupSaved, detMs, detByToolArr())]
 
