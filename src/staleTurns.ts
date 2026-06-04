@@ -34,15 +34,10 @@ function extractKeywords(text: string): string[] {
 }
 
 function compressTextBlock(text: string): string {
-  const kw = extractKeywords(text)
-  const preview = text.trim().split('\n')
-    .map(l => l.trim())
-    .find(l => l.length > 15 && !l.startsWith('```') && !l.startsWith('#') && !l.startsWith('//'))
-    ?? ''
-  const previewTrunc = preview.slice(0, 80)
-  const kwStr = kw.length > 0 ? ` | ${kw.join(', ')}` : ''
-  const ellipsis = previewTrunc.length < text.trim().length ? '…' : ''
-  return `[⧖ ${text.length}ch${kwStr}] ${previewTrunc}${ellipsis}`
+  // Plain ASCII placeholder — no Unicode symbols, no user content keywords.
+  // The ⧖ symbol and inline keywords previously used here were triggering
+  // Anthropic Usage Policy violations (false positives from safety filters).
+  return `[squeezr: ${text.length}-char turn condensed to save context]`
 }
 
 export interface StaleTurnsResult {
