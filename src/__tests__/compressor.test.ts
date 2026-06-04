@@ -181,6 +181,29 @@ describe('compressAnthropicMessages', () => {
     expect(savings.originalChars).toBeGreaterThan(0)
     expect(savings.byTool.length).toBeGreaterThan(0)
   })
+
+  it('NEVER compresses tool results at or before the cache_control barrier', async () => {
+    // Build: [asst tool_use, user tool_result(OLD, cached), asst tool_use, user tool_result(NEW)]
+    // Put cache_control on the OLD tool_result → it must stay byte-identical.
+    const oldText = 'a'.repeat(400)
+    const newText = 'b'.repeat(400)
+    const msgs = [
+      { role: 'assistant', content: [{ type: 'tool_use', id: 't0', name: 'Bash' }] },
+      { role: 'user', content: [{ type: 'tool_result', tool_use_id: 't0', content: oldText, cache_control: { type: 'ephemeral' } }] },
+      { role: 'assistant', content: [{ type: 'tool_use', id: 't1', name: 'Bash' }] },
+      { role: 'user', content: [{ type: 'tool_result', tool_use_id: 't1', content: newText }] },
+    ]
+    const [result] = await compressAnthropicMessages(msgs as any, 'key', baseConfig)
+    // The cached block (index 1) must be returned untouched — same reference/content
+    expect((result[1] as any).content[0].content).toBe(oldText)
+    expect((result[1] as any).content[0].cache_control).toEqual({ type: 'ephemeral' })
+  })
+  it('compresses freely when there is no cache_control marker', async () => {
+    const msgs = makeMessages(['x'.repeat(400), 'y'.repeat(400)])
+    const [, savings] = await compressAnthropicMessages(msgs as any, 'key', baseConfig)
+    // No barrier → old block is eligible for compression
+    expect(savings.compressed).toBe(1)
+  })
 })
 
 // ── OpenAI format ─────────────────────────────────────────────────────────────

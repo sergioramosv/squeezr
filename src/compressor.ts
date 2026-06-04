@@ -10,6 +10,7 @@ import { hashText, getBlock, setBlock, SessionBlock } from './sessionCache.js'
 import type { Config } from './config.js'
 import { effectiveThreshold, effectiveKeepRecent, aiEnabled, effectiveBackend } from './config.js'
 import { circuitBreaker } from './circuitBreaker.js'
+import { tryConsumeAiCall, _config as _aiRateConfig } from './aiRateLimit.js'
 
 export interface Savings {
   compressed: number
@@ -187,6 +188,7 @@ async function runCompression(
   config: Config,
 ): Promise<Array<{ index: number; subIndex?: number; original: string; result: string; tool: string }>> {
   const cache = getCache(config)
+  let rateLimited = 0
   const results = await Promise.allSettled(
     items.map(async (item) => {
       const preprocessed = preprocess(item.text)
@@ -194,12 +196,18 @@ async function runCompression(
         const cached = cache.get(preprocessed)
         if (cached) return { ...item, original: item.text, result: cached }
       }
+      // Hard rate limit: a cache miss means a real API call — gate it. When the
+      // window is exhausted, leave the block uncompressed (deterministic already ran).
+      if (!tryConsumeAiCall()) { rateLimited++; throw new Error('ai-rate-limited') }
       const compressed = await circuitBreaker.call(() => compressFn(preprocessed))
       if (config.cacheEnabled) cache.set(preprocessed, compressed)
       return { ...item, original: item.text, result: compressed }
     }),
   )
-  const failures = results.filter(r => r.status === 'rejected').length
+  if (rateLimited > 0) {
+    console.log(`[squeezr] AI rate limit hit — ${rateLimited} block(s) left uncompressed this window (max ${_aiRateConfig.MAX_CALLS_PER_WINDOW}/${_aiRateConfig.WINDOW_MS / 60000}min). Deterministic compression still applied.`)
+  }
+  const failures = results.filter(r => r.status === 'rejected' && (r as PromiseRejectedResult).reason?.message !== 'ai-rate-limited').length
   if (failures > 0) {
     const firstErr = (results.find(r => r.status === 'rejected') as PromiseRejectedResult | undefined)?.reason
     console.log(`[squeezr] ${failures} AI compression(s) failed (circuit: ${circuitBreaker.getState()}): ${firstErr}`)
@@ -406,6 +414,23 @@ function extractAnthropicAssistantTexts(
   return results
 }
 
+// Index of the LAST message that carries a cache_control marker. Everything at
+// this index or earlier is part of Anthropic's cached prefix — mutating it
+// invalidates the cache and makes the whole prefix re-bill at full price (the
+// 2026-06-04 incident: a 180K-token conversation re-billed every turn). We never
+// touch messages at or before this barrier. Returns -1 when there's no cache
+// marker (short conversations / clients without caching) → compress freely.
+function lastCacheControlMessageIndex(messages: AnthropicMessage[]): number {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const c = messages[i].content
+    if (!Array.isArray(c)) continue
+    for (const blk of c) {
+      if (blk && typeof blk === 'object' && (blk as { cache_control?: unknown }).cache_control) return i
+    }
+  }
+  return -1
+}
+
 function buildAnthropicToolIdMap(messages: AnthropicMessage[]): { nameMap: Map<string, string>; skipIds: Set<string> } {
   const nameMap = new Map<string, string>()
   const skipIds = new Set<string>()
@@ -432,8 +457,13 @@ export async function compressAnthropicMessages(
   const pressure = estimatePressure(messages, systemExtraChars)
   const threshold = effectiveThreshold(config, pressure)
   const { nameMap: toolIdMap, skipIds } = buildAnthropicToolIdMap(messages)
+  // Cache barrier: never compress messages at or before the last cache_control
+  // marker — doing so invalidates Anthropic's prompt cache and re-bills the whole
+  // prefix at full price. -1 = no cache markers, compress everything.
+  const cacheBarrier = lastCacheControlMessageIndex(messages)
   const allResults = extractAnthropicToolResults(messages, toolIdMap)
     .filter(r => !skipIds.has(r.toolUseId) && !config.shouldSkipTool(r.tool))
+    .filter(r => r.index > cacheBarrier)
 
   if (allResults.length === 0) return [messages, emptySavings()]
 
@@ -597,6 +627,18 @@ const attDedup = dedupAttachments(msgs as Parameters<typeof dedupAttachments>[0]
       console.log(`[squeezr/toolinput-det] tool_use input deterministic: -${tuSaved.toLocaleString()} chars (~${tokens} tokens) across ${tuCount} call(s)`)
     }
     detSaved += tuSaved
+  }
+
+  // ── Cache barrier safety net ─────────────────────────────────────────────
+  // Restore the cached prefix [0..cacheBarrier] byte-for-byte from the original.
+  // This reverts ANY mutation (image/attachment/diff dedup, assistant/user/tool
+  // deterministic cleanup) that touched the cached region, guaranteeing Anthropic's
+  // prompt cache still hits. allResults was already filtered, so AI/det of tool
+  // results never touched it — this covers the passes that operate on msgs directly.
+  if (cacheBarrier >= 0) {
+    for (let i = 0; i <= cacheBarrier && i < msgs.length; i++) {
+      msgs[i] = messages[i]
+    }
   }
 
   // ── Step 2: AI compression for old blocks above threshold ─────────────────
