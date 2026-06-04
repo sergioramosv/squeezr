@@ -275,7 +275,13 @@ export function applyMode(mode: CompressionMode): void {
 
 /** Effective threshold — runtime override wins over TOML adaptive threshold */
 export function effectiveThreshold(config: Config, pressure: number): number {
+  // If a runtime override threshold is set (from dashboard mode button), use it
+  // as a FIXED value — ignore adaptive pressure. This makes compression output
+  // byte-stable between requests, which is required for Anthropic prompt cache hits.
+  // If no override: fall back to pressure-adaptive (legacy behavior, no cache markers).
   if (runtimeOverrides.threshold !== undefined) return runtimeOverrides.threshold
+  // When cache markers are present, always use the mid threshold (normal mode default)
+  // so the prefix is byte-stable. Adaptive only safe when there are no cache markers.
   return config.thresholdForPressure(pressure)
 }
 

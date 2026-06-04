@@ -8,7 +8,7 @@ import { dedupAttachments } from './attachmentDedup.js'
 import { compressRepeatedReads } from './diffRead.js'
 import { hashText, getBlock, setBlock, SessionBlock } from './sessionCache.js'
 import type { Config } from './config.js'
-import { effectiveThreshold, effectiveKeepRecent, aiEnabled, effectiveBackend } from './config.js'
+import { effectiveThreshold, effectiveKeepRecent, aiEnabled, effectiveBackend, runtimeOverrides } from './config.js'
 import { circuitBreaker } from './circuitBreaker.js'
 import { tryConsumeAiCall, _config as _aiRateConfig } from './aiRateLimit.js'
 import { isAiCompressionEnabled } from './aiToggle.js'
@@ -456,12 +456,19 @@ export async function compressAnthropicMessages(
   if (config.disabled) return [messages, emptySavings()]
 
   const pressure = estimatePressure(messages, systemExtraChars)
-  const threshold = effectiveThreshold(config, pressure)
+  // When cache markers are present: use a FIXED threshold (ignore pressure-adaptive).
+  // Adaptive threshold changes between requests as the context grows → different blocks
+  // get compressed → cache prefix differs → Anthropic prompt cache invalidated.
+  // With cache markers we must be byte-stable: always use the normal-mode threshold (800).
+  const cacheBarrierEarly = lastCacheControlMessageIndex(messages)
+  const threshold = cacheBarrierEarly >= 0
+    ? (runtimeOverrides.threshold ?? config.adaptiveMid)  // fixed 800 when cached
+    : effectiveThreshold(config, pressure)                 // adaptive only when no cache
   const { nameMap: toolIdMap, skipIds } = buildAnthropicToolIdMap(messages)
   // Cache barrier: never compress messages at or before the last cache_control
   // marker — doing so invalidates Anthropic's prompt cache and re-bills the whole
   // prefix at full price. -1 = no cache markers, compress everything.
-  const cacheBarrier = lastCacheControlMessageIndex(messages)
+  const cacheBarrier = cacheBarrierEarly  // reuse value computed above
   const hasCacheMarkers = cacheBarrier >= 0
   const allResults = extractAnthropicToolResults(messages, toolIdMap)
     .filter(r => !skipIds.has(r.toolUseId) && !config.shouldSkipTool(r.tool))
