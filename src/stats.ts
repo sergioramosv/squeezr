@@ -114,9 +114,12 @@ this.totalDetSaved += savings.detSavedChars ?? 0
       if (latency.aiMs != null) this.latencyAi.record(latency.aiMs)
     }
 
-    for (const entry of savings.byTool) {
+for (const entry of savings.byTool) {
       if (!this.byTool[entry.tool]) this.byTool[entry.tool] = { count: 0, savedChars: 0, originalChars: 0 }
-      this.byTool[entry.tool].count++
+      // Det entries are per-tool aggregates carrying a real block count; AI entries
+      // are per-block (count undefined → 1). Without this, every tool showed the
+      // same number (= request count) in Top Tools.
+      this.byTool[entry.tool].count += entry.count ?? 1
       this.byTool[entry.tool].savedChars += entry.savedChars
       this.byTool[entry.tool].originalChars += entry.originalChars
     }

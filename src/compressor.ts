@@ -17,7 +17,7 @@ export interface Savings {
   compressed: number
   savedChars: number
   originalChars: number
-  byTool: Array<{ tool: string; savedChars: number; originalChars: number }>
+  byTool: Array<{ tool: string; savedChars: number; originalChars: number; count?: number }>
   dryRun: boolean
   sessionCacheHits: number
   // Honest breakdown for accurate gain reporting
@@ -657,7 +657,7 @@ export async function compressAnthropicMessages(
 
   // Deterministic per-tool tally → byTool array (Top Tools shows det work, not just AI)
   const detByToolArr = (): Savings['byTool'] =>
-    Object.entries(detByTool).map(([tool, d]) => ({ tool, savedChars: d.savedChars, originalChars: d.originalChars }))
+    Object.entries(detByTool).map(([tool, d]) => ({ tool, savedChars: d.savedChars, originalChars: d.originalChars, count: d.count }))
 
   // ── Step 2: AI compression for old blocks above threshold ─────────────────
   // AI output is NOT byte-stable (Haiku varies; session cache only stabilizes it

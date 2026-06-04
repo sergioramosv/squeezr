@@ -1,5 +1,8 @@
 # Changelog
 All notable changes to Squeezr will be documented here.
+## [1.67.2] - 2026-06-04
+### Fixed
+- **Top Tools mostraba el mismo valor para todas las herramientas** — las entradas determinísticas de `byTool` son agregados por-herramienta (1 entrada/tool/request), pero stats hacía `count++` por entrada → todas las tools sumaban +1 por request (= nº de requests). Las entradas llevan ahora su `count` real de bloques y stats/history lo acumulan (`count ?? 1` para las AI, que son por-bloque).
 ## [1.67.1] - 2026-06-04
 ### Fixed
 - **stale-turns invalidaba el prompt cache** — detectado con la nueva card Prompt Cache (hit health 23%: creation 657k vs read 200k). La frontera de colapso avanza un turno por request → muta el prefijo cacheado cada turno → invalidación permanente. Ahora stale-turns se desactiva cuando hay cache markers (Claude Code); sin markers sigue activo. Mismo patrón que las dedup en v1.63.0.

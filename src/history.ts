@@ -111,7 +111,7 @@ export function recordRequest(
   project: string,
   savedChars: number,
   compressions: number,
-  byTool: Array<{ tool: string; savedChars: number }>,
+byTool: Array<{ tool: string; savedChars: number; count?: number }>,
   originalChars = 0,
   model?: string,
   client?: string,
@@ -121,9 +121,9 @@ export function recordRequest(
   currentOriginalChars += originalChars
   currentSavedChars += savedChars
   currentCompressions += compressions
-  for (const { tool, savedChars: sc } of byTool) {
+  for (const { tool, savedChars: sc, count } of byTool) {
     if (!currentByTool[tool]) currentByTool[tool] = { count: 0, savedTokens: 0 }
-    currentByTool[tool].count++
+    currentByTool[tool].count += count ?? 1
     currentByTool[tool].savedTokens += Math.round(sc / CHARS_PER_TOKEN)
   }
   if (model) {
