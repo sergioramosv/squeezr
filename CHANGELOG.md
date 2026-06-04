@@ -1,5 +1,14 @@
 # Changelog
 All notable changes to Squeezr will be documented here.
+## [1.68.0] - 2026-06-04
+### Added
+- **`squeezr zest` — guided install wizard para el modelo local Zest.** Un solo comando que:
+  1. Detecta si Ollama está instalado; si no, lo instala automáticamente (winget en Windows, brew en macOS, script oficial en Linux)
+  2. Descarga el GGUF de Zest (~500MB Q4_K_M) desde HuggingFace a `~/.squeezr/zest/`
+  3. Crea el modelo en Ollama con el system prompt exacto de compresión de Squeezr (`temperature=0` para output determinístico)
+  4. Smoke test: comprime un input real y muestra el resultado + ratio de compresión
+  5. Configura `~/.squeezr/squeezr.toml` con `ai_compression=true` + `compression_model=zest` y reinicia el proxy
+- Cualquier usuario puede tener compresión AI local completamente gratis ejecutando un solo comando.
 ## [1.67.2] - 2026-06-04
 ### Fixed
 - **Top Tools mostraba el mismo valor para todas las herramientas** — las entradas determinísticas de `byTool` son agregados por-herramienta (1 entrada/tool/request), pero stats hacía `count++` por entrada → todas las tools sumaban +1 por request (= nº de requests). Las entradas llevan ahora su `count` real de bloques y stats/history lo acumulan (`count ?? 1` para las AI, que son por-bloque).

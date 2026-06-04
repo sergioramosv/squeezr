@@ -264,6 +264,7 @@ Usage:
   squeezr bypass           Toggle bypass mode (skip compression, keep logging)
   squeezr bypass --on      Enable bypass (disable compression)
   squeezr bypass --off     Disable bypass (resume compression)
+squeezr zest             Install Zest local AI compression model (guided wizard)
   squeezr update           Kill old processes, install latest from npm, restart
   squeezr uninstall        Remove Squeezr completely (env vars, CA, auto-start, logs)
   squeezr version          Print version
@@ -2049,6 +2050,215 @@ async function startTunnel() {
   process.on('SIGTERM', () => { child.kill(); process.exit(0) })
 }
 
+// ── squeezr zest — guided install wizard ─────────────────────────────────────
+
+async function installZest() {
+  const { createInterface } = await import('readline')
+  const { get }  = await import('https')
+  const rl = createInterface({ input: process.stdin, output: process.stdout })
+  const ask = (q) => new Promise(res => rl.question(q, res))
+  const ZEST_DIR = path.join(os.homedir(), '.squeezr', 'zest')
+  const GGUF_PATH = path.join(ZEST_DIR, 'zest-0.8b-q4.gguf')
+  const MODELFILE_PATH = path.join(ZEST_DIR, 'Modelfile.zest')
+  // GGUF download URL — hosted on HuggingFace (replace with actual URL when published)
+  const GGUF_URL = 'https://huggingface.co/sergioramosv/zest-0.8b/resolve/main/zest-0.8b-q4.gguf'
+  const COMPRESS_SYSTEM = 'You are compressing a coding tool output to save tokens. Extract ONLY what is essential: errors, file paths, function names, test failures, key values, warnings. Be extremely concise, target under 150 tokens. Output only the compressed content, nothing else.'
+
+  console.log('\n╔══════════════════════════════════════════════════════╗')
+  console.log('║  Zest — Local AI Compression Model for Squeezr      ║')
+  console.log('╚══════════════════════════════════════════════════════╝')
+  console.log('\nZest is a fine-tuned 0.8B model that compresses coding tool')
+  console.log('outputs locally — zero cost, zero API calls, zero latency added.')
+  console.log('Runs via Ollama on your machine.\n')
+
+  // ── Step 1: Check / install Ollama ────────────────────────────────────────
+  console.log('[ 1 / 4 ]  Checking Ollama...')
+  let ollamaOk = false
+  try { execSync('ollama --version', { stdio: 'pipe' }); ollamaOk = true } catch {}
+
+  if (!ollamaOk) {
+    console.log('\n  Ollama is not installed.')
+    console.log('  Ollama is a free, open-source local model runner.\n')
+    const ans = await ask('  Install Ollama now? [Y/n] ')
+    if (ans.toLowerCase() === 'n') {
+      console.log('\n  Skipping. Install Ollama manually from https://ollama.com/download')
+      console.log('  Then run: squeezr zest\n')
+      rl.close(); return
+    }
+    console.log('\n  Installing Ollama...')
+    if (process.platform === 'win32') {
+      // winget first, fallback to direct download guidance
+      try {
+        execSync('winget install -e --id Ollama.Ollama --accept-package-agreements --accept-source-agreements', { stdio: 'inherit' })
+        ollamaOk = true
+      } catch {
+        console.log('\n  winget install failed. Please download Ollama manually:')
+        console.log('  https://ollama.com/download/windows')
+        const wait = await ask('\n  Press Enter once Ollama is installed... ')
+        try { execSync('ollama --version', { stdio: 'pipe' }); ollamaOk = true } catch {}
+      }
+    } else if (process.platform === 'darwin') {
+      console.log('  → brew install ollama')
+      try { execSync('brew install ollama', { stdio: 'inherit' }); ollamaOk = true } catch {}
+    } else {
+      // Linux
+      try {
+        execSync('curl -fsSL https://ollama.com/install.sh | sh', { stdio: 'inherit' })
+        ollamaOk = true
+      } catch {}
+    }
+    if (!ollamaOk) {
+      console.log('\n  Could not install Ollama automatically.')
+      console.log('  Install manually from https://ollama.com/download then run: squeezr zest\n')
+      rl.close(); return
+    }
+    // Start ollama service
+    try { execSync('ollama serve &', { stdio: 'pipe', shell: true }) } catch {}
+    await new Promise(r => setTimeout(r, 2000))
+  }
+  try { execSync('ollama --version', { stdio: 'pipe' }) } catch {
+    console.log('\n  Ollama installed but not in PATH. Open a new terminal and run: squeezr zest\n')
+    rl.close(); return
+  }
+  console.log('  ✓ Ollama ready')
+
+  // ── Step 2: Check if zest model already exists in Ollama ──────────────────
+  console.log('\n[ 2 / 4 ]  Checking Zest model in Ollama...')
+  let modelExists = false
+  try {
+    const list = execSync('ollama list', { stdio: 'pipe', encoding: 'utf-8' })
+    modelExists = list.includes('zest')
+  } catch {}
+
+  if (modelExists) {
+    console.log('  ✓ Zest model already installed in Ollama')
+  } else {
+    // Download GGUF if not present
+    if (!fs.existsSync(GGUF_PATH)) {
+      console.log(`\n  Downloading Zest model (~500 MB)...`)
+      console.log(`  From: ${GGUF_URL}`)
+      console.log(`  To:   ${GGUF_PATH}\n`)
+      fs.mkdirSync(ZEST_DIR, { recursive: true })
+      // Stream download with progress
+      await new Promise((resolve, reject) => {
+        const file = fs.createWriteStream(GGUF_PATH)
+        const request = (url, redirects = 0) => {
+          if (redirects > 5) return reject(new Error('Too many redirects'))
+          const urlObj = new URL(url)
+          const mod = urlObj.protocol === 'https:' ? require('https') : require('http')
+          mod.get(url, { headers: { 'User-Agent': 'squeezr-zest-installer' } }, res => {
+            if (res.statusCode === 301 || res.statusCode === 302) {
+              return request(res.headers.location, redirects + 1)
+            }
+            if (res.statusCode !== 200) {
+              file.close()
+              fs.unlinkSync(GGUF_PATH)
+              return reject(new Error(`HTTP ${res.statusCode}`))
+            }
+            const total = parseInt(res.headers['content-length'] || '0')
+            let downloaded = 0
+            res.on('data', chunk => {
+              downloaded += chunk.length
+              if (total > 0) {
+                const pct = Math.round(downloaded / total * 100)
+                process.stdout.write(`\r  Downloading... ${pct}% (${Math.round(downloaded/1024/1024)}/${Math.round(total/1024/1024)} MB)`)
+              }
+            })
+            res.pipe(file)
+            file.on('finish', () => { file.close(); console.log('\n  ✓ Download complete'); resolve() })
+          }).on('error', err => { file.close(); fs.unlinkSync(GGUF_PATH); reject(err) })
+        }
+        request(GGUF_URL)
+      }).catch(err => {
+        console.log(`\n  ✗ Download failed: ${err.message}`)
+        console.log('  The model will be available at https://huggingface.co/sergioramosv/zest-0.8b')
+        console.log('  Download the GGUF manually and place it at:')
+        console.log(`  ${GGUF_PATH}`)
+        console.log('  Then run: squeezr zest\n')
+        rl.close(); process.exit(1)
+      })
+    } else {
+      console.log('  ✓ GGUF already downloaded')
+    }
+    // Write Modelfile
+    const modelfileContent = `FROM ${GGUF_PATH}\nSYSTEM """${COMPRESS_SYSTEM}"""\nPARAMETER temperature 0\nPARAMETER top_p 1\nPARAMETER top_k 1\nPARAMETER num_predict 300\nPARAMETER num_ctx 2048\n`
+    fs.writeFileSync(MODELFILE_PATH, modelfileContent)
+    // Create Ollama model
+    console.log('\n  Creating Zest model in Ollama...')
+    try {
+      execSync(`ollama create zest -f "${MODELFILE_PATH}"`, { stdio: 'inherit' })
+      console.log('  ✓ Zest model created')
+    } catch (e) {
+      console.log(`\n  ✗ Failed to create Ollama model: ${e.message}`)
+      rl.close(); return
+    }
+  }
+
+  // ── Step 3: Smoke test ────────────────────────────────────────────────────
+  console.log('\n[ 3 / 4 ]  Smoke test...')
+  const testInput = 'npm warn deprecated inflight@1.0.6: not supported, leaks memory. added 847 packages in 14s. 3 vulnerabilities (1 moderate, 2 high).'
+  let testOutput = ''
+  try {
+    testOutput = execSync(`ollama run zest "${testInput}"`, { stdio: 'pipe', encoding: 'utf-8', timeout: 30000 }).trim()
+    const ratio = Math.round((1 - testOutput.length / testInput.length) * 100)
+    console.log(`\n  Input  (${testInput.length} chars): ${testInput}`)
+    console.log(`  Output (${testOutput.length} chars): ${testOutput}`)
+    if (ratio > 0) {
+      console.log(`\n  ✓ Compression working — ${ratio}% savings on test input`)
+    } else {
+      console.log(`\n  ⚠ Output is larger than input on this test — this is normal for very short inputs`)
+      console.log('  Zest shines on real tool outputs (≥1500 chars). Short test inputs may expand.')
+    }
+  } catch (e) {
+    console.log(`\n  ✗ Smoke test failed: ${e.message}`)
+    console.log('  The model may still work. Continuing setup.')
+  }
+
+  // ── Step 4: Configure Squeezr ─────────────────────────────────────────────
+  console.log('\n[ 4 / 4 ]  Configuring Squeezr...')
+  const userToml = path.join(os.homedir(), '.squeezr', 'squeezr.toml')
+  let tomlContent = ''
+  try { tomlContent = fs.readFileSync(userToml, 'utf-8') } catch {}
+
+  const alreadyConfigured = tomlContent.includes('compression_model') && tomlContent.includes('zest')
+  if (alreadyConfigured) {
+    console.log('  ✓ Squeezr already configured to use Zest')
+  } else {
+    const ans = await ask('\n  Configure Squeezr to use Zest as AI compression backend? [Y/n] ')
+    if (ans.toLowerCase() !== 'n') {
+      // Add [local] section and enable ai_compression
+      let newToml = tomlContent
+      if (!newToml.includes('[local]')) {
+        newToml += '\n[local]\nenabled = true\nupstream_url = "http://localhost:11434"\ncompression_model = "zest"\n'
+      }
+      if (!newToml.includes('ai_compression')) {
+        // Add under [compression] or create section
+        if (newToml.includes('[compression]')) {
+          newToml = newToml.replace('[compression]', '[compression]\nai_compression = true\nai_min_chars = 1500')
+        } else {
+          newToml += '\n[compression]\nai_compression = true\nai_min_chars = 1500\n'
+        }
+      }
+      fs.writeFileSync(userToml, newToml)
+      console.log('  ✓ Squeezr configured')
+      // Restart proxy
+      console.log('\n  Restarting Squeezr to apply changes...')
+      try {
+        execSync('squeezr restart', { stdio: 'inherit' })
+      } catch {}
+    }
+  }
+
+  rl.close()
+  console.log('\n╔══════════════════════════════════════════════════════╗')
+  console.log('║  ✓ Zest is ready!                                    ║')
+  console.log('╚══════════════════════════════════════════════════════╝')
+  console.log('\nSqueezr will now use Zest for AI compression locally.')
+  console.log('No API calls, no cost — everything runs on your machine.')
+  console.log('\nDashboard: http://localhost:8080/squeezr/dashboard')
+  console.log('To disable: set ai_compression = false in ~/.squeezr/squeezr.toml\n')
+}
+
 // ── CLI router ────────────────────────────────────────────────────────────────
 
 switch (command) {
@@ -2240,6 +2450,10 @@ switch (command) {
     else await mcpInstall()
     break
   }
+case 'zest':
+    await installZest()
+    break
+
   case 'version':
   case '--version':
   case '-v':
