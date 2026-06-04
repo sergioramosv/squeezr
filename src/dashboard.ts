@@ -488,15 +488,18 @@ code{font-family:'Cascadia Code','SF Mono',Consolas,monospace;font-size:.9em}
         </div>
       </div>
 
-      <!-- Savings by client -->
+<!-- Savings by client -->
       <div class="section">
         <div class="section-head"><span class="section-title">Savings by client</span></div>
         <div class="section-body" id="client-body-overview">
           <div style="font-size:13px;color:var(--text3)">No data yet — starts after first request.</div>
         </div>
-      </div>
-    </div>
-
+  ... [repeated 2 more times]
+      <!-- Savings by compression type (all-time, persisted) -->
+      <div class="section">
+        <div class="section-head"><span class="section-title">Savings by type</span><span style="font-size:11px;color:var(--text3)">all time · persisted</span></div>
+        <div class="section-body" id="breakdown-body">
+          <div style="font-size:13px;color:var(--text3)">No data yet.</div>
     <!-- ── Savings page ── -->
     <div id="page-savings" style="display:none">
 
@@ -966,6 +969,7 @@ function render(d) {
 
   // CLI breakdown (#8)
   renderClientBreakdown(d.by_client);
+  renderBreakdown(d.breakdown);
 
   // Mode & bypass
   updateMode(mode, byp);
@@ -1370,6 +1374,55 @@ function renderClientBreakdown(byClient) {
   var elSettings  = document.getElementById('cli-breakdown-body');
   if (elOverview) elOverview.innerHTML = html;
   if (elSettings) elSettings.innerHTML = html;
+}
+
+// ── Savings by compression type ──────────────────────────────────────────────
+// breakdown values are CHARS saved per technique (all-time, persisted in stats.json).
+var BREAKDOWN_LABELS = {
+  tool_results_det: 'Deterministic (tool output)',
+  tool_results_ai:  'AI compression',
+  read_dedup:       'Repeated-read dedup',
+  tool_desc:        'Tool descriptions',
+  mcp_filter:       'MCP tool filtering',
+  stale_turns:      'Stale turn summaries',
+  skill_dedup:      'Skill/plugin dedup',
+  system_prompt:    'System prompt',
+};
+function renderBreakdown(bd) {
+  var el = document.getElementById('breakdown-body');
+  if (!el) return;
+  if (!bd || typeof bd !== 'object') {
+    el.innerHTML = '<div style="font-size:13px;color:var(--text3)">No data yet.</div>';
+    return;
+  }
+  // Build rows (chars → tokens). Skip overhead/ai_calls (not savings) and zeros.
+  var rows = Object.keys(BREAKDOWN_LABELS)
+    .map(function(k){ return { key: k, label: BREAKDOWN_LABELS[k], chars: bd[k] || 0 }; })
+    .filter(function(r){ return r.chars > 0; })
+    .sort(function(a,b){ return b.chars - a.chars; });
+  if (!rows.length) {
+    el.innerHTML = '<div style="font-size:13px;color:var(--text3)">No savings recorded yet.</div>';
+    return;
+  }
+  var maxChars = rows[0].chars;
+  var totalTok = rows.reduce(function(s,r){ return s + Math.round(r.chars/3.5); }, 0);
+  var html = rows.map(function(r){
+    var tok = Math.round(r.chars / 3.5);
+    var pct = maxChars > 0 ? Math.round(r.chars / maxChars * 100) : 0;
+    return '<div style="margin-bottom:12px">' +
+      '<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:5px">' +
+        '<span style="font-size:13px;font-weight:600;color:var(--text)">' + esc(r.label) + '</span>' +
+        '<span style="font-size:12px;color:var(--brand2);font-weight:600">' + fmt(tok) + ' tokens</span>' +
+      '</div>' +
+      '<div style="height:6px;background:var(--surface3);border-radius:3px;overflow:hidden">' +
+        '<div style="height:100%;width:' + pct + '%;background:var(--brand);border-radius:3px;transition:width .4s"></div>' +
+      '</div>' +
+    '</div>';
+  }).join('');
+  html += '<div style="margin-top:6px;padding-top:10px;border-top:1px solid var(--surface3);display:flex;justify-content:space-between;font-size:12px">' +
+    '<span style="color:var(--text2);font-weight:600">Total</span>' +
+    '<span style="color:var(--brand2);font-weight:700">' + fmt(totalTok) + ' tokens saved</span></div>';
+  el.innerHTML = html;
 }
 
 function updateMode(mode, byp) {

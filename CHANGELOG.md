@@ -1,5 +1,8 @@
 # Changelog
 All notable changes to Squeezr will be documented here.
+## [1.64.0] - 2026-06-04
+### Added
+- **Card "Savings by type"** en el Overview (debajo de Savings by client) — desglosa el ahorro acumulado por técnica: Deterministic, Repeated-read dedup, Tool descriptions, Stale turn summaries, AI compression, MCP filtering, Skill/plugin dedup, System prompt. Cada una con tokens + barra, y un Total al final. Datos all-time, ya persistidos en stats.json → sobreviven reinicios.
 ## [1.63.0] - 2026-06-04
 ### Fixed — la barrera de v1.60.0 mataba TODA la compresión
 - v1.60.0 filtraba `allResults` por la barrera de cache. Como Claude Code pone el `cache_control` casi al final (ej. mensaje 241 de 243), se descartaban ~125 de 126 tool_results → 0 compresión determinística, Top Tools vacío, 0 ahorro. Sobrecorrección.
