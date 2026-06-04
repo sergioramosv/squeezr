@@ -1,5 +1,8 @@
 # Changelog
 All notable changes to Squeezr will be documented here.
+## [1.69.2] - 2026-06-05
+### Fixed
+- **Live Log: scroll tipo terminal-tail fiable.** Se sustituyó el truco `justify-content:flex-end` (que en algunos navegadores recortaba por el lado equivocado y parecía invertido) por scroll programático: tras cada render se hace `el.scrollTop = el.scrollHeight`. Resultado: el log nuevo nace abajo, sube y se pierde por el borde superior, y la última línea queda siempre visible al fondo.
 ## [1.69.1] - 2026-06-05
 ### Fixed
 - **El Live Log ahora muestra los logs REALES de compresión, no eventos sintéticos.** Antes todo aparecía como `squeezr-det`; ahora se capturan las líneas tal cual las emite el proxy: `[squeezr/det] Deterministic: -32,323 chars (~9235 tokens) across 54 block(s)`, `[squeezr/tool-desc] 24/145 tool(s): …`, `[squeezr/user-det]`, `[squeezr/toolinput-det]`, `[squeezr/asst-det]`, `[squeezr/dedup]`, etc.

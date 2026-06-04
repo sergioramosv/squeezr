@@ -216,8 +216,8 @@ code{font-family:'Cascadia Code','SF Mono',Consolas,monospace;font-size:.9em}
 @media (max-width:760px){.rl-row{grid-template-columns:1fr}}
 
 /* ── Live Log feed (newest at the BOTTOM; older scroll up and out) ── */
-#livelog-body{height:236px;overflow:hidden;padding:12px 14px}
-.ll-list{display:flex;flex-direction:column;justify-content:flex-end;gap:5px;min-height:100%}
+#livelog-body{height:236px;overflow:hidden;padding:12px 14px;scroll-behavior:smooth}
+.ll-list{display:flex;flex-direction:column;gap:5px}
 .ll-empty{font-size:13px;color:var(--text3);padding:8px 0}
 .ll-row{
   display:flex;align-items:baseline;gap:8px;
@@ -1169,6 +1169,9 @@ function renderLiveLog(activity) {
     '</div>';
   }).join('');
   el.innerHTML = '<div class="ll-list">' + html + '</div>';
+  // Always keep the newest line (last child, at the bottom) in view: scroll to the
+  // bottom so older lines scroll up and out of the top edge (terminal-tail style).
+  el.scrollTop = el.scrollHeight;
   for (var i = 0; i < rows.length; i++) if (rows[i].id > llMaxId) llMaxId = rows[i].id;
 }
 
