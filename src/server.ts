@@ -39,6 +39,7 @@ import {
   getCurrentSession,
   getProjectAggregates,
   getAllSessionsForHistory,
+  setSessionExtrasProvider,
 } from './history.js'
 import {
   updateAnthropicFromHeaders,
@@ -133,6 +134,24 @@ function readCodexToken(): string | null {
 const SKIP_RESP_HEADERS = new Set(['content-encoding', 'transfer-encoding', 'connection', 'content-length'])
 
 export const stats = new Stats()
+
+// Feed AI-usage + session-cache totals into each persisted SessionRecord so the
+// Savings page can filter them by day/week/month (v1.61.0).
+setSessionExtrasProvider(() => {
+  const s = stats.summary()
+  return {
+    aiUsage: {
+      calls: aiUsageCounters.calls,
+      inputTokens: aiUsageCounters.inputTokens,
+      outputTokens: aiUsageCounters.outputTokens,
+      savedTokens: Math.round((s.breakdown?.tool_results_ai ?? 0) / 3.5),
+    },
+    sessionCache: {
+      reuses: s.session_cache_hits ?? 0,
+      expands: s.expand?.calls ?? 0,
+    },
+  }
+})
 
 function forwardHeaders(headers: Headers): Record<string, string> {
   const out: Record<string, string> = {}

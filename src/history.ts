@@ -31,6 +31,21 @@ export interface SessionRecord {
   // Per-model / per-client breakdown (added v1.56.0) — enables period filtering in dashboard
   byModel?: Record<string, { requests: number; originalTokens: number; savedTokens: number }>
   byClient?: Record<string, { requests: number; originalTokens: number; savedTokens: number }>
+  // AI compression + session cache snapshot (added v1.61.0) — period filtering in Savings.
+  // Cumulative for this proxy session, captured at each persist via the extras provider.
+  aiUsage?: { calls: number; inputTokens: number; outputTokens: number; savedTokens: number }
+  sessionCache?: { reuses: number; expands: number }
+}
+
+// Extras provider — lets server.ts feed AI-usage / session-cache totals into the
+// session record WITHOUT history.ts importing compressor/stats (avoids coupling).
+export interface SessionExtras {
+  aiUsage: { calls: number; inputTokens: number; outputTokens: number; savedTokens: number }
+  sessionCache: { reuses: number; expands: number }
+}
+let extrasProvider: (() => SessionExtras) | null = null
+export function setSessionExtrasProvider(fn: () => SessionExtras): void {
+  extrasProvider = fn
 }
 
 interface HistoryFile {
@@ -141,6 +156,7 @@ function buildCurrentRecord(): SessionRecord {
     byTool: { ...currentByTool },
     byModel: { ...currentByModel },
     byClient: { ...currentByClient },
+    ...(extrasProvider ? { aiUsage: extrasProvider().aiUsage, sessionCache: extrasProvider().sessionCache } : {}),
   }
 }
 

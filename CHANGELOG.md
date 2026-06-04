@@ -1,5 +1,11 @@
 # Changelog
 All notable changes to Squeezr will be documented here.
+## [1.61.0] - 2026-06-04
+### Added
+- **AI Compression, Session Cache y Top Tools por periodo en Savings** — antes eran solo de la sesión del proxy en memoria (se perdían al reiniciar). Ahora `SessionRecord` persiste `aiUsage` (calls/in/out/saved) y `sessionCache` (reuses/expands) en history.json vía un extras-provider inyectado desde server.ts (sin acoplar history a compressor/stats). La pestaña Savings agrega esos datos + Top Tools por el periodo elegido (Day/Week/Month/All) y los muestra en 3 secciones nuevas que cambian al navegar entre periodos. Sobreviven reinicios.
+- Refactor: `buildToolsHtml` separado de `renderTools` para reutilización (igual que buildModelHtml/buildClientHtml).
+### Notes
+- Las tarjetas del Overview siguen mostrando la sesión actual del proxy (en vivo). El histórico completo está en Savings.
 ## [1.60.0] - 2026-06-04
 ### Fixed — CAUSA RAÍZ del gasto masivo
 - **Squeezr invalidaba el prompt cache de Anthropic en cada request** — esta era la VERDADERA causa del 50% de plan gastado en 10 min, no las llamadas Haiku (~310k tokens). El compresor mutaba bloques del prefijo que Claude Code marca con `cache_control`. Al modificarlos (y peor, bloques DISTINTOS en cada request por el cap rotativo de 5), invalidaba el cache → cada turno re-facturaba el contexto COMPLETO (~180k tokens) a precio full (3$/Mtok) en vez de cache-read (0.30$/Mtok). 180k tokens × decenas de requests = millones de tokens a precio full.

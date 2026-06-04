@@ -558,6 +558,39 @@ code{font-family:'Cascadia Code','SF Mono',Consolas,monospace;font-size:.9em}
           <div style="font-size:13px;color:var(--text3)">No client data yet.</div>
         </div>
       </div>
+
+      <!-- Top Tools (period) -->
+      <div class="section">
+        <div class="section-head"><span class="section-title">Top Tools</span><span style="font-size:11px;color:var(--text3)">selected period</span></div>
+        <div class="section-body" id="tools-body-savings">
+          <div style="font-size:13px;color:var(--text3)">No tool data yet.</div>
+        </div>
+      </div>
+
+      <!-- AI Compression + Session Cache (period) -->
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
+        <div class="section" style="margin:0">
+          <div class="section-head"><span class="section-title">AI Compression</span><span style="font-size:11px;color:var(--text3)">selected period</span></div>
+          <div class="section-body">
+            <div class="cache-row">
+              <div class="cache-card"><div class="cache-label">Calls</div><div class="cache-val" id="sv-ai-calls">—</div></div>
+              <div class="cache-card"><div class="cache-label">Saved</div><div class="cache-val" id="sv-ai-saved" style="color:var(--brand2)">—</div></div>
+              <div class="cache-card"><div class="cache-label">Spent</div><div class="cache-val" id="sv-ai-spent">—</div></div>
+            </div>
+            <div id="sv-ai-net" style="margin-top:8px;font-size:11px;color:var(--text3);text-align:center">—</div>
+          </div>
+        </div>
+        <div class="section" style="margin:0">
+          <div class="section-head"><span class="section-title">Session Cache</span><span style="font-size:11px;color:var(--text3)">selected period</span></div>
+          <div class="section-body">
+            <div class="cache-row">
+              <div class="cache-card"><div class="cache-label">Reuses</div><div class="cache-val" id="sv-cache-reuses">—</div></div>
+              <div class="cache-card"><div class="cache-label">Expands</div><div class="cache-val" id="sv-cache-expands">—</div></div>
+              <div class="cache-card"><div class="cache-label">Sessions</div><div class="cache-val" id="sv-cache-sessions">—</div></div>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
 
     <!-- ── Settings page ── -->
@@ -955,29 +988,28 @@ function render(d) {
   }
 }
 
-function renderTools(tools) {
-  var el = document.getElementById('tools-body');
-  if (!tools || typeof tools !== 'object') {
-    el.innerHTML = '<span style="font-size:13px;color:var(--text3)">No tool data yet</span>';
-    return;
-  }
+// Build HTML for a tools object — used by overview (all-time) and savings (per-period)
+function buildToolsHtml(tools) {
+  var empty = '<span style="font-size:13px;color:var(--text3)">No tool data for this period.</span>';
+  if (!tools || typeof tools !== 'object') return empty;
   // tools can be { ToolName: count } or { ToolName: { count, saved_tokens } }
   var entries = Object.entries(tools)
     .map(function(e){ return [e[0], typeof e[1] === 'object' ? e[1].count || 0 : e[1]]; })
     .filter(function(e){ return e[1] > 0; })
     .sort(function(a,b){ return b[1]-a[1]; })
     .slice(0,6);
-  if (!entries.length) {
-    el.innerHTML = '<span style="font-size:13px;color:var(--text3)">No tools recorded yet</span>';
-    return;
-  }
+  if (!entries.length) return empty;
   var max = entries[0][1];
-  el.innerHTML = entries.map(function(e){
+  return entries.map(function(e){
     var pct = max > 0 ? Math.round(e[1]/max*100) : 0;
     return '<div class="tool-row"><span class="tool-name">'+esc(e[0])+'</span>'+
       '<div class="tool-track"><div class="tool-fill" style="width:'+pct+'%"></div></div>'+
       '<span class="tool-count">'+fmt(e[1])+'</span></div>';
   }).join('');
+}
+function renderTools(tools) {
+  var el = document.getElementById('tools-body');
+  if (el) el.innerHTML = buildToolsHtml(tools);
 }
 
 function renderLimits(lim) {
@@ -1020,15 +1052,6 @@ function renderLimits(lim) {
         rows.push(limRow('Claude req/min', ppR, ppR > 90 ? 'crit' : ppR > 70 ? 'warn' : 'ok',
           usedR + ' / ' + rl.requestsLimit));
       }
-    }
-    // usage — actual tokens sent to Anthropic this session
-    if (a.usage && (a.usage.inputSession || a.usage.outputSession)) {
-      rows.push('<div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--border)">' +
-        '<div style="font-size:11px;color:var(--text3);margin-bottom:4px">Actual API tokens this session</div>' +
-        '<div style="font-size:13px;color:var(--text2)">' +
-          'In: <strong style="color:var(--text)">' + fmt(a.usage.inputSession) + '</strong>&ensp;' +
-          'Out: <strong style="color:var(--text)">' + fmt(a.usage.outputSession) + '</strong>' +
-        '</div></div>');
     }
   }
 
@@ -1658,6 +1681,53 @@ document.getElementById('sv-tokens').textContent    = fmt(totalSaved);
   if (mEl) mEl.innerHTML = buildModelHtml(aggModel);
   var cEl = document.getElementById('client-body-savings');
   if (cEl) cEl.innerHTML = buildClientHtml(aggClient);
+
+  // Per-period Top Tools (byTool persists since the original SessionRecord)
+  var aggTools = {};
+  filtered.forEach(function(s){
+    var bt = s.byTool || {};
+    Object.keys(bt).forEach(function(t){
+      if (!aggTools[t]) aggTools[t] = { count: 0, saved_tokens: 0 };
+      aggTools[t].count       += bt[t].count || 0;
+      aggTools[t].saved_tokens += bt[t].savedTokens || 0;
+    });
+  });
+  var tEl = document.getElementById('tools-body-savings');
+  if (tEl) tEl.innerHTML = buildToolsHtml(aggTools);
+
+  // Per-period AI compression + session cache (persisted since v1.61.0)
+  var aiCalls = 0, aiInTok = 0, aiOutTok = 0, aiSavedTok = 0, cacheReuses = 0, cacheExpands = 0, withExtras = 0;
+  filtered.forEach(function(s){
+    if (s.aiUsage) {
+      aiCalls    += s.aiUsage.calls || 0;
+      aiInTok    += s.aiUsage.inputTokens || 0;
+      aiOutTok   += s.aiUsage.outputTokens || 0;
+      aiSavedTok += s.aiUsage.savedTokens || 0;
+      withExtras++;
+    }
+    if (s.sessionCache) {
+      cacheReuses  += s.sessionCache.reuses || 0;
+      cacheExpands += s.sessionCache.expands || 0;
+    }
+  });
+  var sv = function(id, v){ var e = document.getElementById(id); if(e) e.textContent = v; };
+  var aiSpent = aiInTok + aiOutTok;
+  sv('sv-ai-calls', fmt(aiCalls));
+  sv('sv-ai-saved', aiSavedTok > 0 ? fmt(aiSavedTok) : '—');
+  sv('sv-ai-spent', aiSpent > 0 ? fmt(aiSpent) : '—');
+  var svNet = document.getElementById('sv-ai-net');
+  if (svNet) {
+    if (withExtras === 0) { svNet.textContent = 'No AI data for this period'; svNet.style.color = 'var(--text3)'; }
+    else if (aiCalls === 0) { svNet.textContent = 'AI compression off — 0 calls'; svNet.style.color = 'var(--text3)'; }
+    else {
+      var net = aiSavedTok - aiSpent;
+      svNet.textContent = 'Net: ' + (net >= 0 ? '+' : '−') + fmt(Math.abs(net)) + ' tokens (saved − spent)';
+      svNet.style.color = net >= 0 ? 'var(--brand2)' : 'var(--red, #e5484d)';
+    }
+  }
+  sv('sv-cache-reuses', fmt(cacheReuses));
+  sv('sv-cache-expands', fmt(cacheExpands));
+  sv('sv-cache-sessions', String(filtered.length));
 }
 
 function fmtY(v) {
