@@ -359,11 +359,10 @@ code{font-family:'Cascadia Code','SF Mono',Consolas,monospace;font-size:.9em}
     <!-- ── Overview page ── -->
     <div id="page-overview">
 
-<!-- Hero stats — Today (populated from history.json once loaded) -->
+<!-- Hero stats — all-time, single source of truth (stats.json) -->
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
         <span style="font-size:13px;font-weight:600;color:var(--text)">Overview</span>
-        <span id="overview-period-badge" class="badge" style="font-size:11px;background:var(--brand);color:#fff;display:none">Today</span>
-        <span id="overview-loading-badge" class="badge" style="font-size:11px;color:var(--text3)">loading…</span>
+        <span class="badge" style="font-size:11px;color:var(--text3)">all time</span>
       </div>
       <div class="hero-grid">
         <div class="hero-card accent">
@@ -374,7 +373,7 @@ code{font-family:'Cascadia Code','SF Mono',Consolas,monospace;font-size:.9em}
         <div class="hero-card">
           <div class="hc-label">Ratio</div>
           <div class="hc-val" id="h-ratio">—</div>
-          <div class="hc-sub">compression avg</div>
+          <div class="hc-sub"><span id="h-perreq">—</span></div>
         </div>
         <div class="hero-card">
           <div class="hc-label">Cost Saved</div>
@@ -855,9 +854,6 @@ function esc(s) {
 
 // ── Render ─────────────────────────────────────────────────────────────────
 var lastStats = null;
-// Overview hero cards always come from history (today's data). render() never overwrites them.
-// Starts true so render() never shows stale all-time data in the overview.
-var overviewFromHistory = true;
 
 function render(d) {
   if (!d) return;
@@ -898,17 +894,24 @@ function render(d) {
   // Cost comparison (#7) — weighted by actual models used (computed first so hero card can use it)
   var modelCosts = calcCostFromModels(d.by_model, true);
 
-// Hero cards — only update savings cards from /stats if history hasn't loaded today's data
-  if (!overviewFromHistory) {
-    document.getElementById('h-saved').textContent = fmt(tokensSaved);
-    document.getElementById('h-in').textContent    = fmt(tokensIn);
-    document.getElementById('h-ratio').textContent = ratioPct != null ? Math.round(ratioPct) + '%' : '—';
-    var heroCost = (modelCosts && modelCosts.savedCost > 0) ? modelCosts.savedCost : costUsd;
-    document.getElementById('h-cost').textContent  = fmtUsd(heroCost);
-    document.getElementById('h-reqs').textContent  = fmt(reqs);
-  }
-  // Compressions counter always stays live from current session
+// Hero cards — SINGLE source of truth: stats.json (all-time net). No history,
+  // no per-session sums (those over-count across restarts → the 125M/30M bug).
+  document.getElementById('h-saved').textContent = fmt(tokensSaved);
+  document.getElementById('h-in').textContent    = fmt(tokensIn);
+  document.getElementById('h-ratio').textContent = ratioPct != null ? Math.round(ratioPct) + '%' : '—';
+  var heroCost = (modelCosts && modelCosts.savedCost > 0) ? modelCosts.savedCost : costUsd;
+  document.getElementById('h-cost').textContent  = fmtUsd(heroCost);
+  document.getElementById('h-reqs').textContent  = fmt(reqs);
   document.getElementById('h-comp').textContent  = fmt(comps);
+  // Per-request metric (stable, doesn't dilute): avg tokens saved per request + last request %
+  var avgPerReq = (reqs > 0) ? Math.round(tokensSaved / reqs) : 0;
+  var lastOrig = d.last_original_chars || 0;
+  var lastComp = d.last_compressed_chars || 0;
+  var lastPct = lastOrig > 0 ? Math.round((lastOrig - lastComp) / lastOrig * 100) : null;
+  var prEl = document.getElementById('h-perreq');
+  if (prEl) prEl.textContent = avgPerReq > 0
+    ? '~' + fmt(avgPerReq) + ' tok/req' + (lastPct != null ? ' · last ' + lastPct + '%' : '')
+    : '—';
 
   // Latency (elements removed from Overview but kept for potential future use)
   var lp = function(id, v){ var e = document.getElementById(id); if(e) e.textContent = v != null ? v : '—'; };
@@ -1727,21 +1730,10 @@ document.getElementById('sv-tokens').textContent    = fmt(totalSaved);
   document.getElementById('sv-sessions').textContent  = String(filtered.length);
   document.getElementById('sv-requests').textContent  = totalReqs + ' requests';
   document.getElementById('sv-pct').textContent       = avgPct > 0 ? avgPct + '%' : '—';
-  // Sync Overview hero cards with today's data from history (authoritative source)
-  if (savingsPeriod === 'day' && savingsOffset === 0) {
-    overviewFromHistory = true;
-    document.getElementById('h-saved').textContent = fmt(totalSaved);
-    document.getElementById('h-in').textContent    = fmt(totalOrig);
-    var ovRatio = totalOrig > 0 ? Math.round(totalSaved / totalOrig * 1000) / 10 : 0;
-    document.getElementById('h-ratio').textContent = ovRatio > 0 ? ovRatio + '%' : '—';
-    document.getElementById('h-cost').textContent  = fmtUsd(svCost);
-    document.getElementById('h-reqs').textContent  = fmt(totalReqs);
-    // Show "Today" badge, hide loading
-    var pb = document.getElementById('overview-period-badge');
-    var lb = document.getElementById('overview-loading-badge');
-    if (pb) { pb.style.display = ''; }
-    if (lb) { lb.style.display = 'none'; }
-  }
+  // NOTE: the Overview hero is NOT synced from here anymore. It uses stats.json
+  // (all-time net) as the single source of truth. This Savings page keeps its own
+  // per-period view from history (which is fine for relative comparison between
+  // periods, even if absolute sums over-count across restarts).
 
   // Chart title
   var titles = { day: 'Today (by session)', week: 'Last 7 days', month: 'Last 30 days', all: 'All time' };

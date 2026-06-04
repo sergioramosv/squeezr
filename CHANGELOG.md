@@ -1,5 +1,10 @@
 # Changelog
 All notable changes to Squeezr will be documented here.
+## [1.65.0] - 2026-06-04
+### Changed — métricas con UNA sola fuente
+- **El Overview ya no usa history.json** (suma por sesión, sobre-contaba ~5x → el "30M today" vs "26M card"). Ahora hero y todas las cards leen de stats.json (neto continuo) = misma cifra coherente en todo el dashboard.
+- **Métrica por-request** en el hero "Ratio": sub-línea "~X tok/req · last N%". El % por request refleja el comportamiento ACTUAL (no se diluye con el histórico). Útil porque el % acumulado bajó (21%→14%) al desactivar la compresión que rompía cache — el "last %" muestra lo que comprime ahora de forma cache-safe.
+- Overview pasa de "Today" a "all time" (una sola fuente; el desglose por día/semana/mes sigue en la pestaña Savings).
 ## [1.64.2] - 2026-06-04
 ### Fixed
 - **Total inflado a 125M (debía ser 25M)** — `buildStatsPayload` hacía `Math.max(persisted, suma_de_sesiones_de_history)`. history suma `savedTokens` de cada sesión del proxy, y como cada sesión re-procesa la misma conversación creciente, sobre-cuenta masivamente (~125M vs los 25.3M reales de stats.json). Ahora `stats.json` (contador continuo persistido) es la fuente de verdad; history solo se usa como fallback si stats.json fue reseteado/corrompido. El hero y la card "Savings by type" muestran el mismo 25.3M coherente (neto < bruto 43.7M, como debe ser).
