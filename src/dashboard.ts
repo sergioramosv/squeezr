@@ -211,6 +211,31 @@ code{font-family:'Cascadia Code','SF Mono',Consolas,monospace;font-size:.9em}
 .lim-text{font-size:12px;color:var(--text3);width:90px;text-align:right;font-variant-numeric:tabular-nums}
 .lim-nodata{font-size:13px;color:var(--text3);padding:8px 0}
 
+/* ── Rate Limits + Live Log row ── */
+.rl-row{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px}
+@media (max-width:760px){.rl-row{grid-template-columns:1fr}}
+
+/* ── Live Log feed ── */
+#livelog-body{max-height:220px;overflow:hidden;display:flex;flex-direction:column-reverse}
+.ll-list{display:flex;flex-direction:column-reverse;gap:6px}
+.ll-empty{font-size:13px;color:var(--text3);padding:8px 0}
+.ll-row{
+  display:flex;align-items:center;gap:10px;
+  font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;
+  padding:6px 10px;border-radius:8px;background:var(--surface2);border:1px solid var(--border2);
+}
+.ll-row.ll-new{animation:llRise .45s ease-out}
+@keyframes llRise{
+  0%{opacity:0;transform:translateY(10px)}
+  100%{opacity:1;transform:translateY(0)}
+}
+.ll-tag{font-weight:600;flex-shrink:0}
+.ll-tag.det{color:#60a5fa}
+.ll-tag.dedup{color:#c084fc}
+.ll-tag.ai{color:var(--brand2)}
+.ll-val{font-weight:700;color:var(--brand2);font-variant-numeric:tabular-nums;margin-left:auto}
+.ll-time{font-size:11px;color:var(--text3);flex-shrink:0;width:54px;text-align:right}
+
 /* ── Mode controls ── */
 .controls-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 .mode-btn{
@@ -410,11 +435,22 @@ code{font-family:'Cascadia Code','SF Mono',Consolas,monospace;font-size:.9em}
         </div>
       </div>
 
-      <!-- Rate Limits — moved here, right after controls -->
-      <div class="section">
-        <div class="section-head"><span class="section-title">Rate Limits</span></div>
-        <div class="section-body" id="limits-body">
-          <div class="lim-nodata">Loading…</div>
+      <!-- Rate Limits + Live Log — two cards on the same row -->
+      <div class="rl-row">
+        <div class="section" style="margin:0">
+          <div class="section-head"><span class="section-title">Rate Limits</span></div>
+          <div class="section-body" id="limits-body">
+            <div class="lim-nodata">Loading…</div>
+          </div>
+        </div>
+        <div class="section" style="margin:0">
+          <div class="section-head">
+            <span class="section-title">Live Log</span>
+            <span style="font-size:11px;color:var(--text3)">real-time · tokens saved per request</span>
+          </div>
+          <div class="section-body" id="livelog-body">
+            <div class="ll-empty">Waiting for activity…</div>
+          </div>
         </div>
       </div>
 
@@ -961,6 +997,8 @@ function render(d) {
 
   // Limits
   renderLimits(d.limits);
+  // Live Log feed
+  renderLiveLog(d.activity);
   // Prompt cache health (Anthropic) — read vs creation tokens this session
   var au = d.limits && d.limits.anthropic && d.limits.anthropic.usage;
   if (au) {
@@ -1081,6 +1119,39 @@ function buildToolsHtml(tools) {
 function renderTools(tools) {
   var el = document.getElementById('tools-body');
   if (el) el.innerHTML = buildToolsHtml(tools);
+}
+
+// ── Live Log feed ──────────────────────────────────────────────────────────
+var llSeen = {};       // event id → true, so we only animate genuinely new rows
+var llMaxId = 0;
+function llTimeAgo(ts) {
+  var s = Math.max(0, Math.round((Date.now() - ts) / 1000));
+  if (s < 60) return s + 's';
+  var m = Math.floor(s / 60);
+  if (m < 60) return m + 'm';
+  return Math.floor(m / 60) + 'h';
+}
+function renderLiveLog(activity) {
+  var el = document.getElementById('livelog-body');
+  if (!el) return;
+  if (!activity || !activity.length) {
+    if (!el.querySelector('.ll-list')) el.innerHTML = '<div class="ll-empty">Waiting for activity…</div>';
+    return;
+  }
+  // Newest first, capped at 40 visible rows.
+  var rows = activity.slice(-40);
+  var labels = { det: 'squeezr-det', dedup: 'squeezr-dedup', ai: 'squeezr-ai' };
+  var html = rows.map(function(e){
+    var isNew = e.id > llMaxId && llMaxId > 0;
+    var label = labels[e.layer] || ('squeezr-' + e.layer);
+    return '<div class="ll-row' + (isNew ? ' ll-new' : '') + '" data-id="' + e.id + '">' +
+      '<span class="ll-tag ' + esc(e.layer) + '">' + esc(label) + ':</span>' +
+      '<span class="ll-val">-' + fmt(e.tokens) + ' tokens</span>' +
+      '<span class="ll-time">' + llTimeAgo(e.ts) + '</span>' +
+    '</div>';
+  }).join('');
+  el.innerHTML = '<div class="ll-list">' + html + '</div>';
+  for (var i = 0; i < rows.length; i++) if (rows[i].id > llMaxId) llMaxId = rows[i].id;
 }
 
 function renderLimits(lim) {

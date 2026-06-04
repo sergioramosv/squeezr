@@ -1,5 +1,13 @@
 # Changelog
 All notable changes to Squeezr will be documented here.
+## [1.69.0] - 2026-06-04
+### Added
+- **Live Log card en el dashboard, en la misma fila que Rate Limits.** La sección "Rate Limits" pasa a ser una fila de dos tarjetas (`.rl-row`, grid de 2 columnas): a la izquierda los rate limits de siempre, a la derecha un feed en tiempo real de tokens ahorrados por request.
+  - Cada request que ahorra algo emite hasta 3 eventos por capa: `squeezr-det: -34,344 tokens` (azul), `squeezr-dedup` (morado), `squeezr-ai` (verde).
+  - Los eventos nuevos aparecen arriba con animación de subida (`@keyframes llRise`) y van desplazando a los antiguos hacia abajo. Feed limitado a 40 filas visibles.
+  - Backend: nuevo ring buffer en memoria `Stats.activityLog` (máx. 100 eventos, no persistido) alimentado desde `record()`. Expuesto en `buildStatsPayload()` como `activity[]` y servido por el SSE existente (`/squeezr/events`, refresco cada 2s) — sin endpoints nuevos.
+### Changed
+- La sección Rate Limits ya no ocupa una fila completa; comparte fila con el Live Log (responsive: en pantallas <760px vuelven a apilarse en una columna).
 ## [1.68.1] - 2026-06-04
 ### Fixed
 - **`compressWithOllama` ahora usa la API nativa de Ollama (`/api/chat`) en lugar de la compat OpenAI.** Motivo: la compat OpenAI no expone el flag `think:false` que necesitan los modelos Qwen3.5. Sin este flag, Qwen3.5 genera 2000-5000 tokens de razonamiento interno antes de comprimir (thinking mode activado por defecto). Con `think:false` en la API nativa, el output es directo y el tiempo de respuesta cae de ~30s a ~1s.

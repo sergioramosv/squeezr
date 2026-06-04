@@ -820,6 +820,7 @@ async function buildStatsPayload() {
         limits: limitsSnapshot(),
         bypassed: isBypassed(),
         circuit_breaker: circuitBreaker.snapshot(),
+        activity: stats.recentActivity(),
     };
 }
 app.get('/squeezr/stats', (c) => {

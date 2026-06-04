@@ -899,6 +899,7 @@ ai_usage: {
     limits: limitsSnapshot(),
     bypassed: isBypassed(),
     circuit_breaker: circuitBreaker.snapshot(),
+    activity: stats.recentActivity(),
   }
 }
 
