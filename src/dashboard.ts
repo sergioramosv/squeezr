@@ -401,8 +401,17 @@ code{font-family:'Cascadia Code','SF Mono',Consolas,monospace;font-size:.9em}
         </div>
         <div class="hero-card">
           <div class="hc-label">Ratio</div>
-          <div class="hc-val" id="h-ratio">—</div>
-          <div class="hc-sub"><span id="h-perreq">—</span></div>
+          <div style="display:flex;align-items:flex-end;gap:18px">
+            <div>
+              <div class="hc-val" id="h-ratio">—</div>
+              <div style="font-size:11px;color:var(--text3)">total saved</div>
+            </div>
+            <div>
+              <div class="hc-val" id="h-engine" style="color:var(--brand2)">—</div>
+              <div style="font-size:11px;color:var(--text3)">engine (compressed)</div>
+            </div>
+          </div>
+          <div class="hc-sub" style="margin-top:6px"><span id="h-perreq">—</span></div>
         </div>
         <div class="hero-card">
           <div class="hc-label">Cost Saved</div>
@@ -982,13 +991,14 @@ var perEl = document.getElementById('overview-period');
   var prEl = document.getElementById('h-perreq');
   // Efficiency = % saved on the content we actually compress (not diluted by the
   // recent/kept/uncompressible payload). This is the "fair" compression number.
-  var eff = (today.efficiency_pct != null) ? today.efficiency_pct : null;
-  // Two percentages: total saved (the big number above) + Squeezr engine efficiency
-  // = the real % it compresses on the blocks it actually compresses (honest, higher).
-  if (prEl) prEl.innerHTML = (eff != null && eff > 0)
-    ? 'engine <strong style="color:var(--brand2)">' + Math.round(eff) + '%</strong> on compressed blocks'
-      + (avgPerReq > 0 ? ' · ~' + fmt(avgPerReq) + ' tok/req' : '')
-    : (avgPerReq > 0 ? '~' + fmt(avgPerReq) + ' tok/req' + (lastPct != null ? ' · last ' + lastPct + '%' : '') : '—');
+var eff = (today.efficiency_pct != null) ? today.efficiency_pct : null;
+  // Two big percentages side by side: left = total saved (wire reduction),
+  // right = engine efficiency (% on the blocks we actually compress).
+  var engEl = document.getElementById('h-engine');
+  if (engEl) engEl.textContent = (eff != null && eff > 0) ? Math.round(eff) + '%' : '—';
+  if (prEl) prEl.textContent = avgPerReq > 0
+    ? '~' + fmt(avgPerReq) + ' tok/req' + (lastPct != null ? ' · last ' + lastPct + '%' : '')
+    : '—';
 
   // Latency (elements removed from Overview but kept for potential future use)
   var lp = function(id, v){ var e = document.getElementById(id); if(e) e.textContent = v != null ? v : '—'; };
