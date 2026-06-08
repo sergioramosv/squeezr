@@ -23,6 +23,8 @@ interface TomlConfig {
     compress_conversation?: boolean
     keep_recent_assistant?: number
     assistant_threshold?: number
+    compress_assistant_ai?: boolean
+    assistant_ai_min_chars?: number
     anthropic_native_compact?: boolean  // anthropic-beta: compact-2026-01-12
     backend?: string  // 'auto' | 'local' | 'haiku' | 'gpt-mini' | 'gemini-flash'
     skip_tools?: string[]
@@ -145,6 +147,8 @@ readonly toolDescCompress: boolean
   readonly mcpAllowServers: Set<string>
   readonly keepRecentAssistant: number
   readonly assistantThreshold: number
+  readonly compressAssistantAi: boolean
+  readonly assistantAiMinChars: number
   readonly anthropicNativeCompact: boolean
   readonly compressionBackend: CompressionBackend
   readonly dryRun: boolean
@@ -198,6 +202,11 @@ this.toolDescCompress = c.tool_desc_compress ?? false
     this.mcpAllowServers = new Set(c.mcp_allow_servers ?? [])
     this.keepRecentAssistant = c.keep_recent_assistant ?? 3
     this.assistantThreshold = c.assistant_threshold ?? 300
+    // AI-compress long OLD assistant turns (Fase B2). Default OFF — it touches model
+    // prose, so it's opt-in; protected by the guardrail + retry + governor. Min size
+    // high (2000) so only substantial turns are touched.
+    this.compressAssistantAi = c.compress_assistant_ai ?? false
+    this.assistantAiMinChars = c.assistant_ai_min_chars ?? 2000
     this.anthropicNativeCompact = c.anthropic_native_compact ?? false  // opt-in beta
     const validBackends = new Set<CompressionBackend>(['auto', 'local', 'haiku', 'gpt-mini', 'gemini-flash'])
     const backendRaw = (c.backend ?? 'auto') as CompressionBackend

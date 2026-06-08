@@ -1,5 +1,10 @@
 # Changelog
 All notable changes to Squeezr will be documented here.
+## [1.79.0] - 2026-06-05
+### Added — Fase B2: compresión AI de turnos de asistente
+- Nuevo: AI-comprime los turnos de asistente LARGOS y antiguos (≥`assistant_ai_min_chars`, default 2000; nunca los últimos `keep_recent_assistant`). Es la mayor palanca en conversaciones dominadas por prosa del asistente (donde la IA antes no tenía nada que comprimir → savings congelados). Flags: `compress_assistant_ai` (default **false**), `assistant_ai_min_chars` (2000).
+- Reutiliza el MISMO pipeline que los tool-results: `runCompression` → guardrail (`validateCompression`) → retry-with-correction → `buildAndCache` (recuperable con `squeezr_expand`). Se apoya en la byte-stabilidad de Zest (temp=0) + session cache para no romper el prompt-cache, igual que la compresión de tool-results. Log `[squeezr/asst-ai]`.
+- Suma a `aiSavedChars`/`efficiency_pct` → ahora el engine % puede subir en conversaciones de prosa.
 ## [1.78.1] - 2026-06-05
 ### Changed
 - Card "Ratio": los dos porcentajes ahora salen igual de grandes, lado a lado — izquierda **total saved**, derecha **engine (compressed)**. (Coinciden cuando la IA no aporta sobre el determinista, que es honesto.)

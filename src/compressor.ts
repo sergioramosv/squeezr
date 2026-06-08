@@ -794,6 +794,9 @@ export async function compressAnthropicMessages(
     console.log(`[squeezr/det] Deterministic: -${detSaved.toLocaleString()} chars (~${tokens} tokens) across ${allResults.length} block(s)`)
   }
 
+  // Assistant turns queued for AI compression (Fase B2) — filled in Step 1.5,
+  // processed after the tool-result AI stage (reuses the same compressFn + guard).
+  const asstAiCandidates: Array<{ index: number; subIndex: number; text: string; tool: string }> = []
   // ── Step 1.5: Deterministic preprocessing on assistant messages ─────────────
   // Only runs if compress_conversation is enabled in config. Zero AI calls,
   // pure regex/whitespace cleanup — safe.
@@ -807,6 +810,7 @@ export async function compressAnthropicMessages(
     let asstCount = 0
     for (const blk of assistantBlocks) {
       const det = preprocessAssistant(blk.text)
+      const afterDet = det.length < blk.text.length ? det : blk.text
       if (det.length < blk.text.length) {
         const saved = blk.text.length - det.length
         if (blk.isString) {
@@ -816,6 +820,13 @@ export async function compressAnthropicMessages(
         }
         asstDetSaved += saved
         asstCount++
+      }
+      // Fase B2: queue long OLD assistant turns for AI compression (gated, default off).
+      // extractAnthropicAssistantTexts already excludes the last keepRecentAssistant.
+      // Like the tool-result AI, we rely on Zest byte-stability (temp=0) + session
+      // cache for cache-safety rather than gating on cache markers.
+      if (config.compressAssistantAi && afterDet.length >= config.assistantAiMinChars) {
+        asstAiCandidates.push({ index: blk.index, subIndex: blk.isString ? -1 : blk.subIndex, text: afterDet, tool: 'assistant' })
       }
     }
     if (asstDetSaved > 0) {
@@ -952,12 +963,16 @@ const candidates = allResults.slice(0, Math.max(0, allResults.length - effective
   const cloudCallsBefore = aiUsageCounters.calls
   const localCallsBefore = localAiUsageCounters.calls
   let freshlyCompressed: Array<{ index: number; subIndex?: number; original: string; result: string; tool: string }> = []
-  if (wouldHitHaiku && isOAuthSubscriptionKey(apiKey)) {
+  let asstAiCompressed: Array<{ index: number; subIndex?: number; original: string; result: string; tool: string }> = []
+  const aiBlocked = wouldHitHaiku && isOAuthSubscriptionKey(apiKey)
+  if (aiBlocked) {
     console.log('[squeezr] AI compression skipped: backend would use Haiku on an OAuth subscription token (would burn your 5h plan). Pick "Zest (local)" in the dashboard to compress with AI for free.')
-  } else if (toCompress.length > 0) {
+  } else {
     const defaultFn: CompressFn = (t, extra) => compressWithHaiku(t, apiKey, extra)
     const fn = getEffectiveCompressFn(defaultFn, config)
-    freshlyCompressed = await runCompression(toCompress, fn, config)
+    if (toCompress.length > 0) freshlyCompressed = await runCompression(toCompress, fn, config)
+    // Fase B2: AI-compress long old assistant turns (same guard + retry pipeline).
+    if (asstAiCandidates.length > 0) asstAiCompressed = await runCompression(asstAiCandidates, fn, config)
   }
   const aiMs = Date.now() - aiT0
   // REAL calls made this request (excludes LRU-cache-served blocks).
@@ -987,6 +1002,28 @@ const candidates = allResults.slice(0, Math.max(0, allResults.length - effective
     totalOverhead += overheadChars
     totalAiSaved += savedChars
     byTool.push({ tool, savedChars, originalChars: original.length })
+  }
+
+  // Fase B2: apply AI-compressed assistant turns. subIndex === -1 → string content;
+  // otherwise it's a text block inside the content array. Wrapped with the expand
+  // tag so the model can recover the full turn if needed.
+  let asstAiSaved = 0
+  for (const { index, subIndex, original, result } of asstAiCompressed) {
+    const { fullString, savedChars, overheadChars } = buildAndCache(original, result)
+    if (subIndex === -1) {
+      msgs[index].content = fullString
+    } else {
+      ;(msgs[index].content as Array<{ text?: string }>)[subIndex!].text = fullString
+    }
+    totalOriginal += original.length
+    totalCompressed += original.length - savedChars
+    totalOverhead += overheadChars
+    totalAiSaved += savedChars
+    asstAiSaved += savedChars
+    byTool.push({ tool: 'assistant', savedChars, originalChars: original.length })
+  }
+  if (asstAiSaved > 0) {
+    console.log(`[squeezr/asst-ai] Assistant AI: -${asstAiSaved.toLocaleString()} chars (~${Math.round(asstAiSaved / 3.5)} tokens) across ${asstAiCompressed.length} turn(s)`)
   }
 
   if (pressure >= 0.5) console.log(`[squeezr] Context pressure: ${Math.round(pressure * 100)}% → threshold=${threshold} chars`)
