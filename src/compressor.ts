@@ -41,6 +41,11 @@ export interface Savings {
   // ran compression on (tool results), so the dashboard can show savings as a % of
   // what we targeted — not diluted by recent/kept/uncompressible payload.
   compressibleOriginalChars?: number
+  // Non-cached (full-price) tail accounting: original + saved on the content AFTER
+  // the prompt-cache barrier. Lets the dashboard show the compression % over the
+  // tokens actually billed at full price (excludes the cheap cached prefix).
+  nonCachedOriginalChars?: number
+  nonCachedSavedChars?: number
   // Latency tracking (ms)
   detMs?: number               // deterministic preprocessing time
   aiMs?: number                // AI compression time
@@ -682,8 +687,23 @@ export async function compressAnthropicMessages(
   // Cache barrier: never compress messages at or before the last cache_control
   // marker — doing so invalidates Anthropic's prompt cache and re-bills the whole
   // prefix at full price. -1 = no cache markers, compress everything.
-  const cacheBarrier = cacheBarrierEarly  // reuse value computed above
+const cacheBarrier = cacheBarrierEarly  // reuse value computed above
   const hasCacheMarkers = cacheBarrier >= 0
+  // Non-cached (full-price) tail = messages AFTER the cache barrier. The cached
+  // prefix is billed at 0.1x by Anthropic and we deliberately don't compress it, so
+  // it shouldn't count against our compression ratio. We measure the tail's size
+  // BEFORE compression here and AFTER at the return → honest "% on full-price content"
+  // (no double-count: it's a real before/after of the same region).
+  const tailStart = cacheBarrier + 1 // 0 when no markers → whole conversation is full-price
+  const tailChars = (ms: AnthropicMessage[]): number => {
+    let n = 0
+    for (let i = Math.max(0, tailStart); i < ms.length; i++) {
+      const c = ms[i].content
+      n += typeof c === 'string' ? c.length : JSON.stringify(c ?? '').length
+    }
+    return n
+  }
+  const nonCachedOriginalChars = tailChars(messages)
   const allResults = extractAnthropicToolResults(messages, toolIdMap)
     .filter(r => !skipIds.has(r.toolUseId) && !config.shouldSkipTool(r.tool))
   // NOTE: we do NOT filter allResults by the barrier. Deterministic compression
@@ -1041,11 +1061,16 @@ const candidates = allResults.slice(0, Math.max(0, allResults.length - effective
   const localSavedThisReq = localCallsThisReq > 0
     ? freshlyCompressed.reduce((s, f) => s + (f.original.length - f.result.length), 0)
     : 0
-  void realCloudCalls // (reserved for future cloud-call accounting symmetry)
+void realCloudCalls // (reserved for future cloud-call accounting symmetry)
+  // Non-cached tail AFTER compression → honest full-price savings (no double-count).
+  const nonCachedFinalChars = tailChars(msgs)
+  const nonCachedSavedChars = Math.max(0, nonCachedOriginalChars - nonCachedFinalChars)
   return [msgs, {
     compressed: freshlyCompressed.length,
     savedChars: totalOriginal - totalCompressed,
     originalChars: totalOriginal,
+    nonCachedOriginalChars,
+    nonCachedSavedChars,
     byTool,
     dryRun: false,
     sessionCacheHits: sessionHits.length,

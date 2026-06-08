@@ -352,6 +352,8 @@ existing.ai_compression_calls = (existing.ai_compression_calls ?? 0) + savings.c
         existing.today_by_client = {}
         existing.today_comp_original_chars = 0
         existing.today_comp_saved_chars = 0
+        existing.today_noncached_original_chars = 0
+        existing.today_noncached_saved_chars = 0
       }
       existing.today_saved_chars = (existing.today_saved_chars ?? 0) + (originalChars - compressedChars)
       existing.today_original_chars = (existing.today_original_chars ?? 0) + originalChars
@@ -364,6 +366,9 @@ existing.ai_compression_calls = (existing.ai_compression_calls ?? 0) + savings.c
       // not diluted by content we never compress.
       existing.today_comp_original_chars = (existing.today_comp_original_chars ?? 0) + (savings.compressibleOriginalChars ?? 0)
       existing.today_comp_saved_chars = (existing.today_comp_saved_chars ?? 0) + (savings.aiSavedChars ?? 0)
+      // Non-cached (full-price) compression — the honest ratio excluding the cheap cached prefix.
+      existing.today_noncached_original_chars = (existing.today_noncached_original_chars ?? 0) + (savings.nonCachedOriginalChars ?? 0)
+      existing.today_noncached_saved_chars = (existing.today_noncached_saved_chars ?? 0) + (savings.nonCachedSavedChars ?? 0)
       // Per-model / per-client breakdown for TODAY (so the Overview cards match the
       // today hero, not all-time). Char-based; converted to tokens in the payload.
       const dayDelta = originalChars - compressedChars

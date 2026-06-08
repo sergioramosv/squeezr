@@ -1,5 +1,10 @@
 # Changelog
 All notable changes to Squeezr will be documented here.
+## [1.80.0] - 2026-06-05
+### Added — ratio "sin contar cache" (el % honesto que pediste)
+- **El % principal del card Ratio ahora se mide solo sobre el contenido NO cacheado** (la cola post-barrier, lo que se factura a precio completo), excluyendo el prefijo cacheado de Anthropic — que ya es 10x más barato y que NO comprimimos a propósito. Era injusto que ese prefijo arrastrara el %.
+- Cálculo honesto, sin inflar: se mide el tamaño REAL de la cola post-barrier antes y después de comprimir (`nonCachedOriginalChars`/`nonCachedSavedChars` en `Savings`; `today_noncached_*` persistido; `today.noncached_pct`). No re-cuenta la historia cacheada.
+- Card Ratio: izquierda **"sin contar cache"** (el alto/real), derecha **"del total (con cache)"** (el global, más bajo) — con tooltips. Cuando no hay cache markers, ambos coinciden.
 ## [1.79.3] - 2026-06-05
 ### Changed
 - Etiquetas del card Ratio más claras: "del total enviado" (izquierda) y "solo en bloques IA" (derecha), con tooltips. Antes "engine (compressed)" no se entendía.

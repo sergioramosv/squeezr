@@ -847,6 +847,12 @@ async function buildStatsPayload() {
     const compOrig = isToday ? (persisted.today_comp_original_chars ?? 0) : 0;
     const compSaved = isToday ? (persisted.today_comp_saved_chars ?? 0) : 0;
     const todayEfficiencyPct = compOrig > 0 ? Math.round((compSaved / compOrig) * 1000) / 10 : 0;
+    // Full-price (non-cached) compression ratio: saved / original over the content
+    // AFTER the prompt-cache barrier. Excludes the cheap cached prefix that we don't
+    // compress on purpose — the honest "% on what's actually billed at full price".
+    const ncOrig = isToday ? (persisted.today_noncached_original_chars ?? 0) : 0;
+    const ncSaved = isToday ? (persisted.today_noncached_saved_chars ?? 0) : 0;
+    const todayNonCachedPct = ncOrig > 0 ? Math.round((ncSaved / ncOrig) * 1000) / 10 : 0;
     // Convert today's char-based per-model/per-client maps to the same token shape
     // the dashboard's buildModelHtml/buildClientHtml + calcCostFromModels expect.
     const toTokenBreakdown = (raw) => {
@@ -878,6 +884,7 @@ async function buildStatsPayload() {
         ai_calls: aiTodayCalls, // real AI backend calls today (cloud + local)
         savings_pct: todaySavingsPct,
         efficiency_pct: todayEfficiencyPct, // % saved on compressed content (not diluted)
+        noncached_pct: todayNonCachedPct, // % saved on full-price (non-cached) content
         date: todayKey,
         by_model: toTokenBreakdown(persisted.today_by_model),
         by_client: toTokenBreakdown(persisted.today_by_client),

@@ -403,12 +403,12 @@ code{font-family:'Cascadia Code','SF Mono',Consolas,monospace;font-size:.9em}
           <div class="hc-label">Ratio</div>
           <div style="display:flex;align-items:flex-end;gap:18px">
             <div>
-              <div class="hc-val" id="h-ratio">—</div>
-              <div style="font-size:11px;color:var(--text3)" title="% saved over the WHOLE request sent">del total enviado</div>
+<div class="hc-val" id="h-ratio">—</div>
+              <div style="font-size:11px;color:var(--text3)" title="% comprimido sobre el contenido a precio completo, excluyendo el prefijo cacheado (que ya es 10x más barato)">sin contar cache</div>
             </div>
             <div>
-              <div class="hc-val" id="h-engine" style="color:var(--brand2)">—</div>
-              <div style="font-size:11px;color:var(--text3)" title="% saved only on the blocks the AI actually compresses (not the whole request)">solo en bloques IA</div>
+              <div class="hc-val" id="h-engine" style="color:var(--text3)">—</div>
+              <div style="font-size:11px;color:var(--text3)" title="% sobre TODO el request, incluyendo el prefijo cacheado (que ya es barato) — por eso sale más bajo">del total (con cache)</div>
             </div>
           </div>
           <div class="hc-sub" style="margin-top:6px"><span id="h-perreq">—</span></div>
@@ -975,7 +975,11 @@ function render(d) {
   var tCost  = tSaved > 0 ? tSaved * 0.000003 : null;
   document.getElementById('h-saved').textContent = fmt(tSaved);
   document.getElementById('h-in').textContent    = fmt(tIn);
-  document.getElementById('h-ratio').textContent = tRatio != null ? Math.round(tRatio) + '%' : '—';
+  // PRIMARY ratio = non-cached (full-price) compression — excludes the cheap cached
+  // prefix that we don't compress on purpose. Falls back to overall if no cache.
+  var ncPct = today.noncached_pct != null ? today.noncached_pct : null;
+  document.getElementById('h-ratio').textContent = (ncPct != null && ncPct > 0) ? Math.round(ncPct) + '%'
+    : (tRatio != null ? Math.round(tRatio) + '%' : '—');
   document.getElementById('h-cost').textContent  = fmtUsd(tCost);
   document.getElementById('h-reqs').textContent  = fmt(tReqs);
   document.getElementById('h-comp').textContent  = fmt(tComps);
@@ -994,8 +998,11 @@ var perEl = document.getElementById('overview-period');
 var eff = (today.efficiency_pct != null) ? today.efficiency_pct : null;
   // Two big percentages side by side: left = total saved (wire reduction),
   // right = engine efficiency (% on the blocks we actually compress).
+// Right number = overall % over the WHOLE request (dragged down by the cached
+  // prefix). Shown next to the non-cached % so the difference is visible.
+  void eff;
   var engEl = document.getElementById('h-engine');
-  if (engEl) engEl.textContent = (eff != null && eff > 0) ? Math.round(eff) + '%' : '—';
+  if (engEl) engEl.textContent = tRatio != null ? Math.round(tRatio) + '%' : '—';
   if (prEl) prEl.textContent = avgPerReq > 0
     ? '~' + fmt(avgPerReq) + ' tok/req' + (lastPct != null ? ' · last ' + lastPct + '%' : '')
     : '—';
