@@ -1,5 +1,17 @@
 # Changelog
 All notable changes to Squeezr will be documented here.
+## [1.72.0] - 2026-06-05
+### Fixed (CRÍTICO — pérdida de datos en AI compression)
+- **Los bloques >4000 chars perdían contenido silenciosamente.** `compressWithOllama` (y las rutas Haiku/GPT/Gemini) mandaban solo `text.slice(0,4000)` al modelo pero el resultado **reemplazaba el bloque entero** → todo lo posterior a ~4000 chars se descartaba. Ahora `compressLargeText` representa el bloque COMPLETO: ≤13000 chars una sola llamada; >13000 se trocea por líneas (máx 4 trozos) y se une; más allá se deja la versión determinista. `num_ctx` 2048→4096.
+- **El presupuesto de salida fijo (300 tokens) truncaba resúmenes de bloques grandes.** Ahora `num_predict` escala con el tamaño del input (`~35%`, entre 200 y 1024).
+### Added (Etapa 1+2 del plan de calidad)
+- **Guardrail de aceptación por bloque** (`src/compressionGuard.ts` → `validateCompression`): antes de aceptar/cachear cualquier compresión de IA se valida:
+  - **Min-ratio** (≥15%): mata el caso de resultado MÁS largo que el original aceptado en silencio.
+  - **Preservación de tokens clave**: set DURO (rutas de fichero, URLs, códigos de error/estado tipo `ECONNREFUSED`/`HTTP 500`) → perder uno = rechazo inmediato; set BLANDO (identificadores code-like, números raros, literales) → tolerancia pequeña. Un bloque rechazado se queda en su forma determinista (nunca se cachea ni se usa).
+- **Contador de calidad** en el payload (`guard.accepted`/`rejected`/`reject_rate_pct`) para vigilar cuánto rechaza el guardrail.
+- Tests nuevos: `compressionGuard.test.ts` (7 casos accept/reject) y `largeBlock.test.ts` (un input >13k conserva el centinela de cola y se reconstruye sin pérdida de bytes).
+### Notes
+- Etapas 3-5 del plan (bucle de auto-backoff por expand-rate, knobs de agresividad, harness de calidad) quedan pendientes para subir el ratio detrás de estos guardrails.
 ## [1.71.3] - 2026-06-05
 ### Fixed
 - **`/squeezr/cache/clear` ahora vacía AMBOS caches.** Antes solo limpiaba el session cache (`session_cache.json`); el segundo cache LRU (`cache.json`, texto→resultado) seguía sirviendo compresiones de la época Haiku sin llamar a Zest. Por eso el log decía "5 block(s) AI-compressed" pero `by_model` estaba vacío y `local_calls=0`: los bloques venían del LRU, no de una llamada real. Nuevo `CompressionCache.clear()` (memoria + disco).

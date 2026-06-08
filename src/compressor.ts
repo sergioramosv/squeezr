@@ -12,6 +12,7 @@ import { effectiveThreshold, effectiveKeepRecent, aiEnabled, effectiveBackend, r
 import { circuitBreaker } from './circuitBreaker.js'
 import { tryConsumeAiCall, _config as _aiRateConfig } from './aiRateLimit.js'
 import { isAiCompressionEnabled } from './aiToggle.js'
+import { validateCompression } from './compressionGuard.js'
 
 export interface Savings {
   compressed: number
@@ -44,6 +45,24 @@ const COMPRESS_PROMPT =
   'Be extremely concise, target under 150 tokens. ' +
   'Output only the compressed content, nothing else.'
 
+// ── Sizing helpers (shared by every compression backend) ──────────────────────
+const CHARS_PER_TOK = 3.5
+// Output budget scaled to input size so large blocks aren't truncated to a stub
+// (the old fixed 300-token cap silently cut summaries of big tool outputs short).
+// Target ~35% of the input as the compressed summary, clamped to a sane range.
+function scaledNumPredict(inputChars: number): number {
+  const t = Math.round((inputChars / CHARS_PER_TOK) * 0.35)
+  return Math.max(200, Math.min(1024, t))
+}
+// Max input chars we send to Ollama in ONE call. With num_ctx=4096 and ~3.5
+// chars/token, the prompt + input must fit the context; ~13000 chars leaves room
+// for the system prompt and the generated summary.
+const OLLAMA_NUM_CTX = 4096
+const OLLAMA_SAFE_INPUT = 13000
+// Never chunk beyond this — past it, deterministic compression is the safe choice
+// (chunking too many pieces defeats the savings and risks join artifacts).
+const OLLAMA_MAX_CHUNKS = 4
+
 let _cache: CompressionCache | null = null
 export function getCache(config: Config): CompressionCache {
   if (!_cache) _cache = new CompressionCache(config.cacheMaxEntries)
@@ -65,6 +84,9 @@ export const aiUsageCounters = { calls: 0, inputTokens: 0, outputTokens: 0 }
 // token counts should NOT appear in the "cost" column of the AI Compression card.
 // Savings are still counted in the normal savedChars pipeline.
 export const localAiUsageCounters = { calls: 0, inputTokens: 0, outputTokens: 0 }
+// Quality guardrail outcomes this proxy session — how many AI results were
+// accepted vs rejected (low ratio / dropped key tokens). Surfaced on the dashboard.
+export const compressionGuardCounters = { accepted: 0, rejected: 0 }
 // Per-compression-model spend — so the dashboard "By Model" section can show
 // what each compression backend (Haiku, GPT-mini, etc.) actually costs in tokens.
 export const aiUsageByModel: Record<string, { calls: number; inputTokens: number; outputTokens: number }> = {}
@@ -112,10 +134,11 @@ async function compressWithHaiku(text: string, apiKey: string): Promise<string> 
   // Force real API URL — ANTHROPIC_BASE_URL points to this proxy, which would cause
   // infinite recursion if we let the SDK inherit it from the environment.
   const client = new Anthropic({ ...authOpts, baseURL: 'https://api.anthropic.com', defaultHeaders: oauthHeaders })
+  const input = text.slice(0, OLLAMA_SAFE_INPUT)
   const resp = await client.messages.create({
     model: HAIKU_MODEL,
-    max_tokens: 300,
-    messages: [{ role: 'user', content: `${COMPRESS_PROMPT}\n\n---\n${text.slice(0, 4000)}` }],
+    max_tokens: scaledNumPredict(input.length),
+    messages: [{ role: 'user', content: `${COMPRESS_PROMPT}\n\n---\n${input}` }],
   })
   // Model name comes from the response, not a literal — survives model upgrades
   recordAiUsage(resp.model ?? HAIKU_MODEL, resp.usage?.input_tokens ?? 0, resp.usage?.output_tokens ?? 0)
@@ -127,10 +150,11 @@ async function compressWithGptMini(text: string, apiKey: string): Promise<string
   // Force real API URL — openai_base_url points to this proxy, which would cause
   // infinite recursion if we let the SDK inherit it from the environment.
   const client = new OpenAI({ apiKey, baseURL: 'https://api.openai.com/v1' })
+  const input = text.slice(0, OLLAMA_SAFE_INPUT)
   const resp = await client.chat.completions.create({
     model: GPT_MINI_MODEL,
-    max_tokens: 300,
-    messages: [{ role: 'user', content: `${COMPRESS_PROMPT}\n\n---\n${text.slice(0, 4000)}` }],
+    max_tokens: scaledNumPredict(input.length),
+    messages: [{ role: 'user', content: `${COMPRESS_PROMPT}\n\n---\n${input}` }],
   })
   recordAiUsage(resp.model ?? GPT_MINI_MODEL, resp.usage?.prompt_tokens ?? 0, resp.usage?.completion_tokens ?? 0)
   return resp.choices[0].message.content ?? ''
@@ -142,7 +166,7 @@ async function compressWithGeminiFlash(text: string, apiKey: string): Promise<st
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({
-      contents: [{ role: 'user', parts: [{ text: `${COMPRESS_PROMPT}\n\n---\n${text.slice(0, 4000)}` }] }],
+      contents: [{ role: 'user', parts: [{ text: `${COMPRESS_PROMPT}\n\n---\n${text.slice(0, OLLAMA_SAFE_INPUT)}` }] }],
     }),
   })
   const data = (await resp.json()) as {
@@ -154,7 +178,8 @@ async function compressWithGeminiFlash(text: string, apiKey: string): Promise<st
   return data.candidates[0].content.parts[0].text
 }
 
-async function compressWithOllama(text: string, baseUrl: string, model: string): Promise<string> {
+// One Ollama call over a single chunk that already fits the context window.
+async function ollamaCompressChunk(chunk: string, baseUrl: string, model: string): Promise<string> {
   const base = baseUrl.replace(/\/$/, '')
   // Use Ollama's native API (/api/chat) instead of the OpenAI-compat endpoint so we
   // can pass think:false — Qwen3.5 has thinking mode enabled by default and the OpenAI
@@ -165,8 +190,8 @@ async function compressWithOllama(text: string, baseUrl: string, model: string):
     model,
     stream: false,
     think: false,
-    options: { temperature: 0, top_p: 1, top_k: 1, num_predict: 300, num_ctx: 2048 },
-    messages: [{ role: 'user', content: `${COMPRESS_PROMPT}\n\n---\n${text.slice(0, 4000)}` }],
+    options: { temperature: 0, top_p: 1, top_k: 1, num_predict: scaledNumPredict(chunk.length), num_ctx: OLLAMA_NUM_CTX },
+    messages: [{ role: 'user', content: `${COMPRESS_PROMPT}\n\n---\n${chunk}` }],
   }
   const response = await fetch(nativeUrl, {
     method: 'POST',
@@ -177,6 +202,57 @@ async function compressWithOllama(text: string, baseUrl: string, model: string):
   const data = await response.json() as { message?: { content?: string }; prompt_eval_count?: number; eval_count?: number }
   recordAiUsage(`local:${model}`, data.prompt_eval_count ?? 0, data.eval_count ?? 0)
   return data.message?.content ?? ''
+}
+
+// Split text into <= maxChars pieces on line boundaries (never mid-line), so a
+// chunk boundary can't bisect a path/stack-frame/JSON line. Exported for tests.
+export function splitOnLines(text: string, maxChars: number): string[] {
+  if (text.length <= maxChars) return [text]
+  const lines = text.split('\n')
+  const chunks: string[] = []
+  let cur = ''
+  for (const line of lines) {
+    if (cur.length + line.length + 1 > maxChars && cur.length > 0) {
+      chunks.push(cur)
+      cur = ''
+    }
+    // A single line longer than maxChars: hard-split it (rare; huge minified blobs).
+    if (line.length > maxChars) {
+      for (let i = 0; i < line.length; i += maxChars) chunks.push(line.slice(i, i + maxChars))
+      continue
+    }
+    cur += (cur ? '\n' : '') + line
+  }
+  if (cur) chunks.push(cur)
+  return chunks
+}
+
+// Compress a tool-result block of ANY size with the local model. Unlike the old
+// implementation (which sliced to 4000 chars and silently dropped the rest while
+// REPLACING the whole block), this represents the ENTIRE block:
+//  - block <= SAFE_INPUT  → one call over the whole block
+//  - block  > SAFE_INPUT  → split on line boundaries (<= MAX_CHUNKS) and join
+//  - too big to chunk safely → return the original (deterministic stays applied)
+async function compressLargeText(text: string, baseUrl: string, model: string): Promise<string> {
+  if (text.length <= OLLAMA_SAFE_INPUT) {
+    return ollamaCompressChunk(text, baseUrl, model)
+  }
+  const chunks = splitOnLines(text, OLLAMA_SAFE_INPUT)
+  if (chunks.length > OLLAMA_MAX_CHUNKS) {
+    // Past our safe chunk budget: don't risk a lossy/expensive multi-call join.
+    // Return the original — deterministic compression already ran on it upstream.
+    return text
+  }
+  const parts: string[] = []
+  for (const chunk of chunks) {
+    try {
+      parts.push(await ollamaCompressChunk(chunk, baseUrl, model))
+    } catch {
+      // A failed chunk → keep that chunk's original text rather than a partial join.
+      parts.push(chunk)
+    }
+  }
+  return parts.join('\n')
 }
 
 // ── AI compression orchestrator ───────────────────────────────────────────────
@@ -199,7 +275,7 @@ function getEffectiveCompressFn(defaultFn: CompressFn, config: Config): Compress
   const backend = effectiveBackend()
   if (backend === 'auto') return defaultFn
   if (backend === 'local') {
-    return (text: string) => compressWithOllama(text, config.localUpstreamUrl, config.localCompressionModel)
+    return (text: string) => compressLargeText(text, config.localUpstreamUrl, config.localCompressionModel)
   }
   // Cross-backend usage: need a key. Lazy-loaded to avoid circular import.
   // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -240,6 +316,15 @@ async function runCompression(
       // window is exhausted, leave the block uncompressed (deterministic already ran).
       if (!tryConsumeAiCall()) { rateLimited++; throw new Error('ai-rate-limited') }
       const compressed = await circuitBreaker.call(() => compressFn(preprocessed))
+      // QUALITY GUARDRAIL: reject results that don't save enough or that dropped a
+      // critical token (path/URL/error code) or too many key tokens. A rejected
+      // block is left in its deterministic-only form (never cached, never used).
+      const guard = validateCompression(item.text, compressed)
+      if (!guard.accept) {
+        compressionGuardCounters.rejected++
+        throw new Error('guard-rejected')
+      }
+      compressionGuardCounters.accepted++
       if (config.cacheEnabled) cache.set(preprocessed, compressed)
       return { ...item, original: item.text, result: compressed }
     }),
@@ -247,9 +332,18 @@ async function runCompression(
   if (rateLimited > 0) {
     console.log(`[squeezr] AI rate limit hit — ${rateLimited} block(s) left uncompressed this window (max ${_aiRateConfig.MAX_CALLS_PER_WINDOW}/${_aiRateConfig.WINDOW_MS / 60000}min). Deterministic compression still applied.`)
   }
-  const failures = results.filter(r => r.status === 'rejected' && (r as PromiseRejectedResult).reason?.message !== 'ai-rate-limited').length
+  const guardRejected = results.filter(r => r.status === 'rejected' && (r as PromiseRejectedResult).reason?.message === 'guard-rejected').length
+  if (guardRejected > 0) {
+    console.log(`[squeezr/guard] ${guardRejected} AI compression(s) rejected (low ratio or dropped key tokens) — kept deterministic form`)
+  }
+  // 'guard-rejected' and 'ai-rate-limited' are intentional skips, not backend failures.
+  const failures = results.filter(r => r.status === 'rejected'
+    && (r as PromiseRejectedResult).reason?.message !== 'ai-rate-limited'
+    && (r as PromiseRejectedResult).reason?.message !== 'guard-rejected').length
   if (failures > 0) {
-    const firstErr = (results.find(r => r.status === 'rejected') as PromiseRejectedResult | undefined)?.reason
+    const firstErr = (results.find(r => r.status === 'rejected'
+      && (r as PromiseRejectedResult).reason?.message !== 'ai-rate-limited'
+      && (r as PromiseRejectedResult).reason?.message !== 'guard-rejected') as PromiseRejectedResult | undefined)?.reason
     console.log(`[squeezr] ${failures} AI compression(s) failed (circuit: ${circuitBreaker.getState()}): ${firstErr}`)
   }
   return results
@@ -1007,7 +1101,7 @@ export async function compressOpenAIMessages(
   }
 
   const defaultFn: CompressFn = isLocal
-    ? t => compressWithOllama(t, config.localUpstreamUrl, config.localCompressionModel)
+    ? t => compressLargeText(t, config.localUpstreamUrl, config.localCompressionModel)
     : t => compressWithGptMini(t, apiKey)
   const compressFn = getEffectiveCompressFn(defaultFn, config)
 

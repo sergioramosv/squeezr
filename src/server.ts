@@ -7,7 +7,7 @@ import { config, applyMode, runtimeOverrides, anthropicNativeCompactEnabled, eff
 import { Stats } from './stats.js'
 import type { LatencyInfo } from './stats.js'
 import { DASHBOARD_HTML, LOGO_SVG } from './dashboard.js'
-import { getCache, emptySavings, aiUsageCounters, aiUsageByModel, localAiUsageCounters } from './compressor.js'
+import { getCache, emptySavings, aiUsageCounters, aiUsageByModel, localAiUsageCounters, compressionGuardCounters } from './compressor.js'
 import {
   compressAnthropicMessages,
   compressOpenAIMessages,
@@ -964,6 +964,13 @@ ai_usage: {
     bypassed: isBypassed(),
     circuit_breaker: circuitBreaker.snapshot(),
     activity: recentLogLines(),
+    guard: {
+      accepted: compressionGuardCounters.accepted,
+      rejected: compressionGuardCounters.rejected,
+      reject_rate_pct: (compressionGuardCounters.accepted + compressionGuardCounters.rejected) > 0
+        ? Math.round((compressionGuardCounters.rejected / (compressionGuardCounters.accepted + compressionGuardCounters.rejected)) * 1000) / 10
+        : 0,
+    },
   }
 }
 

@@ -6,7 +6,7 @@ import { stream, streamSSE } from 'hono/streaming';
 import { config, applyMode, runtimeOverrides, anthropicNativeCompactEnabled, effectiveBackend, USER_CONFIG_DIR, USER_CONFIG_PATH } from './config.js';
 import { Stats } from './stats.js';
 import { DASHBOARD_HTML, LOGO_SVG } from './dashboard.js';
-import { getCache, emptySavings, aiUsageCounters, aiUsageByModel, localAiUsageCounters } from './compressor.js';
+import { getCache, emptySavings, aiUsageCounters, aiUsageByModel, localAiUsageCounters, compressionGuardCounters } from './compressor.js';
 import { compressAnthropicMessages, compressOpenAIMessages, compressGeminiContents, isOAuthSubscriptionKey, } from './compressor.js';
 import { isBypassed, setBypassed, toggleBypassed } from './bypass.js';
 import { isAiCompressionEnabled, setAiCompression, toggleAiCompression } from './aiToggle.js';
@@ -887,6 +887,13 @@ async function buildStatsPayload() {
         bypassed: isBypassed(),
         circuit_breaker: circuitBreaker.snapshot(),
         activity: recentLogLines(),
+        guard: {
+            accepted: compressionGuardCounters.accepted,
+            rejected: compressionGuardCounters.rejected,
+            reject_rate_pct: (compressionGuardCounters.accepted + compressionGuardCounters.rejected) > 0
+                ? Math.round((compressionGuardCounters.rejected / (compressionGuardCounters.accepted + compressionGuardCounters.rejected)) * 1000) / 10
+                : 0,
+        },
     };
 }
 app.get('/squeezr/stats', (c) => {
