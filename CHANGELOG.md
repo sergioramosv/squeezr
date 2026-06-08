@@ -1,5 +1,8 @@
 # Changelog
 All notable changes to Squeezr will be documented here.
+## [1.76.1] - 2026-06-05
+### Fixed
+- **Reality check ahora es de HOY, no all-time** — mostraba 117M (all-time) mientras el hero "Tokens Saved" es de hoy (19M), confundiendo. Ahora usa `todaySavedTokens` / `todayRequests` / `aiTodaySpentTokens` y cuadra con el hero. Etiqueta → "today".
 ## [1.76.0] - 2026-06-05
 ### Added — Fase A: contabilidad honesta (gasto vs ahorro)
 - **Tarjeta "Reality check"** en el dashboard: `Gross saved − expand-tool − AI spend = Net saved (X%)`. Hace visible el coste propio del proxy que antes no se restaba: la tool `squeezr_expand` inyectada en cada request (~349 chars ≈ 100 tok/req) y el gasto de las llamadas AI cloud (Zest local = free). Payload nuevo `reality.{gross_saved_tokens, tag_overhead_tokens, expand_tool_tokens, ai_spent_tokens, net_saved_tokens, net_pct}`. `EXPAND_TOOL_ANTHROPIC_CHARS` exportado de `expand.ts`.

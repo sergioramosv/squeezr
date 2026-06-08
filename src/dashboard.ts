@@ -418,7 +418,7 @@ code{font-family:'Cascadia Code','SF Mono',Consolas,monospace;font-size:.9em}
 
       <!-- Reality check: honest net after the proxy's own costs (all time) -->
       <div class="section">
-        <div class="section-head"><span class="section-title">Reality check</span><span style="font-size:11px;color:var(--text3)">all time · honest net (after proxy's own overhead)</span></div>
+        <div class="section-head"><span class="section-title">Reality check</span><span style="font-size:11px;color:var(--text3)">today · honest net (after proxy's own overhead)</span></div>
         <div class="section-body">
           <div id="reality-row" style="display:flex;flex-wrap:wrap;align-items:baseline;gap:8px 14px;font-size:13px"></div>
           <div style="margin-top:8px;font-size:11px;color:var(--text3)">Gross saved already excludes the [squeezr:ID] tag. Net also subtracts the squeezr_expand tool injected per request and cloud AI spend (Zest local = free).</div>

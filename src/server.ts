@@ -1014,14 +1014,14 @@ ai_usage: {
     // minus the proxy's own costs it doesn't otherwise subtract: the squeezr_expand
     // tool injected into every request, and cloud AI compression spend (Zest=free).
     reality: (() => {
-      const grossSaved = allTimeSavedTokens
-      const expandToolTokens = Math.round((allTimeRequests * EXPAND_TOOL_ANTHROPIC_CHARS) / 3.5)
-      const aiSpent = aiUsageCounters.inputTokens + aiUsageCounters.outputTokens // cloud only; local Zest is free
+      // TODAY-scoped to match the hero (avoids the all-time-vs-today confusion).
+      const grossSaved = todaySavedTokens
+      const expandToolTokens = Math.round((todayRequests * EXPAND_TOOL_ANTHROPIC_CHARS) / 3.5)
+      const aiSpent = aiTodaySpentTokens // cloud tokens today; local Zest is free
       const net = Math.max(0, grossSaved - expandToolTokens - aiSpent)
-      const netPct = allTimeOriginalTokens > 0 ? Math.round((net / allTimeOriginalTokens) * 1000) / 10 : 0
+      const netPct = todayOriginalTokens > 0 ? Math.round((net / todayOriginalTokens) * 1000) / 10 : 0
       return {
         gross_saved_tokens: grossSaved,
-        tag_overhead_tokens: Math.round(((persisted.overhead_chars as number) ?? 0) / 3.5),
         expand_tool_tokens: expandToolTokens,
         ai_spent_tokens: aiSpent,
         net_saved_tokens: net,
