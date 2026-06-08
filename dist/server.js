@@ -841,6 +841,12 @@ async function buildStatsPayload() {
     const todaySavingsPct = todayOriginalTokens > 0
         ? Math.round((todaySavedTokens / todayOriginalTokens) * 1000) / 10
         : 0;
+    // Efficiency: savings as a % of the content we ACTUALLY compress (tool results),
+    // not diluted by recent/kept/uncompressible payload. The honest "how good is the
+    // compressor" number, vs savings_pct which is the overall request reduction.
+    const compOrig = isToday ? (persisted.today_comp_original_chars ?? 0) : 0;
+    const compSaved = isToday ? (persisted.today_comp_saved_chars ?? 0) : 0;
+    const todayEfficiencyPct = compOrig > 0 ? Math.round((compSaved / compOrig) * 1000) / 10 : 0;
     // Convert today's char-based per-model/per-client maps to the same token shape
     // the dashboard's buildModelHtml/buildClientHtml + calcCostFromModels expect.
     const toTokenBreakdown = (raw) => {
@@ -871,6 +877,7 @@ async function buildStatsPayload() {
         requests: todayRequests,
         ai_calls: aiTodayCalls, // real AI backend calls today (cloud + local)
         savings_pct: todaySavingsPct,
+        efficiency_pct: todayEfficiencyPct, // % saved on compressed content (not diluted)
         date: todayKey,
         by_model: toTokenBreakdown(persisted.today_by_model),
         by_client: toTokenBreakdown(persisted.today_by_client),

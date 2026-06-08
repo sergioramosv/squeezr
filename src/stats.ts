@@ -350,6 +350,8 @@ existing.ai_compression_calls = (existing.ai_compression_calls ?? 0) + savings.c
         existing.today_local_ai_calls = 0
         existing.today_by_model = {}
         existing.today_by_client = {}
+        existing.today_comp_original_chars = 0
+        existing.today_comp_saved_chars = 0
       }
       existing.today_saved_chars = (existing.today_saved_chars ?? 0) + (originalChars - compressedChars)
       existing.today_original_chars = (existing.today_original_chars ?? 0) + originalChars
@@ -357,6 +359,11 @@ existing.ai_compression_calls = (existing.ai_compression_calls ?? 0) + savings.c
       existing.today_ai_saved_chars = (existing.today_ai_saved_chars ?? 0) + (savings.aiSavedChars ?? 0)
       existing.today_ai_calls = (existing.today_ai_calls ?? 0) + savings.compressed
       existing.today_local_ai_calls = (existing.today_local_ai_calls ?? 0) + (savings.localAiCalls ?? 0)
+      // Compression efficiency (today): saved on compressible tool content vs its
+      // original size — the "% on what we actually compress" the user asked for.
+      existing.today_comp_original_chars = (existing.today_comp_original_chars ?? 0) + (savings.compressibleOriginalChars ?? 0)
+      existing.today_comp_saved_chars = (existing.today_comp_saved_chars ?? 0)
+        + (savings.detSavedChars ?? 0) + (savings.dedupSavedChars ?? 0) + (savings.aiSavedChars ?? 0)
       // Per-model / per-client breakdown for TODAY (so the Overview cards match the
       // today hero, not all-time). Char-based; converted to tokens in the payload.
       const dayDelta = originalChars - compressedChars

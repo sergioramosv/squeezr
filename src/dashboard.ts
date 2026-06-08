@@ -1012,9 +1012,13 @@ var perEl = document.getElementById('overview-period');
   var lastComp = d.last_compressed_chars || 0;
   var lastPct = lastOrig > 0 ? Math.round((lastOrig - lastComp) / lastOrig * 100) : null;
   var prEl = document.getElementById('h-perreq');
-  if (prEl) prEl.textContent = avgPerReq > 0
-    ? '~' + fmt(avgPerReq) + ' tok/req' + (lastPct != null ? ' · last ' + lastPct + '%' : '')
-    : '—';
+  // Efficiency = % saved on the content we actually compress (not diluted by the
+  // recent/kept/uncompressible payload). This is the "fair" compression number.
+  var eff = (today.efficiency_pct != null) ? today.efficiency_pct : null;
+  if (prEl) prEl.innerHTML = eff != null
+    ? '<strong style="color:var(--brand2)">' + Math.round(eff) + '%</strong> on compressed content'
+      + (avgPerReq > 0 ? ' · ~' + fmt(avgPerReq) + ' tok/req' : '')
+    : (avgPerReq > 0 ? '~' + fmt(avgPerReq) + ' tok/req' + (lastPct != null ? ' · last ' + lastPct + '%' : '') : '—');
 
   // Latency (elements removed from Overview but kept for potential future use)
   var lp = function(id, v){ var e = document.getElementById(id); if(e) e.textContent = v != null ? v : '—'; };

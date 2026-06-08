@@ -36,6 +36,10 @@ export interface Savings {
   syspromptSavedChars?: number // system prompt Haiku compression savings
   localAiCalls?: number        // local AI (Zest) calls — free, no cloud cost
   localAiSavedChars?: number   // chars saved by local AI (Zest)
+  // Compression EFFICIENCY denominator: original size of the content we actually
+  // ran compression on (tool results), so the dashboard can show savings as a % of
+  // what we targeted — not diluted by recent/kept/uncompressible payload.
+  compressibleOriginalChars?: number
   // Latency tracking (ms)
   detMs?: number               // deterministic preprocessing time
   aiMs?: number                // AI compression time
@@ -667,6 +671,10 @@ export async function compressAnthropicMessages(
 
   if (allResults.length === 0) return [messages, emptySavings()]
 
+  // Efficiency denominator: original size of the tool-result content we actually
+  // run compression on this request. Used for the "% on compressed content" metric.
+  const compressibleOriginalChars = allResults.reduce((s, r) => s + r.text.length, 0)
+
 // Clone once — all modifications go here
   const msgs = structuredClone(messages) as AnthropicMessage[]
   // These dedup passes MOVE/REPLACE content (the "kept" occurrence shifts as new
@@ -873,18 +881,18 @@ const candidates = allResults.slice(0, Math.max(0, allResults.length - effective
     c.text.length >= aiThreshold &&
     !dedupedSet.has(`${c.index}:${c.subIndex}`))
 
-  if (toProcess.length === 0) return [msgs, emptySavings(false, detSaved, readDedupSaved, detMs, detByToolArr())]
+  if (toProcess.length === 0) return [msgs, emptySavings(false, detSaved, readDedupSaved, detMs, detByToolArr(), compressibleOriginalChars)]
 
   // Circuit breaker: skip AI compression entirely if backend is down
   if (!circuitBreaker.shouldAllow()) {
     console.log(`[squeezr] Circuit breaker open — skipping AI compression for ${toProcess.length} block(s)`)
-    return [msgs, emptySavings(false, detSaved, readDedupSaved, detMs, detByToolArr())]
+    return [msgs, emptySavings(false, detSaved, readDedupSaved, detMs, detByToolArr(), compressibleOriginalChars)]
   }
 
   if (config.dryRun) {
     const potential = toProcess.reduce((sum, c) => sum + c.text.length, 0)
     console.log(`[squeezr dry-run] Would AI-compress ${toProcess.length} block(s) | potential -${potential.toLocaleString()} chars | pressure=${Math.round(pressure * 100)}%`)
-    return [msgs, emptySavings(true, detSaved, readDedupSaved, detMs, detByToolArr())]
+    return [msgs, emptySavings(true, detSaved, readDedupSaved, detMs, detByToolArr(), compressibleOriginalChars)]
   }
 
   // Differential: split session cache hits from uncached
@@ -984,6 +992,7 @@ const candidates = allResults.slice(0, Math.max(0, allResults.length - effective
     overheadChars: totalOverhead,
     localAiCalls: localCallsThisReq,
     localAiSavedChars: localSavedThisReq,
+    compressibleOriginalChars,
     detMs,
     aiMs,
   }]
@@ -1368,6 +1377,6 @@ export async function compressGeminiContents(
   return [cts, { compressed: freshlyCompressed.length, savedChars: totalOriginal - totalCompressed, originalChars: totalOriginal, byTool, dryRun: false, sessionCacheHits: sessionHits.length, detSavedChars: detSaved, dedupSavedChars: geminiReadDedupSaved, aiSavedChars: totalAiSaved, overheadChars: totalOverhead, detMs: gemDetMs, aiMs: gemAiMs }]
 }
 
-export function emptySavings(dryRun = false, detSavedChars = 0, dedupSavedChars = 0, detMs = 0, byTool: Savings['byTool'] = []): Savings {
-  return { compressed: 0, savedChars: 0, originalChars: 0, byTool, dryRun, sessionCacheHits: 0, detSavedChars, dedupSavedChars, aiSavedChars: 0, overheadChars: 0, detMs, aiMs: 0 }
+export function emptySavings(dryRun = false, detSavedChars = 0, dedupSavedChars = 0, detMs = 0, byTool: Savings['byTool'] = [], compressibleOriginalChars = 0): Savings {
+  return { compressed: 0, savedChars: 0, originalChars: 0, byTool, dryRun, sessionCacheHits: 0, detSavedChars, dedupSavedChars, aiSavedChars: 0, overheadChars: 0, detMs, aiMs: 0, compressibleOriginalChars }
 }

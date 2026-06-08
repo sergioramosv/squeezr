@@ -1,5 +1,11 @@
 # Changelog
 All notable changes to Squeezr will be documented here.
+## [1.74.0] - 2026-06-05
+### Added — métrica de eficiencia (ratio "justo")
+- **Nueva métrica: % de ahorro sobre el contenido que SÍ comprimimos**, no diluido por el payload que no tocamos (mensajes recientes, código de Edits, system prompt, bloques bajo umbral). Resuelve la observación del usuario: el ratio overall (`savings_pct`) reparte el ahorro sobre TODO lo enviado, lo cual subestima cuánto comprime de verdad el compresor.
+  - Backend: `Savings.compressibleOriginalChars` (tamaño original del contenido de tool-results procesado por compresión). Contadores diarios `today_comp_original_chars`/`today_comp_saved_chars`. Expuesto como `today.efficiency_pct = saved / compressible-original`.
+  - Dashboard: el card "Ratio" ahora muestra el % overall arriba y **"X% on compressed content"** debajo (la cifra alta y honesta de qué tan bien comprime).
+- Aclaración: el ratio overall sigue siendo el ahorro real de tokens (esos tokens sin comprimir igual se envían y se pagan); la eficiencia es la calidad del compresor sobre lo que ataca. Ambas son correctas y ahora se ven las dos.
 ## [1.73.2] - 2026-06-05
 ### Changed
 - **`AI_MIN_CHARS` revertido 1000 → 1500** (valor validado). Datos en vivo: con 1000 el guardrail rechazaba ~100% de los bloques pequeños añadidos (no se pueden resumir sin perder tokens clave), lo que NO sube el ratio y gasta llamadas a Zest. Bajar de 1500 esperará al harness de calidad (Etapa 5). El gobernador puede seguir subiendo el umbral en runtime si hace falta.
