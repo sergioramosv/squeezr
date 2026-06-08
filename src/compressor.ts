@@ -93,6 +93,21 @@ export const compressionGuardCounters = { accepted: 0, rejected: 0 }
 // Per-compression-model spend — so the dashboard "By Model" section can show
 // what each compression backend (Haiku, GPT-mini, etc.) actually costs in tokens.
 export const aiUsageByModel: Record<string, { calls: number; inputTokens: number; outputTokens: number }> = {}
+// TODAY's AI usage (local calendar day) — so the AI Compression card matches the
+// today-scoped Overview hero instead of mixing all-time AI with today totals.
+// Persisted with the rest of ai-usage.json; resets when the local date rolls over.
+export const aiUsageToday = {
+  date: '', cloudCalls: 0, cloudInputTokens: 0, cloudOutputTokens: 0,
+  localCalls: 0, localInputTokens: 0, localOutputTokens: 0,
+}
+function rollAiUsageToday(): void {
+  const k = new Date().toLocaleDateString('en-CA')
+  if (aiUsageToday.date !== k) {
+    aiUsageToday.date = k
+    aiUsageToday.cloudCalls = 0; aiUsageToday.cloudInputTokens = 0; aiUsageToday.cloudOutputTokens = 0
+    aiUsageToday.localCalls = 0; aiUsageToday.localInputTokens = 0; aiUsageToday.localOutputTokens = 0
+  }
+}
 // Compression model IDs — single source of truth. Used both for the API call and
 // as the fallback label if the response doesn't echo back its model name.
 const HAIKU_MODEL = 'claude-haiku-4-5-20251001'
@@ -108,11 +123,12 @@ function loadAiUsage(): void {
     if (!existsSync(AI_USAGE_FILE)) return
     const d = JSON.parse(readFileSync(AI_USAGE_FILE, 'utf-8')) as {
       cloud?: typeof aiUsageCounters; local?: typeof localAiUsageCounters
-      byModel?: typeof aiUsageByModel
+      byModel?: typeof aiUsageByModel; today?: typeof aiUsageToday
     }
     if (d.cloud) Object.assign(aiUsageCounters, d.cloud)
     if (d.local) Object.assign(localAiUsageCounters, d.local)
     if (d.byModel) for (const [k, v] of Object.entries(d.byModel)) aiUsageByModel[k] = v
+    if (d.today) Object.assign(aiUsageToday, d.today)
   } catch { /* ignore */ }
 }
 function persistAiUsage(): void {
@@ -120,23 +136,30 @@ function persistAiUsage(): void {
     const dir = join(homedir(), '.squeezr')
     if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
     const tmp = AI_USAGE_FILE + '.tmp'
-    writeFileSync(tmp, JSON.stringify({ cloud: aiUsageCounters, local: localAiUsageCounters, byModel: aiUsageByModel }))
+    writeFileSync(tmp, JSON.stringify({ cloud: aiUsageCounters, local: localAiUsageCounters, byModel: aiUsageByModel, today: aiUsageToday }))
     renameSync(tmp, AI_USAGE_FILE)
   } catch { /* ignore */ }
 }
 loadAiUsage()
 function recordAiUsage(model: string, inputTokens: number, outputTokens: number): void {
   const isLocal = model.startsWith('local:')
+  rollAiUsageToday()
   if (isLocal) {
     // Local models (Zest/Ollama) are free — track calls but NOT in cost counters
     localAiUsageCounters.calls++
     localAiUsageCounters.inputTokens += inputTokens
     localAiUsageCounters.outputTokens += outputTokens
+    aiUsageToday.localCalls++
+    aiUsageToday.localInputTokens += inputTokens
+    aiUsageToday.localOutputTokens += outputTokens
   } else {
     // Cloud models (Haiku/GPT/Gemini) — track in cost counters
     aiUsageCounters.calls++
     aiUsageCounters.inputTokens += inputTokens
     aiUsageCounters.outputTokens += outputTokens
+    aiUsageToday.cloudCalls++
+    aiUsageToday.cloudInputTokens += inputTokens
+    aiUsageToday.cloudOutputTokens += outputTokens
   }
   if (!aiUsageByModel[model]) aiUsageByModel[model] = { calls: 0, inputTokens: 0, outputTokens: 0 }
   aiUsageByModel[model].calls++

@@ -7,7 +7,7 @@ import { config, applyMode, runtimeOverrides, anthropicNativeCompactEnabled, eff
 import { Stats } from './stats.js'
 import type { LatencyInfo } from './stats.js'
 import { DASHBOARD_HTML, LOGO_SVG } from './dashboard.js'
-import { getCache, emptySavings, aiUsageCounters, aiUsageByModel, localAiUsageCounters, compressionGuardCounters } from './compressor.js'
+import { getCache, emptySavings, aiUsageCounters, aiUsageByModel, localAiUsageCounters, compressionGuardCounters, aiUsageToday } from './compressor.js'
 import {
   compressAnthropicMessages,
   compressOpenAIMessages,
@@ -913,7 +913,6 @@ async function buildStatsPayload() {
   const todaySavedTokens = isToday ? Math.round(((persisted.today_saved_chars as number) ?? 0) / 3.5) : 0
   const todayOriginalTokens = isToday ? Math.round(((persisted.today_original_chars as number) ?? 0) / 3.5) : 0
   const todayRequests = isToday ? ((persisted.today_requests as number) ?? 0) : 0
-  const todayAiCalls = isToday ? ((persisted.today_ai_calls as number) ?? 0) + ((persisted.today_local_ai_calls as number) ?? 0) : 0
   const todaySavingsPct = todayOriginalTokens > 0
     ? Math.round((todaySavedTokens / todayOriginalTokens) * 1000) / 10
     : 0
@@ -935,15 +934,25 @@ async function buildStatsPayload() {
     }
     return out
   }
+  // Today's AI usage (real backend calls + spend), date-guarded so a stale day reads 0.
+  const aiTodayLive = aiUsageToday.date === todayKey
+  const aiTodayCalls = aiTodayLive ? aiUsageToday.cloudCalls + aiUsageToday.localCalls : 0
+  const aiTodayLocalCalls = aiTodayLive ? aiUsageToday.localCalls : 0
+  const aiTodaySpentTokens = aiTodayLive ? aiUsageToday.cloudInputTokens + aiUsageToday.cloudOutputTokens : 0
+  const aiTodaySavedTokens = isToday ? Math.round(((persisted.today_ai_saved_chars as number) ?? 0) / 3.5) : 0
   const today = {
     saved_tokens: todaySavedTokens,
     original_tokens: todayOriginalTokens,
     requests: todayRequests,
-    ai_calls: todayAiCalls,
+    ai_calls: aiTodayCalls,           // real AI backend calls today (cloud + local)
     savings_pct: todaySavingsPct,
     date: todayKey,
     by_model: toTokenBreakdown(persisted.today_by_model),
     by_client: toTokenBreakdown(persisted.today_by_client),
+    // AI Compression card (today-scoped, persists across restart, resets at midnight)
+    ai_saved_tokens: aiTodaySavedTokens,
+    ai_spent_tokens: aiTodaySpentTokens,
+    ai_local_calls: aiTodayLocalCalls,
   }
 
   return {

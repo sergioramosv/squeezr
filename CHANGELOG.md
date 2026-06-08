@@ -1,5 +1,9 @@
 # Changelog
 All notable changes to Squeezr will be documented here.
+## [1.72.3] - 2026-06-05
+### Fixed
+- **Desajuste de escala AI vs total (parecía que el determinista solo ahorraba 1,1M).** En 1.72.2 el card "AI Compression" pasó a mostrar el ahorro AI **all-time** mientras el hero "Tokens Saved" es de **hoy** → comparados daban un determinista absurdo. Ahora el card AI es **today-scoped** igual que el hero: Calls/Spent = uso real de backend hoy, Saved = ahorro AI de hoy. Así el total de hoy = determinista + dedup + AI + … cuadra (el determinista vuelve a ser la mayor parte).
+- Nuevo contador `aiUsageToday` (date-stamped) persistido en `ai-usage.json` (sobrevive reinicios, resetea a medianoche). Expuesto en `today.ai_saved_tokens/ai_spent_tokens/ai_local_calls` y `today.ai_calls` = llamadas reales de IA hoy. Subtítulo del card → "today · persisted".
 ## [1.72.2] - 2026-06-05
 ### Fixed
 - **Las cards "Session Cache" y "AI Compression" ya no se resetean a 0 al reiniciar.** Sus contadores eran solo en memoria. Ahora persisten:

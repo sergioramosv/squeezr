@@ -483,7 +483,7 @@ code{font-family:'Cascadia Code','SF Mono',Consolas,monospace;font-size:.9em}
         </div>
         <!-- AI Compression -->
         <div class="section" style="margin:0">
-          <div class="section-head"><span class="section-title">AI Compression</span><span style="font-size:11px;color:var(--text3)">all time · persisted</span></div>
+          <div class="section-head"><span class="section-title">AI Compression</span><span style="font-size:11px;color:var(--text3)">today · persisted</span></div>
           <div class="section-body">
             <div class="cache-row">
               <div class="cache-card"><div class="cache-label">Calls</div><div class="cache-val" id="ai-calls">—</div></div>
@@ -990,14 +990,16 @@ function render(d) {
   document.getElementById('c-hits').textContent = fmt(cacheHits);
   document.getElementById('c-miss').textContent = fmt(cacheMiss);
   document.getElementById('c-rate').textContent = cacheSize > 0 ? fmt(cacheSize) : '—';
-  // AI Compression card (session) — calls, tokens saved vs tokens spent on the calls
-  if (d.ai_usage) {
-    var cloudCalls = d.ai_usage.calls || 0;
-    var localCalls = d.ai_usage.local_calls || 0;
-    var aiCalls = cloudCalls + localCalls;   // total AI calls (Zest local counts too)
-    // Spend = cloud tokens only; local (Zest/Ollama) is free.
-    var aiSpentTok = (d.ai_usage.input_tokens || 0) + (d.ai_usage.output_tokens || 0);
-    var aiSavedTok = Math.round((d.ai_usage.saved_chars || 0) / 3.5);
+  // AI Compression card — TODAY-scoped (consistent with the hero), persists across
+  // restart and resets at midnight. Calls/Spent = real backend usage today; Saved =
+  // today's AI char savings. Avoids the all-time-vs-today mismatch that made the
+  // deterministic share look impossibly small.
+  if (d.today) {
+    var aiCalls = d.today.ai_calls || 0;            // real AI backend calls today
+    var localCalls = d.today.ai_local_calls || 0;
+    var cloudCalls = aiCalls - localCalls;
+    var aiSpentTok = d.today.ai_spent_tokens || 0;  // cloud tokens (local is free)
+    var aiSavedTok = d.today.ai_saved_tokens || 0;
     var setAi = function(id, v){ var e = document.getElementById(id); if(e) e.textContent = v; };
     setAi('ai-calls', fmt(aiCalls));
     setAi('ai-saved', aiSavedTok > 0 ? fmt(aiSavedTok) : '—');
