@@ -1,5 +1,10 @@
 # Changelog
 All notable changes to Squeezr will be documented here.
+## [1.79.2] - 2026-06-05
+### Added
+- Payload expone `compress_assistant_ai` y `assistant_ai_min_chars` (diagnóstico: confirma que B2 está activo y con qué umbral).
+### Notes
+- B2 (compresión AI de asistente) confirmado vivo. En conversaciones interactivas de coding aporta poco porque (a) los turnos de asistente suelen ser cortos (texto breve + tool_use) y (b) los turnos largos están siempre dentro de `keep_recent_assistant` (protegidos). Aporta de verdad en conversaciones con prosa larga y antigua.
 ## [1.79.1] - 2026-06-05
 ### Fixed
 - **B2 no llegaba a ejecutarse**: el `return` temprano cuando no había tool-results elegibles (`toProcess.length === 0`) salía ANTES de procesar los turnos de asistente. Ahora solo sale si NO hay ni tool-results ni candidatos de asistente. Es la causa de que la IA estuviera "congelada" en conversaciones de prosa. La compresión de asistente respeta el toggle de AI (`isAiCompressionEnabled`/`aiEnabled`).

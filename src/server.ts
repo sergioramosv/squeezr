@@ -996,6 +996,8 @@ ai_usage: {
     dry_run: config.dryRun,
     ai_compression_enabled: isAiCompressionEnabled(),
     pattern_hits: detPatternHits,
+    compress_assistant_ai: config.compressAssistantAi,
+    assistant_ai_min_chars: config.assistantAiMinChars,
     version: VERSION,
     port: config.port,
     mode: runtimeOverrides.mode,
