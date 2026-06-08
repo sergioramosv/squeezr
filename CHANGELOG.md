@@ -1,5 +1,8 @@
 # Changelog
 All notable changes to Squeezr will be documented here.
+## [1.77.1] - 2026-06-05
+### Added
+- **Dos porcentajes etiquetados** (honesto): el card "Ratio" del Overview muestra el **Total saved %** (lo que baja tu factura) y debajo **engine X% on compressed blocks** (la eficiencia real sobre lo que Squeezr sí comprime). La pestaña Savings también muestra el engine % en "Day" (sub de "Avg Saving"). Persistido como el resto (contadores `today_comp_*` date-stamped en stats.json).
 ## [1.77.0] - 2026-06-05
 ### Added — guardrail retry-with-correction (sube el ratio DE VERDAD)
 - En vez de rechazar sin más una compresión que tiró un token crítico (ruta/URL/código), el guardrail ahora **reintenta UNA vez** con un prompt correctivo que le dice al modelo exactamente qué tokens debe conservar verbatim. Convierte rechazos en compresiones aceptadas → más ahorro real sin perder calidad. Solo 1 reintento (coste acotado), solo para el caso de tokens perdidos. `validateCompression` devuelve `lostHard[]`; las funciones de compresión aceptan un `extra` (corrección) que se añade al prompt. Métrica `guard.retried_ok`.

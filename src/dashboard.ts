@@ -594,7 +594,7 @@ code{font-family:'Cascadia Code','SF Mono',Consolas,monospace;font-size:.9em}
         <div class="hero-card">
           <div class="hc-label">Avg Saving</div>
           <div class="hc-val" id="sv-pct">—</div>
-          <div class="hc-sub">per session</div>
+          <div class="hc-sub"><span id="sv-engine">—</span></div>
         </div>
       </div>
 
@@ -983,8 +983,10 @@ var perEl = document.getElementById('overview-period');
   // Efficiency = % saved on the content we actually compress (not diluted by the
   // recent/kept/uncompressible payload). This is the "fair" compression number.
   var eff = (today.efficiency_pct != null) ? today.efficiency_pct : null;
+  // Two percentages: total saved (the big number above) + Squeezr engine efficiency
+  // = the real % it compresses on the blocks it actually compresses (honest, higher).
   if (prEl) prEl.innerHTML = (eff != null && eff > 0)
-    ? '<strong style="color:var(--brand2)">' + Math.round(eff) + '%</strong> on AI-compressed blocks'
+    ? 'engine <strong style="color:var(--brand2)">' + Math.round(eff) + '%</strong> on compressed blocks'
       + (avgPerReq > 0 ? ' · ~' + fmt(avgPerReq) + ' tok/req' : '')
     : (avgPerReq > 0 ? '~' + fmt(avgPerReq) + ' tok/req' + (lastPct != null ? ' · last ' + lastPct + '%' : '') : '—');
 
@@ -1905,6 +1907,15 @@ document.getElementById('sv-tokens').textContent    = fmt(totalSaved);
   document.getElementById('sv-sessions').textContent  = String(filtered.length);
   document.getElementById('sv-requests').textContent  = totalReqs + ' requests';
   document.getElementById('sv-pct').textContent       = avgPct > 0 ? avgPct + '%' : '—';
+  // Engine efficiency (% on compressed blocks) — only meaningful for "Day" (today's
+  // date-stamped counters); other periods aren't tracked historically.
+  var svEngineEl = document.getElementById('sv-engine');
+  if (svEngineEl) {
+    var svEff = (savingsPeriod === 'day' && lastStats && lastStats.today && lastStats.today.efficiency_pct != null) ? lastStats.today.efficiency_pct : null;
+    svEngineEl.innerHTML = svEff != null && svEff > 0
+      ? 'engine <strong style="color:var(--brand2)">' + Math.round(svEff) + '%</strong> on compressed'
+      : 'total saved (of all sent)';
+  }
   // NOTE: the Overview hero is NOT synced from here anymore. It uses stats.json
   // (all-time net) as the single source of truth. This Savings page keeps its own
   // per-period view from history (which is fine for relative comparison between
