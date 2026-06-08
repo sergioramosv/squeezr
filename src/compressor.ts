@@ -671,10 +671,6 @@ export async function compressAnthropicMessages(
 
   if (allResults.length === 0) return [messages, emptySavings()]
 
-  // Efficiency denominator: original size of the tool-result content we actually
-  // run compression on this request. Used for the "% on compressed content" metric.
-  const compressibleOriginalChars = allResults.reduce((s, r) => s + r.text.length, 0)
-
 // Clone once — all modifications go here
   const msgs = structuredClone(messages) as AnthropicMessage[]
   // These dedup passes MOVE/REPLACE content (the "kept" occurrence shifts as new
@@ -881,18 +877,18 @@ const candidates = allResults.slice(0, Math.max(0, allResults.length - effective
     c.text.length >= aiThreshold &&
     !dedupedSet.has(`${c.index}:${c.subIndex}`))
 
-  if (toProcess.length === 0) return [msgs, emptySavings(false, detSaved, readDedupSaved, detMs, detByToolArr(), compressibleOriginalChars)]
+  if (toProcess.length === 0) return [msgs, emptySavings(false, detSaved, readDedupSaved, detMs, detByToolArr())]
 
   // Circuit breaker: skip AI compression entirely if backend is down
   if (!circuitBreaker.shouldAllow()) {
     console.log(`[squeezr] Circuit breaker open — skipping AI compression for ${toProcess.length} block(s)`)
-    return [msgs, emptySavings(false, detSaved, readDedupSaved, detMs, detByToolArr(), compressibleOriginalChars)]
+    return [msgs, emptySavings(false, detSaved, readDedupSaved, detMs, detByToolArr())]
   }
 
   if (config.dryRun) {
     const potential = toProcess.reduce((sum, c) => sum + c.text.length, 0)
     console.log(`[squeezr dry-run] Would AI-compress ${toProcess.length} block(s) | potential -${potential.toLocaleString()} chars | pressure=${Math.round(pressure * 100)}%`)
-    return [msgs, emptySavings(true, detSaved, readDedupSaved, detMs, detByToolArr(), compressibleOriginalChars)]
+    return [msgs, emptySavings(true, detSaved, readDedupSaved, detMs, detByToolArr())]
   }
 
   // Differential: split session cache hits from uncached
@@ -992,7 +988,9 @@ const candidates = allResults.slice(0, Math.max(0, allResults.length - effective
     overheadChars: totalOverhead,
     localAiCalls: localCallsThisReq,
     localAiSavedChars: localSavedThisReq,
-    compressibleOriginalChars,
+    // Original size of the blocks AI actually compressed (fresh + cache-reused),
+    // so efficiency = aiSaved / this = the real AI compression ratio (~75-90%).
+    compressibleOriginalChars: totalOriginal,
     detMs,
     aiMs,
   }]

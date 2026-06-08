@@ -1015,8 +1015,8 @@ var perEl = document.getElementById('overview-period');
   // Efficiency = % saved on the content we actually compress (not diluted by the
   // recent/kept/uncompressible payload). This is the "fair" compression number.
   var eff = (today.efficiency_pct != null) ? today.efficiency_pct : null;
-  if (prEl) prEl.innerHTML = eff != null
-    ? '<strong style="color:var(--brand2)">' + Math.round(eff) + '%</strong> on compressed content'
+  if (prEl) prEl.innerHTML = (eff != null && eff > 0)
+    ? '<strong style="color:var(--brand2)">' + Math.round(eff) + '%</strong> on AI-compressed blocks'
       + (avgPerReq > 0 ? ' · ~' + fmt(avgPerReq) + ' tok/req' : '')
     : (avgPerReq > 0 ? '~' + fmt(avgPerReq) + ' tok/req' + (lastPct != null ? ' · last ' + lastPct + '%' : '') : '—');
 

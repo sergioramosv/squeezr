@@ -1,5 +1,8 @@
 # Changelog
 All notable changes to Squeezr will be documented here.
+## [1.74.1] - 2026-06-05
+### Fixed
+- **La métrica de eficiencia ahora es el ratio real de la IA** (`aiSaved / tamaño original de los bloques que la IA comprimió`, ~75-90%), no el determinista sobre todos los tool-results (que daba 11% porque incluía bloques pequeños que solo reciben limpieza superficial). `compressibleOriginalChars` = `totalOriginal` de los bloques AI (frescos + reutilizados de cache); `today_comp_saved_chars` suma solo `aiSavedChars`. Dashboard: "X% on AI-compressed blocks".
 ## [1.74.0] - 2026-06-05
 ### Added — métrica de eficiencia (ratio "justo")
 - **Nueva métrica: % de ahorro sobre el contenido que SÍ comprimimos**, no diluido por el payload que no tocamos (mensajes recientes, código de Edits, system prompt, bloques bajo umbral). Resuelve la observación del usuario: el ratio overall (`savings_pct`) reparte el ahorro sobre TODO lo enviado, lo cual subestima cuánto comprime de verdad el compresor.
