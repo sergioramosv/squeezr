@@ -98,7 +98,7 @@ export const aiUsageCounters = { calls: 0, inputTokens: 0, outputTokens: 0 }
 export const localAiUsageCounters = { calls: 0, inputTokens: 0, outputTokens: 0 }
 // Quality guardrail outcomes this proxy session — how many AI results were
 // accepted vs rejected (low ratio / dropped key tokens). Surfaced on the dashboard.
-export const compressionGuardCounters = { accepted: 0, rejected: 0 }
+export const compressionGuardCounters = { accepted: 0, rejected: 0, retriedOk: 0 }
 // Per-compression-model spend — so the dashboard "By Model" section can show
 // what each compression backend (Haiku, GPT-mini, etc.) actually costs in tokens.
 export const aiUsageByModel: Record<string, { calls: number; inputTokens: number; outputTokens: number }> = {}
@@ -186,8 +186,13 @@ function recordAiUsage(model: string, inputTokens: number, outputTokens: number)
 export function isOAuthSubscriptionKey(apiKey: string): boolean {
   return apiKey.startsWith('sk-ant-oat') || !apiKey.startsWith('sk-')
 }
+// Build the compression prompt, optionally with a correction appended (used by the
+// guardrail's retry: tells the model exactly which tokens it must NOT drop).
+function promptWith(extra?: string): string {
+  return extra ? `${COMPRESS_PROMPT}\n${extra}` : COMPRESS_PROMPT
+}
 
-async function compressWithHaiku(text: string, apiKey: string): Promise<string> {
+async function compressWithHaiku(text: string, apiKey: string, extra?: string): Promise<string> {
   // apiKey can be a real API key (sk-ant-api...), a Claude Code OAuth access
   // token (sk-ant-oat...), or another bearer token. OAuth tokens MUST go as
   // Authorization: Bearer + the oauth beta header — sent as x-api-key they 401.
@@ -201,14 +206,14 @@ async function compressWithHaiku(text: string, apiKey: string): Promise<string> 
   const resp = await client.messages.create({
     model: HAIKU_MODEL,
     max_tokens: scaledNumPredict(input.length),
-    messages: [{ role: 'user', content: `${COMPRESS_PROMPT}\n\n---\n${input}` }],
+    messages: [{ role: 'user', content: `${promptWith(extra)}\n\n---\n${input}` }],
   })
   // Model name comes from the response, not a literal — survives model upgrades
   recordAiUsage(resp.model ?? HAIKU_MODEL, resp.usage?.input_tokens ?? 0, resp.usage?.output_tokens ?? 0)
   return (resp.content[0] as { text: string }).text
 }
 
-async function compressWithGptMini(text: string, apiKey: string): Promise<string> {
+async function compressWithGptMini(text: string, apiKey: string, extra?: string): Promise<string> {
   // apiKey can be a real key (sk-...) or an OAuth bearer token
   // Force real API URL — openai_base_url points to this proxy, which would cause
   // infinite recursion if we let the SDK inherit it from the environment.
@@ -217,19 +222,19 @@ async function compressWithGptMini(text: string, apiKey: string): Promise<string
   const resp = await client.chat.completions.create({
     model: GPT_MINI_MODEL,
     max_tokens: scaledNumPredict(input.length),
-    messages: [{ role: 'user', content: `${COMPRESS_PROMPT}\n\n---\n${input}` }],
+    messages: [{ role: 'user', content: `${promptWith(extra)}\n\n---\n${input}` }],
   })
   recordAiUsage(resp.model ?? GPT_MINI_MODEL, resp.usage?.prompt_tokens ?? 0, resp.usage?.completion_tokens ?? 0)
   return resp.choices[0].message.content ?? ''
 }
 
-async function compressWithGeminiFlash(text: string, apiKey: string): Promise<string> {
+async function compressWithGeminiFlash(text: string, apiKey: string, extra?: string): Promise<string> {
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_FLASH_MODEL}:generateContent?key=${apiKey}`
   const resp = await fetch(url, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({
-      contents: [{ role: 'user', parts: [{ text: `${COMPRESS_PROMPT}\n\n---\n${text.slice(0, OLLAMA_SAFE_INPUT)}` }] }],
+      contents: [{ role: 'user', parts: [{ text: `${promptWith(extra)}\n\n---\n${text.slice(0, OLLAMA_SAFE_INPUT)}` }] }],
     }),
   })
   const data = (await resp.json()) as {
@@ -242,7 +247,7 @@ async function compressWithGeminiFlash(text: string, apiKey: string): Promise<st
 }
 
 // One Ollama call over a single chunk that already fits the context window.
-async function ollamaCompressChunk(chunk: string, baseUrl: string, model: string): Promise<string> {
+async function ollamaCompressChunk(chunk: string, baseUrl: string, model: string, extra?: string): Promise<string> {
   const base = baseUrl.replace(/\/$/, '')
   // Use Ollama's native API (/api/chat) instead of the OpenAI-compat endpoint so we
   // can pass think:false — Qwen3.5 has thinking mode enabled by default and the OpenAI
@@ -254,7 +259,7 @@ async function ollamaCompressChunk(chunk: string, baseUrl: string, model: string
     stream: false,
     think: false,
     options: { temperature: 0, top_p: 1, top_k: 1, num_predict: scaledNumPredict(chunk.length), num_ctx: OLLAMA_NUM_CTX },
-    messages: [{ role: 'user', content: `${COMPRESS_PROMPT}\n\n---\n${chunk}` }],
+    messages: [{ role: 'user', content: `${promptWith(extra)}\n\n---\n${chunk}` }],
   }
   const response = await fetch(nativeUrl, {
     method: 'POST',
@@ -296,9 +301,9 @@ export function splitOnLines(text: string, maxChars: number): string[] {
 //  - block <= SAFE_INPUT  → one call over the whole block
 //  - block  > SAFE_INPUT  → split on line boundaries (<= MAX_CHUNKS) and join
 //  - too big to chunk safely → return the original (deterministic stays applied)
-export async function compressLargeText(text: string, baseUrl: string, model: string): Promise<string> {
+export async function compressLargeText(text: string, baseUrl: string, model: string, extra?: string): Promise<string> {
   if (text.length <= OLLAMA_SAFE_INPUT) {
-    return ollamaCompressChunk(text, baseUrl, model)
+    return ollamaCompressChunk(text, baseUrl, model, extra)
   }
   const chunks = splitOnLines(text, OLLAMA_SAFE_INPUT)
   if (chunks.length > OLLAMA_MAX_CHUNKS) {
@@ -309,7 +314,7 @@ export async function compressLargeText(text: string, baseUrl: string, model: st
   const parts: string[] = []
   for (const chunk of chunks) {
     try {
-      parts.push(await ollamaCompressChunk(chunk, baseUrl, model))
+      parts.push(await ollamaCompressChunk(chunk, baseUrl, model, extra))
     } catch {
       // A failed chunk → keep that chunk's original text rather than a partial join.
       parts.push(chunk)
@@ -320,7 +325,8 @@ export async function compressLargeText(text: string, baseUrl: string, model: st
 
 // ── AI compression orchestrator ───────────────────────────────────────────────
 
-type CompressFn = (text: string) => Promise<string>
+// Optional `extra` = correction instruction appended to the prompt (guardrail retry).
+type CompressFn = (text: string, extra?: string) => Promise<string>
 
 /**
  * Resolve which compression backend to actually use based on the runtime override.
@@ -338,7 +344,7 @@ function getEffectiveCompressFn(defaultFn: CompressFn, config: Config): Compress
   const backend = effectiveBackend()
   if (backend === 'auto') return defaultFn
   if (backend === 'local') {
-    return (text: string) => compressLargeText(text, config.localUpstreamUrl, config.localCompressionModel)
+    return (text: string, extra?: string) => compressLargeText(text, config.localUpstreamUrl, config.localCompressionModel, extra)
   }
   // Cross-backend usage: need a key. Lazy-loaded to avoid circular import.
   // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -346,17 +352,17 @@ function getEffectiveCompressFn(defaultFn: CompressFn, config: Config): Compress
   if (backend === 'haiku') {
     const k = storedKey('anthropic')
     if (!k) { console.log('[squeezr] backend=haiku but no anthropic key seen yet — fallback to auto'); return defaultFn }
-    return (text: string) => compressWithHaiku(text, k)
+    return (text: string, extra?: string) => compressWithHaiku(text, k, extra)
   }
   if (backend === 'gpt-mini') {
     const k = storedKey('openai')
     if (!k) { console.log('[squeezr] backend=gpt-mini but no openai key seen yet — fallback to auto'); return defaultFn }
-    return (text: string) => compressWithGptMini(text, k)
+    return (text: string, extra?: string) => compressWithGptMini(text, k, extra)
   }
   if (backend === 'gemini-flash') {
     const k = storedKey('gemini')
     if (!k) { console.log('[squeezr] backend=gemini-flash but no gemini key seen yet — fallback to auto'); return defaultFn }
-    return (text: string) => compressWithGeminiFlash(text, k)
+    return (text: string, extra?: string) => compressWithGeminiFlash(text, k, extra)
   }
   return defaultFn
 }
@@ -378,11 +384,22 @@ async function runCompression(
       // Hard rate limit: a cache miss means a real API call — gate it. When the
       // window is exhausted, leave the block uncompressed (deterministic already ran).
       if (!tryConsumeAiCall()) { rateLimited++; throw new Error('ai-rate-limited') }
-      const compressed = await circuitBreaker.call(() => compressFn(preprocessed))
+      let compressed = await circuitBreaker.call(() => compressFn(preprocessed))
       // QUALITY GUARDRAIL: reject results that don't save enough or that dropped a
       // critical token (path/URL/error code) or too many key tokens. A rejected
       // block is left in its deterministic-only form (never cached, never used).
-      const guard = validateCompression(item.text, compressed)
+      let guard = validateCompression(item.text, compressed)
+      // RETRY-WITH-CORRECTION: instead of just rejecting a result that dropped
+      // critical tokens, give the model a second shot telling it EXACTLY which
+      // tokens it must keep verbatim. Turns many rejects into accepts → more real
+      // savings. Only one retry (bounded cost), and only for the dropped-token case.
+      if (!guard.accept && guard.lostHard && guard.lostHard.length > 0 && tryConsumeAiCall()) {
+        const must = guard.lostHard.slice(0, 25).join(', ')
+        const correction = `CRITICAL: your previous output OMITTED these tokens, which MUST appear verbatim in the result: ${must}. Redo the compression of the SAME input keeping every one of them, plus all other paths/URLs/error codes/identifiers.`
+        const retry = await circuitBreaker.call(() => compressFn(preprocessed, correction))
+        const retryGuard = validateCompression(item.text, retry)
+        if (retryGuard.accept) { compressed = retry; guard = retryGuard; compressionGuardCounters.retriedOk++ }
+      }
       if (!guard.accept) {
         compressionGuardCounters.rejected++
         throw new Error('guard-rejected')
@@ -935,7 +952,7 @@ const candidates = allResults.slice(0, Math.max(0, allResults.length - effective
   if (wouldHitHaiku && isOAuthSubscriptionKey(apiKey)) {
     console.log('[squeezr] AI compression skipped: backend would use Haiku on an OAuth subscription token (would burn your 5h plan). Pick "Zest (local)" in the dashboard to compress with AI for free.')
   } else if (toCompress.length > 0) {
-    const defaultFn: CompressFn = (t) => compressWithHaiku(t, apiKey)
+    const defaultFn: CompressFn = (t, extra) => compressWithHaiku(t, apiKey, extra)
     const fn = getEffectiveCompressFn(defaultFn, config)
     freshlyCompressed = await runCompression(toCompress, fn, config)
   }
@@ -1167,8 +1184,8 @@ export async function compressOpenAIMessages(
   }
 
   const defaultFn: CompressFn = isLocal
-    ? t => compressLargeText(t, config.localUpstreamUrl, config.localCompressionModel)
-    : t => compressWithGptMini(t, apiKey)
+    ? (t, extra) => compressLargeText(t, config.localUpstreamUrl, config.localCompressionModel, extra)
+    : (t, extra) => compressWithGptMini(t, apiKey, extra)
   const compressFn = getEffectiveCompressFn(defaultFn, config)
 
   const oaiAiT0 = Date.now()

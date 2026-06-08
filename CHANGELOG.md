@@ -1,5 +1,11 @@
 # Changelog
 All notable changes to Squeezr will be documented here.
+## [1.77.0] - 2026-06-05
+### Added — guardrail retry-with-correction (sube el ratio DE VERDAD)
+- En vez de rechazar sin más una compresión que tiró un token crítico (ruta/URL/código), el guardrail ahora **reintenta UNA vez** con un prompt correctivo que le dice al modelo exactamente qué tokens debe conservar verbatim. Convierte rechazos en compresiones aceptadas → más ahorro real sin perder calidad. Solo 1 reintento (coste acotado), solo para el caso de tokens perdidos. `validateCompression` devuelve `lostHard[]`; las funciones de compresión aceptan un `extra` (corrección) que se añade al prompt. Métrica `guard.retried_ok`.
+### Changed / Fixed
+- **Quitada la tarjeta "Reality check"** del dashboard (a petición).
+- **Arreglada la inconsistencia Savings(Day) 22M vs Overview 19M**: la pestaña Savings en "Day" ahora usa la misma fuente date-stamped (`today_*`) que el Overview, en vez de sumar sesiones del history (que sobre-cuentan entre reinicios). Semana/mes/all siguen desde history.
 ## [1.76.1] - 2026-06-05
 ### Fixed
 - **Reality check ahora es de HOY, no all-time** — mostraba 117M (all-time) mientras el hero "Tokens Saved" es de hoy (19M), confundiendo. Ahora usa `todaySavedTokens` / `todayRequests` / `aiTodaySpentTokens` y cuadra con el hero. Etiqueta → "today".

@@ -928,6 +928,7 @@ async function buildStatsPayload() {
         guard: {
             accepted: compressionGuardCounters.accepted,
             rejected: compressionGuardCounters.rejected,
+            retried_ok: compressionGuardCounters.retriedOk,
             reject_rate_pct: (compressionGuardCounters.accepted + compressionGuardCounters.rejected) > 0
                 ? Math.round((compressionGuardCounters.rejected / (compressionGuardCounters.accepted + compressionGuardCounters.rejected)) * 1000) / 10
                 : 0,

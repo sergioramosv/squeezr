@@ -19,6 +19,7 @@ export interface GuardResult {
   accept: boolean
   ratio: number          // 1 - compressed/original (can be negative)
   reason?: string        // why it was rejected (for logging)
+  lostHard?: string[]    // hard tokens (paths/URLs/codes) dropped — used for retry-with-correction
 }
 
 export interface GuardOptions {
@@ -89,7 +90,7 @@ export function validateCompression(original: string, compressed: string, opts: 
   ])
   const hardLost = missing(hard, compressed)
   if (hardLost.length > 0) {
-    return { accept: false, ratio, reason: `dropped critical token(s): ${hardLost.slice(0, 3).join(', ')}` }
+    return { accept: false, ratio, reason: `dropped critical token(s): ${hardLost.slice(0, 3).join(', ')}`, lostHard: hardLost }
   }
 
   // SOFT set — tolerate a small fraction of drops.

@@ -416,16 +416,7 @@ code{font-family:'Cascadia Code','SF Mono',Consolas,monospace;font-size:.9em}
         </div>
       </div>
 
-      <!-- Reality check: honest net after the proxy's own costs (all time) -->
-      <div class="section">
-        <div class="section-head"><span class="section-title">Reality check</span><span style="font-size:11px;color:var(--text3)">today · honest net (after proxy's own overhead)</span></div>
-        <div class="section-body">
-          <div id="reality-row" style="display:flex;flex-wrap:wrap;align-items:baseline;gap:8px 14px;font-size:13px"></div>
-          <div style="margin-top:8px;font-size:11px;color:var(--text3)">Gross saved already excludes the [squeezr:ID] tag. Net also subtracts the squeezr_expand tool injected per request and cloud AI spend (Zest local = free).</div>
-        </div>
-      </div>
-
-      <!-- Controls -->
+            <!-- Controls -->
       <div class="section">
         <div class="section-head">
           <span class="section-title">Compression Mode</span>
@@ -983,22 +974,6 @@ var perEl = document.getElementById('overview-period');
   if (perEl && today.date) perEl.textContent = 'today · ' + today.date;
   // (No quality banner in the Overview — only genuine quality issues, high expand
   // rate, are logged to the Live Log by the governor. Benign reject-rate is silent.)
-  // Reality check row — honest net after the proxy's own costs.
-  var rr = document.getElementById('reality-row');
-  if (rr && d.reality) {
-    var R = d.reality;
-    var chip = function(label, val, color){
-      return '<span style="color:var(--text3)">' + label + '</span> <strong style="color:' + (color||'var(--text2)') + '">' + val + '</strong>';
-    };
-    rr.innerHTML =
-      chip('Gross saved', fmt(R.gross_saved_tokens||0)) +
-      '<span style="color:var(--text3)">−</span>' +
-      chip('expand tool', fmt(R.expand_tool_tokens||0), '#fbbf24') +
-      '<span style="color:var(--text3)">−</span>' +
-      chip('AI spend', (R.ai_spent_tokens||0) === 0 ? 'free' : fmt(R.ai_spent_tokens), (R.ai_spent_tokens||0) === 0 ? 'var(--brand2)' : '#fbbf24') +
-      '<span style="color:var(--text3)">=</span>' +
-      chip('Net saved', fmt(R.net_saved_tokens||0) + ' tok (' + (R.net_pct||0) + '%)', 'var(--brand2)');
-  }
   // Per-request metric (stable, doesn't dilute): avg tokens saved per request + last request %
   var avgPerReq = (tReqs > 0) ? Math.round(tSaved / tReqs) : 0;
   var lastOrig = d.last_original_chars || 0;
@@ -1891,6 +1866,17 @@ function renderSavingsData(d) {
     }
   });
   var avgPct = totalOrig > 0 ? Math.round(totalSaved / (totalSaved + (totalOrig - totalSaved)) * 100) : 0;
+
+  // Keep the "Day" headline identical to the Overview hero (same date-stamped
+  // today_* source), instead of summing history sessions which over-count across
+  // restarts. Fixes the "Savings says 22M but Overview says 19M" inconsistency.
+  if (savingsPeriod === 'day' && lastStats && lastStats.today) {
+    totalSaved = lastStats.today.saved_tokens || totalSaved;
+    totalOrig  = lastStats.today.original_tokens || totalOrig;
+    totalReqs  = lastStats.today.requests || totalReqs;
+    hasOrigData = true;
+    avgPct     = lastStats.today.savings_pct != null ? Math.round(lastStats.today.savings_pct) : avgPct;
+  }
 
   // Cost: use model-weighted if available from current stats, else flat $3/1M
   // Compute cost for this period using the blended $/saved-token rate from all-time model data.
