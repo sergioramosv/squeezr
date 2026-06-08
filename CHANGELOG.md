@@ -1,5 +1,8 @@
 # Changelog
 All notable changes to Squeezr will be documented here.
+## [1.71.1] - 2026-06-05
+### Fixed
+- **AI Compression card: explica el caso "0 calls pero N saved".** Cuando el ahorro AI viene del **session cache** (bloques ya comprimidos en un request/sesión anterior se reutilizan gratis, sin nueva llamada), el card ahora muestra `X tokens saved via session cache (N reuses, no new AI calls)` en vez de "No AI calls yet". Aclara que el ahorro es real aunque `calls=0`.
 ## [1.71.0] - 2026-06-05
 ### Fixed
 - **AI Compression card mostraba "0 calls" pero "469k saved".** Causa: las llamadas a Zest local se contabilizan en `localAiUsageCounters`, pero el card leía solo `aiUsageCounters.calls` (cloud). Ahora el card suma **cloud + local**, y como Zest es gratis muestra el gasto como `free` y un neto del tipo `N local Zest call(s) · X tokens saved (free)`.

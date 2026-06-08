@@ -1000,7 +1000,12 @@ function render(d) {
     setAi('ai-spent', localCalls > 0 && cloudCalls === 0 ? 'free' : (aiSpentTok > 0 ? fmt(aiSpentTok) : '—'));
     var netEl = document.getElementById('ai-net');
     if (netEl) {
-      if (aiCalls === 0) {
+      if (aiCalls === 0 && aiSavedTok > 0) {
+        // Savings with no fresh calls = reused from the session cache (blocks
+        // compressed on an earlier request/session, replayed for free).
+        netEl.textContent = fmt(aiSavedTok) + ' tokens saved via session cache (' + (cacheHits || 0) + ' reuses, no new AI calls)';
+        netEl.style.color = 'var(--brand2)';
+      } else if (aiCalls === 0) {
         netEl.textContent = 'No AI calls yet this session';
       } else if (cloudCalls === 0) {
         // All local: 100% free savings, no spend.
