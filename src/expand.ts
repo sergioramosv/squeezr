@@ -99,8 +99,13 @@ export const EXPAND_TOOL_OPENAI = {
   },
 }
 
+// Char cost of injecting the expand tool into a request's tools[] — the proxy's
+// own overhead, added to EVERY request. Surfaced in the dashboard "Reality check"
+// so the reported net savings honestly subtract it.
+export const EXPAND_TOOL_ANTHROPIC_CHARS = JSON.stringify(EXPAND_TOOL_ANTHROPIC).length
+export const EXPAND_TOOL_OPENAI_CHARS = JSON.stringify(EXPAND_TOOL_OPENAI).length
 // ── Inject helpers ────────────────────────────────────────────────────────────
-
+// Each returns the char cost it added (0 if the tool was already present).
 export function injectExpandToolAnthropic(body: Record<string, unknown>): void {
   if (!body.tools) body.tools = []
   const tools = body.tools as unknown[]

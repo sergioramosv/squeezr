@@ -13,11 +13,14 @@ let installed = false
 // Only savings/compression lines are interesting for the feed. They all start
 // with "[squeezr" and report a "-N chars" delta. This excludes config/boot noise
 // like "[squeezr] Using user config" or "[squeezr] Mode → normal".
+// Also keep CRITICAL quality events (governor backing off on a high expand rate =
+// real info loss) so they surface in the Live Log — but NOT benign recoveries.
 const KEEP = /^\[squeezr[^\]]*\].*-[\d.,]+\s*chars/
+const KEEP_CRITICAL = /^\[squeezr\/quality\] backing off/
 
 export function recordLogLine(text: string): void {
   const clean = text.replace(/\s+$/, '')
-  if (!KEEP.test(clean)) return
+  if (!KEEP.test(clean) && !KEEP_CRITICAL.test(clean)) return
   buffer.push({ id: ++seq, ts: Date.now(), text: clean })
   if (buffer.length > MAX_LINES) buffer.splice(0, buffer.length - MAX_LINES)
 }

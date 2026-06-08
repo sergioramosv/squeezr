@@ -1,5 +1,10 @@
 # Changelog
 All notable changes to Squeezr will be documented here.
+## [1.76.0] - 2026-06-05
+### Added — Fase A: contabilidad honesta (gasto vs ahorro)
+- **Tarjeta "Reality check"** en el dashboard: `Gross saved − expand-tool − AI spend = Net saved (X%)`. Hace visible el coste propio del proxy que antes no se restaba: la tool `squeezr_expand` inyectada en cada request (~349 chars ≈ 100 tok/req) y el gasto de las llamadas AI cloud (Zest local = free). Payload nuevo `reality.{gross_saved_tokens, tag_overhead_tokens, expand_tool_tokens, ai_spent_tokens, net_saved_tokens, net_pct}`. `EXPAND_TOOL_ANTHROPIC_CHARS` exportado de `expand.ts`.
+### Changed — dashboard menos ruidoso
+- **Eliminada la barra de calidad del Overview.** El mensaje "ℹ️ Compressor skipping low-yield blocks" era benigno (el compresor declina bloques ya escuetos, sin pérdida) pero molestaba. Ahora NO se muestra nada ahí. Solo los eventos CRÍTICOS (expand-rate alto → el governor sube el umbral, señal de pérdida real) se registran en el Live Log (`logFeed` captura `[squeezr/quality] backing off`). Las recuperaciones benignas siguen en silencio.
 ## [1.75.0] - 2026-06-05
 ### Added — Etapa 5: harness de calidad
 - **`src/__tests__/qualityHarness.test.ts` + `npm run test:quality`**: comprime un corpus de outputs reales (lectura de fichero verbosa, fallo de test, build log, JSON de API) con Zest en vivo (se salta solo si Ollama no está) y valida LA propiedad de seguridad: una compresión que el guardrail ACEPTA nunca pierde un token duro (ruta/URL/código de error); si Zest lo destroza, el guardrail rechaza y se queda determinista. `compressLargeText` ahora exportado para el harness.

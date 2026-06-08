@@ -24,6 +24,7 @@ import {
   handleOpenAIExpandCall,
   retrieveOriginal,
   expandStoreSize,
+  EXPAND_TOOL_ANTHROPIC_CHARS,
 } from './expand.js'
 import { compressSystemPrompt } from './systemPrompt.js'
 import { captureRequest } from './requestCapture.js'
@@ -1009,6 +1010,24 @@ ai_usage: {
         ? Math.round((compressionGuardCounters.rejected / (compressionGuardCounters.accepted + compressionGuardCounters.rejected)) * 1000) / 10
         : 0,
     },
+// Reality check — HONEST net: gross saved (already net of the [squeezr:ID] tag)
+    // minus the proxy's own costs it doesn't otherwise subtract: the squeezr_expand
+    // tool injected into every request, and cloud AI compression spend (Zest=free).
+    reality: (() => {
+      const grossSaved = allTimeSavedTokens
+      const expandToolTokens = Math.round((allTimeRequests * EXPAND_TOOL_ANTHROPIC_CHARS) / 3.5)
+      const aiSpent = aiUsageCounters.inputTokens + aiUsageCounters.outputTokens // cloud only; local Zest is free
+      const net = Math.max(0, grossSaved - expandToolTokens - aiSpent)
+      const netPct = allTimeOriginalTokens > 0 ? Math.round((net / allTimeOriginalTokens) * 1000) / 10 : 0
+      return {
+        gross_saved_tokens: grossSaved,
+        tag_overhead_tokens: Math.round(((persisted.overhead_chars as number) ?? 0) / 3.5),
+        expand_tool_tokens: expandToolTokens,
+        ai_spent_tokens: aiSpent,
+        net_saved_tokens: net,
+        net_pct: netPct,
+      }
+    })(),
     // Quality governor: evaluate the expand rate and auto-adjust AI aggressiveness.
     quality: (() => {
       const ratePct = session.expand?.rate_pct ?? 0
