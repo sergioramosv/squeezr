@@ -929,8 +929,10 @@ async function buildStatsPayload() {
         quality: (() => {
             const ratePct = session.expand?.rate_pct ?? 0;
             const comps = session.compressions ?? 0;
-            const g = governQuality(ratePct, comps);
-            return { health: g.health, expand_rate_pct: ratePct, ai_min_chars: g.aiMinChars, backoff_level: g.level };
+            const guardSamples = compressionGuardCounters.accepted + compressionGuardCounters.rejected;
+            const rejectRate = guardSamples > 0 ? Math.round((compressionGuardCounters.rejected / guardSamples) * 1000) / 10 : 0;
+            const g = governQuality(ratePct, comps, rejectRate, guardSamples);
+            return { health: g.health, expand_rate_pct: ratePct, reject_rate_pct: rejectRate, ai_min_chars: g.aiMinChars, backoff_level: g.level };
         })(),
     };
 }

@@ -1,5 +1,8 @@
 # Changelog
 All notable changes to Squeezr will be documented here.
+## [1.73.1] - 2026-06-05
+### Changed
+- **El gobernador de calidad ahora reacciona también al reject-rate del guardrail**, no solo al expand-rate (que es raro/lento). Si con `AI_MIN_CHARS=1000` los bloques pequeños se rechazan mucho (≥40% con ≥8 muestras), sube el mínimo automáticamente (1000→1500→…); recupera cuando el reject-rate baja de 20%. El cooldown se mide en "intentos de IA" (accepted+rejected) en vez de en compresiones aceptadas, para que un caso de 100% rechazos no bloquee el back-off. Así el sistema encuentra solo el umbral óptimo: máxima compresión sin desperdiciar llamadas en bloques que no comprimen bien. Payload: `quality.reject_rate_pct`.
 ## [1.73.0] - 2026-06-05
 ### Added (Etapas 3+4 del plan — subir ratio con red de seguridad)
 - **Etapa 4 — más agresividad (sube el ratio):** `AI_MIN_CHARS` baja de 1500 → **1000** (`DEFAULT_AI_MIN_CHARS`, vía `effectiveAiMinChars()`), así se comprimen muchos más bloques medianos. Es seguro porque el guardrail de aceptación (v1.72.0) rechaza cualquier resultado que ahorre <15% o pierda tokens clave → un bloque que comprimiría mal se queda determinista.
