@@ -1,5 +1,13 @@
 # Changelog
 All notable changes to Squeezr will be documented here.
+## [1.71.0] - 2026-06-05
+### Fixed
+- **AI Compression card mostraba "0 calls" pero "469k saved".** Causa: las llamadas a Zest local se contabilizan en `localAiUsageCounters`, pero el card leía solo `aiUsageCounters.calls` (cloud). Ahora el card suma **cloud + local**, y como Zest es gratis muestra el gasto como `free` y un neto del tipo `N local Zest call(s) · X tokens saved (free)`.
+- **Overview mostraba all-time en vez de hoy.** Ahora el Overview refleja estrictamente el **día local en curso (00:00–ahora)**. La badge pasa de "all time" a "today · YYYY-MM-DD".
+### Added
+- **Contadores diarios con sello de fecha en `stats.json`** (`today_date`, `today_saved_chars`, `today_original_chars`, `today_requests`, `today_ai_calls`, `today_local_ai_calls`). Se resetean automáticamente al cambiar de día local. `buildStatsPayload` expone un objeto `today` y, si la fecha almacenada no es hoy, devuelve 0 (nunca cae a all-time).
+### Notes
+- Las secciones "By model", "Cost comparison" y "Savings by type" siguen siendo all-time a propósito (sus etiquetas lo indican). Solo el Overview (hero cards) es de hoy.
 ## [1.70.0] - 2026-06-05
 ### Fixed (CRITICAL — quota burn)
 - **AI compression ya NO factura Haiku contra tu plan de 5h.** Causa raíz: con `ai_compression=true` y sin `backend` explícito, `backend` quedaba en `"auto"`, que para tráfico de Claude Code resuelve a **Haiku vía la API de Anthropic**. Con un token OAuth de suscripción cada llamada se factura contra la cuota del plan de 5h → se agotaba en minutos. Elegir `compression_model="zest"` NO cambiaba el backend (seguía en `auto`).

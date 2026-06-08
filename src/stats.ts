@@ -312,6 +312,25 @@ existing.ai_compression_calls = (existing.ai_compression_calls ?? 0) + savings.c
         existing.local_ai_saved_chars = (existing.local_ai_saved_chars ?? 0) + (savings.localAiSavedChars ?? 0)
       }
 
+      // ── Daily totals (local calendar day, 00:00–23:59) for the "Today" overview ──
+      // Reset whenever the local date rolls over so the overview never shows all-time.
+      const todayKey = new Date().toLocaleDateString('en-CA') // 'YYYY-MM-DD' local
+      if (existing.today_date !== todayKey) {
+        existing.today_date = todayKey
+        existing.today_saved_chars = 0
+        existing.today_original_chars = 0
+        existing.today_requests = 0
+        existing.today_ai_saved_chars = 0
+        existing.today_ai_calls = 0
+        existing.today_local_ai_calls = 0
+      }
+      existing.today_saved_chars = (existing.today_saved_chars ?? 0) + (originalChars - compressedChars)
+      existing.today_original_chars = (existing.today_original_chars ?? 0) + originalChars
+      existing.today_requests = (existing.today_requests ?? 0) + 1
+      existing.today_ai_saved_chars = (existing.today_ai_saved_chars ?? 0) + (savings.aiSavedChars ?? 0)
+      existing.today_ai_calls = (existing.today_ai_calls ?? 0) + savings.compressed
+      existing.today_local_ai_calls = (existing.today_local_ai_calls ?? 0) + (savings.localAiCalls ?? 0)
+
       // By-tool: write current session snapshot (these are already correct cumulative values)
       const bt = existing.by_tool ?? {}
       for (const [tool, data] of Object.entries(this.byTool)) {

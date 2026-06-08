@@ -828,8 +828,30 @@ async function buildStatsPayload() {
         overhead: persisted.overhead_chars ?? (session.breakdown?.overhead ?? 0),
         ai_calls: persisted.ai_compression_calls ?? (session.breakdown?.ai_calls ?? 0),
     };
+    // ── Today (local calendar day) ──────────────────────────────────────────────
+    // Read the date-stamped daily counters from stats.json. If the stored date is
+    // not today (no request yet since midnight), all today totals are 0 — never
+    // fall back to all-time, so the overview strictly reflects 00:00–now.
+    const todayKey = new Date().toLocaleDateString('en-CA');
+    const isToday = persisted.today_date === todayKey;
+    const todaySavedTokens = isToday ? Math.round((persisted.today_saved_chars ?? 0) / 3.5) : 0;
+    const todayOriginalTokens = isToday ? Math.round((persisted.today_original_chars ?? 0) / 3.5) : 0;
+    const todayRequests = isToday ? (persisted.today_requests ?? 0) : 0;
+    const todayAiCalls = isToday ? (persisted.today_ai_calls ?? 0) + (persisted.today_local_ai_calls ?? 0) : 0;
+    const todaySavingsPct = todayOriginalTokens > 0
+        ? Math.round((todaySavedTokens / todayOriginalTokens) * 1000) / 10
+        : 0;
+    const today = {
+        saved_tokens: todaySavedTokens,
+        original_tokens: todayOriginalTokens,
+        requests: todayRequests,
+        ai_calls: todayAiCalls,
+        savings_pct: todaySavingsPct,
+        date: todayKey,
+    };
     return {
         ...session,
+        today,
         total_original_chars: allTimeOriginalTokens * 3.5,
         total_saved_chars: allTimeSavedTokens * 3.5,
         total_saved_tokens: allTimeSavedTokens,

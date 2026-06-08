@@ -388,10 +388,10 @@ code{font-family:'Cascadia Code','SF Mono',Consolas,monospace;font-size:.9em}
     <!-- ── Overview page ── -->
     <div id="page-overview">
 
-<!-- Hero stats — all-time, single source of truth (stats.json) -->
+<!-- Hero stats — TODAY (local calendar day, 00:00–now) from date-stamped daily counters -->
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
         <span style="font-size:13px;font-weight:600;color:var(--text)">Overview</span>
-        <span class="badge" style="font-size:11px;color:var(--text3)">all time</span>
+        <span class="badge" id="overview-period" style="font-size:11px;color:var(--text3)">today</span>
       </div>
       <div class="hero-grid">
         <div class="hero-card accent">
@@ -950,17 +950,26 @@ function render(d) {
   // Cost comparison (#7) — weighted by actual models used (computed first so hero card can use it)
   var modelCosts = calcCostFromModels(d.by_model, true);
 
-// Hero cards — SINGLE source of truth: stats.json (all-time net). No history,
-  // no per-session sums (those over-count across restarts → the 125M/30M bug).
-  document.getElementById('h-saved').textContent = fmt(tokensSaved);
-  document.getElementById('h-in').textContent    = fmt(tokensIn);
-  document.getElementById('h-ratio').textContent = ratioPct != null ? Math.round(ratioPct) + '%' : '—';
-  var heroCost = (modelCosts && modelCosts.savedCost > 0) ? modelCosts.savedCost : costUsd;
-  document.getElementById('h-cost').textContent  = fmtUsd(heroCost);
-  document.getElementById('h-reqs').textContent  = fmt(reqs);
-  document.getElementById('h-comp').textContent  = fmt(comps);
+// Hero cards — OVERVIEW = TODAY (local calendar day, 00:00–now). Sourced from the
+  // date-stamped daily counters in stats.json, NOT the all-time totals. If no request
+  // has happened since midnight, these are 0 (never falls back to all-time).
+  var today = d.today || {};
+  var tSaved = today.saved_tokens || 0;
+  var tIn    = today.original_tokens || 0;
+  var tRatio = today.savings_pct != null ? today.savings_pct : null;
+  var tReqs  = today.requests || 0;
+  var tComps = today.ai_calls || 0;
+  var tCost  = tSaved > 0 ? tSaved * 0.000003 : null;
+  document.getElementById('h-saved').textContent = fmt(tSaved);
+  document.getElementById('h-in').textContent    = fmt(tIn);
+  document.getElementById('h-ratio').textContent = tRatio != null ? Math.round(tRatio) + '%' : '—';
+  document.getElementById('h-cost').textContent  = fmtUsd(tCost);
+  document.getElementById('h-reqs').textContent  = fmt(tReqs);
+  document.getElementById('h-comp').textContent  = fmt(tComps);
+  var perEl = document.getElementById('overview-period');
+  if (perEl && today.date) perEl.textContent = 'today · ' + today.date;
   // Per-request metric (stable, doesn't dilute): avg tokens saved per request + last request %
-  var avgPerReq = (reqs > 0) ? Math.round(tokensSaved / reqs) : 0;
+  var avgPerReq = (tReqs > 0) ? Math.round(tSaved / tReqs) : 0;
   var lastOrig = d.last_original_chars || 0;
   var lastComp = d.last_compressed_chars || 0;
   var lastPct = lastOrig > 0 ? Math.round((lastOrig - lastComp) / lastOrig * 100) : null;
@@ -979,21 +988,28 @@ function render(d) {
   document.getElementById('c-rate').textContent = cacheSize > 0 ? fmt(cacheSize) : '—';
   // AI Compression card (session) — calls, tokens saved vs tokens spent on the calls
   if (d.ai_usage) {
-    var aiCalls = d.ai_usage.calls || 0;
+    var cloudCalls = d.ai_usage.calls || 0;
+    var localCalls = d.ai_usage.local_calls || 0;
+    var aiCalls = cloudCalls + localCalls;   // total AI calls (Zest local counts too)
+    // Spend = cloud tokens only; local (Zest/Ollama) is free.
     var aiSpentTok = (d.ai_usage.input_tokens || 0) + (d.ai_usage.output_tokens || 0);
     var aiSavedTok = Math.round((d.ai_usage.saved_chars || 0) / 3.5);
     var setAi = function(id, v){ var e = document.getElementById(id); if(e) e.textContent = v; };
     setAi('ai-calls', fmt(aiCalls));
     setAi('ai-saved', aiSavedTok > 0 ? fmt(aiSavedTok) : '—');
-    setAi('ai-spent', aiSpentTok > 0 ? fmt(aiSpentTok) : '—');
+    setAi('ai-spent', localCalls > 0 && cloudCalls === 0 ? 'free' : (aiSpentTok > 0 ? fmt(aiSpentTok) : '—'));
     var netEl = document.getElementById('ai-net');
     if (netEl) {
       if (aiCalls === 0) {
         netEl.textContent = 'No AI calls yet this session';
+      } else if (cloudCalls === 0) {
+        // All local: 100% free savings, no spend.
+        netEl.textContent = localCalls + ' local Zest call(s) · ' + fmt(aiSavedTok) + ' tokens saved (free)';
+        netEl.style.color = 'var(--brand2)';
       } else {
         var net = aiSavedTok - aiSpentTok;
         var sign = net >= 0 ? '+' : '−';
-        netEl.textContent = 'Net: ' + sign + fmt(Math.abs(net)) + ' tokens (saved − spent)';
+        netEl.textContent = 'Net: ' + sign + fmt(Math.abs(net)) + ' tokens (saved − spent) · ' + localCalls + ' local + ' + cloudCalls + ' cloud';
         netEl.style.color = net >= 0 ? 'var(--brand2)' : 'var(--red, #e5484d)';
       }
     }
