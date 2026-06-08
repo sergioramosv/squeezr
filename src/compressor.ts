@@ -913,11 +913,14 @@ const candidates = allResults.slice(0, Math.max(0, allResults.length - effective
     c.text.length >= aiThreshold &&
     !dedupedSet.has(`${c.index}:${c.subIndex}`))
 
-  if (toProcess.length === 0) return [msgs, emptySavings(false, detSaved, readDedupSaved, detMs, detByToolArr())]
+// Only bail early if there's NOTHING for the AI stage — neither tool-result
+  // blocks nor queued assistant turns (Fase B2). Otherwise fall through so the
+  // assistant-turn AI compression still runs even when no tool results qualify.
+  if (toProcess.length === 0 && asstAiCandidates.length === 0) return [msgs, emptySavings(false, detSaved, readDedupSaved, detMs, detByToolArr())]
 
   // Circuit breaker: skip AI compression entirely if backend is down
   if (!circuitBreaker.shouldAllow()) {
-    console.log(`[squeezr] Circuit breaker open — skipping AI compression for ${toProcess.length} block(s)`)
+    console.log(`[squeezr] Circuit breaker open — skipping AI compression for ${toProcess.length + asstAiCandidates.length} block(s)`)
     return [msgs, emptySavings(false, detSaved, readDedupSaved, detMs, detByToolArr())]
   }
 
@@ -972,7 +975,9 @@ const candidates = allResults.slice(0, Math.max(0, allResults.length - effective
     const fn = getEffectiveCompressFn(defaultFn, config)
     if (toCompress.length > 0) freshlyCompressed = await runCompression(toCompress, fn, config)
     // Fase B2: AI-compress long old assistant turns (same guard + retry pipeline).
-    if (asstAiCandidates.length > 0) asstAiCompressed = await runCompression(asstAiCandidates, fn, config)
+    if (asstAiCandidates.length > 0 && isAiCompressionEnabled() && aiEnabled()) {
+      asstAiCompressed = await runCompression(asstAiCandidates, fn, config)
+    }
   }
   const aiMs = Date.now() - aiT0
   // REAL calls made this request (excludes LRU-cache-served blocks).

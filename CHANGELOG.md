@@ -1,5 +1,8 @@
 # Changelog
 All notable changes to Squeezr will be documented here.
+## [1.79.1] - 2026-06-05
+### Fixed
+- **B2 no llegaba a ejecutarse**: el `return` temprano cuando no había tool-results elegibles (`toProcess.length === 0`) salía ANTES de procesar los turnos de asistente. Ahora solo sale si NO hay ni tool-results ni candidatos de asistente. Es la causa de que la IA estuviera "congelada" en conversaciones de prosa. La compresión de asistente respeta el toggle de AI (`isAiCompressionEnabled`/`aiEnabled`).
 ## [1.79.0] - 2026-06-05
 ### Added — Fase B2: compresión AI de turnos de asistente
 - Nuevo: AI-comprime los turnos de asistente LARGOS y antiguos (≥`assistant_ai_min_chars`, default 2000; nunca los últimos `keep_recent_assistant`). Es la mayor palanca en conversaciones dominadas por prosa del asistente (donde la IA antes no tenía nada que comprimir → savings congelados). Flags: `compress_assistant_ai` (default **false**), `assistant_ai_min_chars` (2000).
