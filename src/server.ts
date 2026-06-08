@@ -32,7 +32,7 @@ import { collapseStaleTurns } from './staleTurns.js'
 import { compressToolDescriptions } from './toolDescComp.js'
 import { filterMcpTools } from './mcpFilter.js'
 import { anthropicDirectFetch, isAnthropicUrl } from './anthropicDirectFetch.js'
-import { sessionCacheSize } from './sessionCache.js'
+import { sessionCacheSize, clearSessionCache } from './sessionCache.js'
 import { detPatternHits } from './deterministic.js'
 import { recentLogLines } from './logFeed.js'
 import { VERSION } from './version.js'
@@ -1297,6 +1297,16 @@ function persistBackendToToml(backend: CompressionBackend): void {
   }
 }
 
+// Clear the session compression cache. Useful after switching backend (e.g. from
+// Haiku to Zest): the cache may hold results produced by the OLD backend, which
+// get replayed for free and prevent the new backend from ever running. Clearing
+// forces the new backend to recompress fresh blocks.
+app.post('/squeezr/cache/clear', (c) => {
+  const before = sessionCacheSize()
+  clearSessionCache()
+  console.log(`[squeezr] session cache cleared (${before} block(s) removed) — next requests recompress with the active backend`)
+  return c.json({ ok: true, cleared: before })
+})
 // Get/set compression backend (which AI model compresses tool results)
 app.get('/squeezr/backend', (c) => {
   return c.json({ backend: effectiveBackend() })

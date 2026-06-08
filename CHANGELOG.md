@@ -1,5 +1,12 @@
 # Changelog
 All notable changes to Squeezr will be documented here.
+## [1.71.2] - 2026-06-05
+### Fixed
+- **Contador `local_ai_calls` persistido nunca se escribía.** La ruta Anthropic devolvía el `Savings` sin `localAiCalls`/`localAiSavedChars`, así que `stats.json` nunca registraba las llamadas a Zest. Ahora, con `backend=local`, cada compresión fresca del request se cuenta como llamada local (el contador in-memory del dashboard ya funcionaba vía `recordAiUsage`; este es el durable).
+### Added
+- **Endpoint `POST /squeezr/cache/clear`** para vaciar el session cache (memoria + disco). Útil tras cambiar de backend: el cache puede contener resultados del backend ANTERIOR (p.ej. Haiku de antes del fix) que se reutilizan gratis e impiden que el nuevo backend (Zest) llegue a ejecutarse. Limpiarlo fuerza a Zest a recomprimir bloques frescos.
+### Notes
+- Diagnóstico del "0 block(s) AI-compressed / 0 calls": no es un fallo. El session cache (258 entradas) fue poblado por Haiku durante el leak; ahora esas compresiones se reutilizan gratis (sin llamada nueva), por eso `compressed=0` pero hay ahorro. Zest sí funciona (smoke test OK) y tomará el relevo en bloques nuevos ≥1500 chars, o de inmediato tras limpiar el cache.
 ## [1.71.1] - 2026-06-05
 ### Fixed
 - **AI Compression card: explica el caso "0 calls pero N saved".** Cuando el ahorro AI viene del **session cache** (bloques ya comprimidos en un request/sesión anterior se reutilizan gratis, sin nueva llamada), el card ahora muestra `X tokens saved via session cache (N reuses, no new AI calls)` en vez de "No AI calls yet". Aclara que el ahorro es real aunque `calls=0`.

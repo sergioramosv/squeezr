@@ -808,6 +808,13 @@ const candidates = allResults.slice(0, Math.max(0, allResults.length - effective
   if (pressure >= 0.5) console.log(`[squeezr] Context pressure: ${Math.round(pressure * 100)}% → threshold=${threshold} chars`)
   if (sessionHits.length > 0) console.log(`[squeezr] Session cache: ${sessionHits.length} block(s) reused (KV cache preserved)`)
 
+  // When backend=local, every fresh compression this request was a Zest/Ollama
+  // call → record them so the persisted local_ai_calls counter is accurate (the
+  // dashboard's in-memory counter is set in recordAiUsage; this is the durable one).
+  const localCallsThisReq = effectiveBackend() === 'local' ? freshlyCompressed.length : 0
+  const localSavedThisReq = localCallsThisReq > 0
+    ? freshlyCompressed.reduce((s, f) => s + (f.original.length - f.result.length), 0)
+    : 0
   return [msgs, {
     compressed: freshlyCompressed.length,
     savedChars: totalOriginal - totalCompressed,
@@ -819,6 +826,8 @@ const candidates = allResults.slice(0, Math.max(0, allResults.length - effective
     dedupSavedChars: readDedupSaved + imgDedup.savedChars + attDedup.savedChars + diffReads.savedChars,
     aiSavedChars: totalAiSaved,
     overheadChars: totalOverhead,
+    localAiCalls: localCallsThisReq,
+    localAiSavedChars: localSavedThisReq,
     detMs,
     aiMs,
   }]

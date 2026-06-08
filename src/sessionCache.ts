@@ -52,6 +52,9 @@ export function sessionCacheSize(): number {
 
 export function clearSessionCache(): void {
   cache.clear()
+  // Also wipe the persisted file so the cleared state survives a restart —
+  // otherwise loadSessionCache() would repopulate from disk on next boot.
+  persistSessionCache()
 }
 
 export function loadSessionCache(): void {
