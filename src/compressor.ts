@@ -6,6 +6,7 @@ import { storeOriginal } from './expand.js'
 import { dedupImagesAnthropic } from './imageDedup.js'
 import { dedupAttachments } from './attachmentDedup.js'
 import { compressRepeatedReads } from './diffRead.js'
+import { compressDuplicateToolResults } from './toolResultDedup.js'
 import { hashText, getBlock, setBlock, SessionBlock } from './sessionCache.js'
 import type { Config } from './config.js'
 import { effectiveThreshold, effectiveKeepRecent, effectiveAiMinChars, aiEnabled, effectiveBackend, runtimeOverrides } from './config.js'
@@ -708,6 +709,8 @@ export async function compressAnthropicMessages(
   const attDedup = hasCacheMarkers ? ZERO_DEDUP : dedupAttachments(msgs as Parameters<typeof dedupAttachments>[0])
   // ── Diff-based repeated Read ────────────────────────────────────────────────
   const diffReads = hasCacheMarkers ? { savedChars: 0, collapsedCount: 0 } : compressRepeatedReads(msgs as Parameters<typeof compressRepeatedReads>[0])
+  // ── Cross-turn dedup of identical tool outputs (Bash/Grep/etc re-run) ────────
+  const dupResults = hasCacheMarkers ? { savedChars: 0, collapsedCount: 0 } : compressDuplicateToolResults(msgs as Parameters<typeof compressDuplicateToolResults>[0])
   // ── Step 0: Cross-turn dedup (Read / Bash / Grep) ────────────────────────────
   // If the exact same tool output appears multiple times in the conversation,
   // keep the most recent occurrence at full fidelity and replace earlier ones
@@ -1005,7 +1008,7 @@ const candidates = allResults.slice(0, Math.max(0, allResults.length - effective
     dryRun: false,
     sessionCacheHits: sessionHits.length,
     detSavedChars: detSaved,
-    dedupSavedChars: readDedupSaved + imgDedup.savedChars + attDedup.savedChars + diffReads.savedChars,
+    dedupSavedChars: readDedupSaved + imgDedup.savedChars + attDedup.savedChars + diffReads.savedChars + dupResults.savedChars,
     aiSavedChars: totalAiSaved,
     overheadChars: totalOverhead,
     localAiCalls: localCallsThisReq,

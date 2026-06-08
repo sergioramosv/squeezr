@@ -1,5 +1,8 @@
 # Changelog
 All notable changes to Squeezr will be documented here.
+## [1.78.0] - 2026-06-05
+### Added — Fase B1: dedup de tool-results repetidos entre turnos
+- Nuevo pase determinista `toolResultDedup.ts` (`compressDuplicateToolResults`): si el MISMO output de herramienta (Bash/Grep/etc, ≥500 chars) reaparece verbatim en varios turnos, mantiene el más reciente completo y sustituye los anteriores por `[squeezr: identical tool output as message #N — squeezr_expand(id)]`. Gratis (sin IA), recuperable, y se salta cuando hay markers de prompt-cache (igual que los otros dedup, para no invalidar el prefijo). Llena el hueco que `diffRead.ts` dejaba a propósito ("let cross-turn dedup handle it"). Suma a `dedupSavedChars`. Tests: `toolResultDedup.test.ts`.
 ## [1.77.1] - 2026-06-05
 ### Added
 - **Dos porcentajes etiquetados** (honesto): el card "Ratio" del Overview muestra el **Total saved %** (lo que baja tu factura) y debajo **engine X% on compressed blocks** (la eficiencia real sobre lo que Squeezr sí comprime). La pestaña Savings también muestra el engine % en "Day" (sub de "Avg Saving"). Persistido como el resto (contadores `today_comp_*` date-stamped en stats.json).
