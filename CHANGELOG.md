@@ -1,5 +1,12 @@
 # Changelog
 All notable changes to Squeezr will be documented here.
+## [1.73.2] - 2026-06-05
+### Changed
+- **`AI_MIN_CHARS` revertido 1000 → 1500** (valor validado). Datos en vivo: con 1000 el guardrail rechazaba ~100% de los bloques pequeños añadidos (no se pueden resumir sin perder tokens clave), lo que NO sube el ratio y gasta llamadas a Zest. Bajar de 1500 esperará al harness de calidad (Etapa 5). El gobernador puede seguir subiendo el umbral en runtime si hace falta.
+### Added
+- **Línea de desglose en el Overview**: "Total saved = deterministic X + AI Y tokens · today". Aclara que el total SÍ suma determinista + IA (la confusión venía de comparar el ahorro AI all-time, ~9.6M, con el total de hoy). El ahorro AI mostrado es el de hoy (2.8M); el determinista es el resto (~9.9M).
+### Notes
+- El ratio de hoy (~15%) refleja la composición de ESTA conversación (dominada por turnos largos de asistente y ediciones de código en tool_use inputs, que no se comprimen con IA por seguridad). Cuando el tráfico tiene grandes salidas de herramientas (lecturas, logs), el ratio sube. No es una regresión.
 ## [1.73.1] - 2026-06-05
 ### Changed
 - **El gobernador de calidad ahora reacciona también al reject-rate del guardrail**, no solo al expand-rate (que es raro/lento). Si con `AI_MIN_CHARS=1000` los bloques pequeños se rechazan mucho (≥40% con ≥8 muestras), sube el mínimo automáticamente (1000→1500→…); recupera cuando el reject-rate baja de 20%. El cooldown se mide en "intentos de IA" (accepted+rejected) en vez de en compresiones aceptadas, para que un caso de 100% rechazos no bloquee el back-off. Así el sistema encuentra solo el umbral óptimo: máxima compresión sin desperdiciar llamadas en bloques que no comprimen bien. Payload: `quality.reject_rate_pct`.

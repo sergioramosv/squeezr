@@ -416,6 +416,8 @@ code{font-family:'Cascadia Code','SF Mono',Consolas,monospace;font-size:.9em}
         </div>
       </div>
 
+      <!-- Today savings split: proves Total = deterministic + AI (+ dedup/etc) -->
+      <div id="today-split" style="font-size:12px;color:var(--text3);margin:-4px 0 14px 2px"></div>
       <!-- Compression quality (expand-rate health + auto-backoff) -->
       <div id="quality-bar" style="display:none;align-items:center;gap:10px;margin-bottom:16px;padding:10px 14px;border-radius:10px;font-size:12.5px"></div>
 
@@ -973,8 +975,15 @@ function render(d) {
   document.getElementById('h-cost').textContent  = fmtUsd(tCost);
   document.getElementById('h-reqs').textContent  = fmt(tReqs);
   document.getElementById('h-comp').textContent  = fmt(tComps);
-  var perEl = document.getElementById('overview-period');
+var perEl = document.getElementById('overview-period');
   if (perEl && today.date) perEl.textContent = 'today · ' + today.date;
+  // Show the total = deterministic + AI split so it's clear BOTH are counted.
+  var splitEl = document.getElementById('today-split');
+  if (splitEl) {
+    var aiPart = today.ai_saved_tokens || 0;
+    var detPart = Math.max(0, tSaved - aiPart);
+    splitEl.innerHTML = 'Total saved = <strong style="color:var(--text2)">deterministic ' + fmt(detPart) + '</strong> + <strong style="color:var(--brand2)">AI ' + fmt(aiPart) + '</strong> tokens · today (all-time AI is larger; this is just today)';
+  }
   // Compression quality bar (expand-rate health + guardrail rejects + auto-backoff)
   var qb = document.getElementById('quality-bar');
   if (qb && d.quality) {

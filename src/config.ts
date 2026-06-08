@@ -290,12 +290,13 @@ export function effectiveThreshold(config: Config, pressure: number): number {
 export function effectiveKeepRecent(config: Config): number {
   return runtimeOverrides.keepRecent ?? config.keepRecent
 }
-// Minimum tool-result block size (chars) eligible for AI compression. Lowered from
-// 1500 → 1000 to compress more mid-size blocks (raises the ratio). Safe because the
-// per-block acceptance guardrail rejects any result that saves <15% or drops key
-// tokens, and the quality governor raises this floor automatically if the expand
-// rate climbs. The governor writes runtimeOverrides.aiMinChars.
-export const DEFAULT_AI_MIN_CHARS = 1000
+// Minimum tool-result block size (chars) eligible for AI compression. Kept at 1500
+// (validated safe): live data showed 1000 made the guardrail reject ~100% of the
+// extra small blocks (they can't be summarized without dropping key tokens), which
+// adds zero ratio and wastes Zest calls. Lowering below 1500 should wait for the
+// Stage-5 quality harness. The governor can still raise this floor at runtime
+// (runtimeOverrides.aiMinChars) if the expand/reject rate climbs.
+export const DEFAULT_AI_MIN_CHARS = 1500
 export function effectiveAiMinChars(): number {
   return runtimeOverrides.aiMinChars ?? DEFAULT_AI_MIN_CHARS
 }
