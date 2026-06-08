@@ -1,5 +1,14 @@
 # Changelog
 All notable changes to Squeezr will be documented here.
+## [1.71.3] - 2026-06-05
+### Fixed
+- **`/squeezr/cache/clear` ahora vacía AMBOS caches.** Antes solo limpiaba el session cache (`session_cache.json`); el segundo cache LRU (`cache.json`, texto→resultado) seguía sirviendo compresiones de la época Haiku sin llamar a Zest. Por eso el log decía "5 block(s) AI-compressed" pero `by_model` estaba vacío y `local_calls=0`: los bloques venían del LRU, no de una llamada real. Nuevo `CompressionCache.clear()` (memoria + disco).
+- **`local_ai_calls` ahora cuenta llamadas REALES a Zest**, no bloques servidos desde cache. Se calcula por delta de `localAiUsageCounters` alrededor de la compresión (un hit de LRU produce resultado sin llamada). Antes usaba `freshlyCompressed.length`, que inflaba el contador con hits de cache.
+- Mensaje del card AI más preciso: "reused from compression cache (no new AI calls this session)" en vez de atribuirlo solo al session cache.
+### Confirmado (datos de compresión SÍ se guardan)
+- `total_saved_chars` (total) INCLUYE el ahorro de AI (fresco + reutilizado de cache) — verificado 353M chars. El % de compresión se calcula sobre ese total.
+- `ai_saved_chars` es la porción AI dentro del total (no se suma dos veces). `local_ai_saved_chars` es un desglose informativo aparte (tampoco se duplica).
+- Todo se persiste en `stats.json` con escritura atómica en cada request, más los contadores diarios `today_*`.
 ## [1.71.2] - 2026-06-05
 ### Fixed
 - **Contador `local_ai_calls` persistido nunca se escribía.** La ruta Anthropic devolvía el `Savings` sin `localAiCalls`/`localAiSavedChars`, así que `stats.json` nunca registraba las llamadas a Zest. Ahora, con `backend=local`, cada compresión fresca del request se cuenta como llamada local (el contador in-memory del dashboard ya funcionaba vía `recordAiUsage`; este es el durable).

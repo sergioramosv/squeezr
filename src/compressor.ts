@@ -770,6 +770,10 @@ const candidates = allResults.slice(0, Math.max(0, allResults.length - effective
   // local (Zest) / gpt-mini / gemini-flash backend, which is billed elsewhere.
   const resolvedBackend = effectiveBackend()
   const wouldHitHaiku = resolvedBackend === 'auto' || resolvedBackend === 'haiku'
+  // Snapshot real backend-call counters so we can report ACTUAL Zest calls this
+  // request (a block served from the LRU cache produces a result WITHOUT a call).
+  const cloudCallsBefore = aiUsageCounters.calls
+  const localCallsBefore = localAiUsageCounters.calls
   let freshlyCompressed: Array<{ index: number; subIndex?: number; original: string; result: string; tool: string }> = []
   if (wouldHitHaiku && isOAuthSubscriptionKey(apiKey)) {
     console.log('[squeezr] AI compression skipped: backend would use Haiku on an OAuth subscription token (would burn your 5h plan). Pick "Zest (local)" in the dashboard to compress with AI for free.')
@@ -779,6 +783,9 @@ const candidates = allResults.slice(0, Math.max(0, allResults.length - effective
     freshlyCompressed = await runCompression(toCompress, fn, config)
   }
   const aiMs = Date.now() - aiT0
+  // REAL calls made this request (excludes LRU-cache-served blocks).
+  const realLocalCalls = localAiUsageCounters.calls - localCallsBefore
+  const realCloudCalls = aiUsageCounters.calls - cloudCallsBefore
 
   let totalOriginal = 0
   let totalCompressed = 0
@@ -808,13 +815,14 @@ const candidates = allResults.slice(0, Math.max(0, allResults.length - effective
   if (pressure >= 0.5) console.log(`[squeezr] Context pressure: ${Math.round(pressure * 100)}% → threshold=${threshold} chars`)
   if (sessionHits.length > 0) console.log(`[squeezr] Session cache: ${sessionHits.length} block(s) reused (KV cache preserved)`)
 
-  // When backend=local, every fresh compression this request was a Zest/Ollama
-  // call → record them so the persisted local_ai_calls counter is accurate (the
-  // dashboard's in-memory counter is set in recordAiUsage; this is the durable one).
-  const localCallsThisReq = effectiveBackend() === 'local' ? freshlyCompressed.length : 0
+  // Persist the count of REAL local (Zest) backend calls this request — NOT
+  // freshlyCompressed.length, which also counts blocks served from the LRU cache
+  // (no backend call). localAiUsageCounters only moves on a true Ollama call.
+  const localCallsThisReq = realLocalCalls
   const localSavedThisReq = localCallsThisReq > 0
     ? freshlyCompressed.reduce((s, f) => s + (f.original.length - f.result.length), 0)
     : 0
+  void realCloudCalls // (reserved for future cloud-call accounting symmetry)
   return [msgs, {
     compressed: freshlyCompressed.length,
     savedChars: totalOriginal - totalCompressed,

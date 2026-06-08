@@ -46,6 +46,17 @@ export class CompressionCache {
     this.persist()
   }
 
+  /** Wipe the LRU cache (memory + disk). Used by the dashboard cache-clear so a
+   *  new backend recompresses instead of replaying old (e.g. Haiku-era) results. */
+  clear(): number {
+    const n = this.store.size
+    this.store.clear()
+    this.hits = 0
+    this.misses = 0
+    this.persist()
+    return n
+  }
+
   stats() {
     const total = this.hits + this.misses
     return {

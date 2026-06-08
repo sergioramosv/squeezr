@@ -1001,9 +1001,9 @@ function render(d) {
     var netEl = document.getElementById('ai-net');
     if (netEl) {
       if (aiCalls === 0 && aiSavedTok > 0) {
-        // Savings with no fresh calls = reused from the session cache (blocks
-        // compressed on an earlier request/session, replayed for free).
-        netEl.textContent = fmt(aiSavedTok) + ' tokens saved via session cache (' + (cacheHits || 0) + ' reuses, no new AI calls)';
+        // Savings with no real backend calls = blocks compressed on an earlier
+        // request and replayed for free from the compression cache (session/LRU).
+        netEl.textContent = fmt(aiSavedTok) + ' tokens saved — reused from compression cache (no new AI calls this session)';
         netEl.style.color = 'var(--brand2)';
       } else if (aiCalls === 0) {
         netEl.textContent = 'No AI calls yet this session';

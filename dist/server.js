@@ -1208,10 +1208,16 @@ function persistBackendToToml(backend) {
 // get replayed for free and prevent the new backend from ever running. Clearing
 // forces the new backend to recompress fresh blocks.
 app.post('/squeezr/cache/clear', (c) => {
-    const before = sessionCacheSize();
+    // Clear BOTH compression caches so the active backend (e.g. Zest) actually
+    // recompresses, instead of replaying results made by the old backend:
+    //  1. session cache (session_cache.json) — per-tool-result blocks
+    //  2. LRU compression cache (cache.json)  — preprocessed-text → result, the
+    //     one that was silently serving Haiku-era compressions without calling Zest.
+    const sessionBefore = sessionCacheSize();
     clearSessionCache();
-    console.log(`[squeezr] session cache cleared (${before} block(s) removed) — next requests recompress with the active backend`);
-    return c.json({ ok: true, cleared: before });
+    const lruBefore = getCache(config).clear();
+    console.log(`[squeezr] caches cleared — session: ${sessionBefore} block(s), LRU: ${lruBefore} entr(ies). Next requests recompress with the active backend.`);
+    return c.json({ ok: true, session_cleared: sessionBefore, lru_cleared: lruBefore });
 });
 // Get/set compression backend (which AI model compresses tool results)
 app.get('/squeezr/backend', (c) => {
