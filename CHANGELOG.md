@@ -1,5 +1,8 @@
 # Changelog
 All notable changes to Squeezr will be documented here.
+## [1.79.3] - 2026-06-05
+### Changed
+- Etiquetas del card Ratio más claras: "del total enviado" (izquierda) y "solo en bloques IA" (derecha), con tooltips. Antes "engine (compressed)" no se entendía.
 ## [1.79.2] - 2026-06-05
 ### Added
 - Payload expone `compress_assistant_ai` y `assistant_ai_min_chars` (diagnóstico: confirma que B2 está activo y con qué umbral).

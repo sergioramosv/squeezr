@@ -404,11 +404,11 @@ code{font-family:'Cascadia Code','SF Mono',Consolas,monospace;font-size:.9em}
           <div style="display:flex;align-items:flex-end;gap:18px">
             <div>
               <div class="hc-val" id="h-ratio">—</div>
-              <div style="font-size:11px;color:var(--text3)">total saved</div>
+              <div style="font-size:11px;color:var(--text3)" title="% saved over the WHOLE request sent">del total enviado</div>
             </div>
             <div>
               <div class="hc-val" id="h-engine" style="color:var(--brand2)">—</div>
-              <div style="font-size:11px;color:var(--text3)">engine (compressed)</div>
+              <div style="font-size:11px;color:var(--text3)" title="% saved only on the blocks the AI actually compresses (not the whole request)">solo en bloques IA</div>
             </div>
           </div>
           <div class="hc-sub" style="margin-top:6px"><span id="h-perreq">—</span></div>
