@@ -13,6 +13,9 @@ import { circuitBreaker } from './circuitBreaker.js'
 import { tryConsumeAiCall, _config as _aiRateConfig } from './aiRateLimit.js'
 import { isAiCompressionEnabled } from './aiToggle.js'
 import { validateCompression } from './compressionGuard.js'
+import { readFileSync, writeFileSync, existsSync, mkdirSync, renameSync } from 'node:fs'
+import { join } from 'node:path'
+import { homedir } from 'node:os'
 
 export interface Savings {
   compressed: number
@@ -95,6 +98,33 @@ export const aiUsageByModel: Record<string, { calls: number; inputTokens: number
 const HAIKU_MODEL = 'claude-haiku-4-5-20251001'
 const GPT_MINI_MODEL = 'gpt-4o-mini'
 const GEMINI_FLASH_MODEL = 'gemini-1.5-flash-8b'
+// ── AI usage persistence ──────────────────────────────────────────────────────
+// The AI Compression card (calls / spent) and By-Model cost used to reset to 0 on
+// restart because these counters were in-memory only. Persist them to disk and
+// reload at startup so the dashboard shows cumulative all-time usage.
+const AI_USAGE_FILE = join(homedir(), '.squeezr', 'ai-usage.json')
+function loadAiUsage(): void {
+  try {
+    if (!existsSync(AI_USAGE_FILE)) return
+    const d = JSON.parse(readFileSync(AI_USAGE_FILE, 'utf-8')) as {
+      cloud?: typeof aiUsageCounters; local?: typeof localAiUsageCounters
+      byModel?: typeof aiUsageByModel
+    }
+    if (d.cloud) Object.assign(aiUsageCounters, d.cloud)
+    if (d.local) Object.assign(localAiUsageCounters, d.local)
+    if (d.byModel) for (const [k, v] of Object.entries(d.byModel)) aiUsageByModel[k] = v
+  } catch { /* ignore */ }
+}
+function persistAiUsage(): void {
+  try {
+    const dir = join(homedir(), '.squeezr')
+    if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
+    const tmp = AI_USAGE_FILE + '.tmp'
+    writeFileSync(tmp, JSON.stringify({ cloud: aiUsageCounters, local: localAiUsageCounters, byModel: aiUsageByModel }))
+    renameSync(tmp, AI_USAGE_FILE)
+  } catch { /* ignore */ }
+}
+loadAiUsage()
 function recordAiUsage(model: string, inputTokens: number, outputTokens: number): void {
   const isLocal = model.startsWith('local:')
   if (isLocal) {
@@ -112,6 +142,7 @@ function recordAiUsage(model: string, inputTokens: number, outputTokens: number)
   aiUsageByModel[model].calls++
   aiUsageByModel[model].inputTokens += inputTokens
   aiUsageByModel[model].outputTokens += outputTokens
+  persistAiUsage()
 }
 /**
  * True when the Anthropic credential is a Claude Code / Claude Desktop OAuth

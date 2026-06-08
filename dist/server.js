@@ -880,14 +880,15 @@ async function buildStatsPayload() {
         breakdown: allTimeBreakdown,
         anthropic_native_compact: anthropicNativeCompactEnabled(),
         compression_backend: effectiveBackend(),
-        // AI compression card: session counters (real usage from the backend SDKs)
-        // + session saved chars from the live summary (before all-time overwrite).
+        // AI compression card: counters persisted across restarts (loaded at startup
+        // from ai-usage.json) so the card doesn't reset to 0. Saved uses the all-time
+        // persisted AI saving so it matches the persisted calls.
         ai_usage: {
             // Cloud AI (Haiku/GPT/Gemini) — counts as cost
             calls: aiUsageCounters.calls,
             input_tokens: aiUsageCounters.inputTokens,
             output_tokens: aiUsageCounters.outputTokens,
-            saved_chars: session.breakdown?.tool_results_ai ?? 0,
+            saved_chars: allTimeBreakdown.tool_results_ai ?? (session.breakdown?.tool_results_ai ?? 0),
             by_model: aiUsageByModel,
             // Local AI (Zest/Ollama) — free, no cost, savings still count
             local_calls: localAiUsageCounters.calls,

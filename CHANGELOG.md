@@ -1,5 +1,10 @@
 # Changelog
 All notable changes to Squeezr will be documented here.
+## [1.72.2] - 2026-06-05
+### Fixed
+- **Las cards "Session Cache" y "AI Compression" ya no se resetean a 0 al reiniciar.** Sus contadores eran solo en memoria. Ahora persisten:
+  - `Session Cache` (Reuses, Expands): `session_cache_hits` y `expand_calls/hits/misses` se guardan en `stats.json` y se cargan al arrancar (`Stats.persistedNum`). Los expands se persisten al instante en `recordExpand` (pueden ocurrir sin una compresión posterior). LRU Size ya persistía vía `cache.json`.
+  - `AI Compression` (Calls, Saved, Spent): los contadores de uso (`aiUsageCounters`, `localAiUsageCounters`, `aiUsageByModel`) se persisten en `~/.squeezr/ai-usage.json` y se recargan al arrancar. "Saved" usa ahora el ahorro AI all-time persistido. Subtítulo cambiado a "all time · persisted".
 ## [1.72.1] - 2026-06-05
 ### Fixed
 - **Overview ahora es TODO de hoy.** Las cards "By model", "Cost Comparison" y "Savings by client" seguían mostrando all-time; ahora usan datos del día. Nuevos contadores diarios `today_by_model`/`today_by_client` en stats.json (reset a medianoche), expuestos como `today.by_model`/`today.by_client` y consumidos por las tres cards del Overview. Etiquetas actualizadas a "today". `record()/persist()` reciben ahora client/model para el desglose diario. (Las pestañas Savings siguen con su propio filtro por periodo; "Savings by type" sigue siendo all-time a propósito.)

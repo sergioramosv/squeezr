@@ -483,7 +483,7 @@ code{font-family:'Cascadia Code','SF Mono',Consolas,monospace;font-size:.9em}
         </div>
         <!-- AI Compression -->
         <div class="section" style="margin:0">
-          <div class="section-head"><span class="section-title">AI Compression</span><span style="font-size:11px;color:var(--text3)">this session</span></div>
+          <div class="section-head"><span class="section-title">AI Compression</span><span style="font-size:11px;color:var(--text3)">all time · persisted</span></div>
           <div class="section-body">
             <div class="cache-row">
               <div class="cache-card"><div class="cache-label">Calls</div><div class="cache-val" id="ai-calls">—</div></div>
@@ -1007,10 +1007,10 @@ function render(d) {
       if (aiCalls === 0 && aiSavedTok > 0) {
         // Savings with no real backend calls = blocks compressed on an earlier
         // request and replayed for free from the compression cache (session/LRU).
-        netEl.textContent = fmt(aiSavedTok) + ' tokens saved — reused from compression cache (no new AI calls this session)';
+        netEl.textContent = fmt(aiSavedTok) + ' tokens saved — reused from compression cache (no AI calls needed)';
         netEl.style.color = 'var(--brand2)';
       } else if (aiCalls === 0) {
-        netEl.textContent = 'No AI calls yet this session';
+        netEl.textContent = 'No AI calls yet';
       } else if (cloudCalls === 0) {
         // All local: 100% free savings, no spend.
         netEl.textContent = localCalls + ' local Zest call(s) · ' + fmt(aiSavedTok) + ' tokens saved (free)';

@@ -53,7 +53,9 @@ export class Stats {
   private totalOriginalChars = 0
   private totalCompressedChars = 0
   private totalCompressions = 0
-  private totalSessionCacheHits = 0
+  // Persisted across restarts (loaded from stats.json) so the dashboard cards
+  // (Session Cache reuses/expands, AI Compression) don't reset to 0 on restart.
+  private totalSessionCacheHits = Stats.persistedNum('session_cache_hits')
   private byTool: Record<string, ToolData> = {}
   private byProject: Record<string, {
     requests: number; savedChars: number; savedTokens: number
@@ -81,10 +83,10 @@ export class Stats {
   private latencyDet = new LatencyTracker()
   private latencyAi = new LatencyTracker()
 
-  // Expand rate tracking — THE quality metric for compression
-  private expandCalls = 0
-  private expandHits = 0
-  private expandMisses = 0
+  // Expand rate tracking — THE quality metric for compression. Persisted across restarts.
+  private expandCalls = Stats.persistedNum('expand_calls')
+  private expandHits = Stats.persistedNum('expand_hits')
+  private expandMisses = Stats.persistedNum('expand_misses')
 
   record(originalChars: number, compressedChars: number, savings: Savings, latency?: LatencyInfo, client?: string, model?: string): void {
     this.requests++
@@ -179,6 +181,23 @@ for (const entry of savings.byTool) {
     this.expandCalls++
     if (found) this.expandHits++
     else this.expandMisses++
+    // Expands can happen without a following compression — persist immediately so
+    // the count survives a restart even if no record() runs before shutdown.
+    this.persistExpandCounters()
+  }
+  /** Lightweight merge-write of just the expand counters into stats.json. */
+  private persistExpandCounters(): void {
+    try {
+      const dir = join(homedir(), '.squeezr')
+      if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
+      const existing = Stats.loadGlobal()
+      existing.expand_calls = this.expandCalls
+      existing.expand_hits = this.expandHits
+      existing.expand_misses = this.expandMisses
+      const tmp = STATS_FILE + '.tmp'
+      writeFileSync(tmp, JSON.stringify(existing))
+      renameSync(tmp, STATS_FILE)
+    } catch { /* ignore */ }
   }
 
   currentProjectName(): string {
@@ -306,6 +325,12 @@ breakdown: {
       existing.skill_dedup_saved_chars = (existing.skill_dedup_saved_chars ?? 0) + (savings.skillDedupSavedChars ?? 0)
       existing.sysprompt_saved_chars = (existing.sysprompt_saved_chars ?? 0) + (savings.syspromptSavedChars ?? 0)
 existing.ai_compression_calls = (existing.ai_compression_calls ?? 0) + savings.compressed
+      // Snapshot cumulative session/expand counters (in-memory values already include
+      // the persisted base loaded at startup) so the dashboard cards survive restart.
+      existing.session_cache_hits = this.totalSessionCacheHits
+      existing.expand_calls = this.expandCalls
+      existing.expand_hits = this.expandHits
+      existing.expand_misses = this.expandMisses
       // Local AI calls (Zest/Ollama) — persisted separately, not added to cost counters
       if (savings.localAiCalls != null && savings.localAiCalls > 0) {
         existing.local_ai_calls = (existing.local_ai_calls ?? 0) + savings.localAiCalls
@@ -393,6 +418,12 @@ existing.ai_compression_calls = (existing.ai_compression_calls ?? 0) + savings.c
       if (existsSync(STATS_FILE)) return JSON.parse(readFileSync(STATS_FILE, 'utf-8'))
     } catch { /* ignore */ }
     return {}
+  }
+
+  /** Read a single numeric counter from the persisted stats.json (0 if absent). */
+  static persistedNum(key: string): number {
+    const v = Stats.loadGlobal()[key]
+    return typeof v === 'number' && isFinite(v) ? v : 0
   }
 
   static loadPersistedByModel(): Record<string, { requests: number; originalChars: number; savedChars: number }> {
