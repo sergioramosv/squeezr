@@ -22,6 +22,7 @@ import { anthropicDirectFetch, isAnthropicUrl } from './anthropicDirectFetch.js'
 import { sessionCacheSize, clearSessionCache } from './sessionCache.js';
 import { detPatternHits } from './deterministic.js';
 import { recentLogLines } from './logFeed.js';
+import { governQuality } from './qualityGovernor.js';
 import { VERSION } from './version.js';
 import { recordRequest, getHistorySessions, getCurrentSession, getProjectAggregates, getAllSessionsForHistory, setSessionExtrasProvider, } from './history.js';
 import { updateAnthropicFromHeaders, updateOpenAIFromHeaders, updateGeminiFrom429, addAnthropicUsage, addOpenAIUsage, addGeminiUsage, makeSseUsageParser, maybeRefreshOpenAIBilling, maybeRefreshOpenAISessionLimits, storeKey, storedKey, limitsSnapshot, } from './limits.js';
@@ -924,6 +925,13 @@ async function buildStatsPayload() {
                 ? Math.round((compressionGuardCounters.rejected / (compressionGuardCounters.accepted + compressionGuardCounters.rejected)) * 1000) / 10
                 : 0,
         },
+        // Quality governor: evaluate the expand rate and auto-adjust AI aggressiveness.
+        quality: (() => {
+            const ratePct = session.expand?.rate_pct ?? 0;
+            const comps = session.compressions ?? 0;
+            const g = governQuality(ratePct, comps);
+            return { health: g.health, expand_rate_pct: ratePct, ai_min_chars: g.aiMinChars, backoff_level: g.level };
+        })(),
     };
 }
 app.get('/squeezr/stats', (c) => {

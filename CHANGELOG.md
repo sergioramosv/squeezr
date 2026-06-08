@@ -1,5 +1,12 @@
 # Changelog
 All notable changes to Squeezr will be documented here.
+## [1.73.0] - 2026-06-05
+### Added (Etapas 3+4 del plan — subir ratio con red de seguridad)
+- **Etapa 4 — más agresividad (sube el ratio):** `AI_MIN_CHARS` baja de 1500 → **1000** (`DEFAULT_AI_MIN_CHARS`, vía `effectiveAiMinChars()`), así se comprimen muchos más bloques medianos. Es seguro porque el guardrail de aceptación (v1.72.0) rechaza cualquier resultado que ahorre <15% o pierda tokens clave → un bloque que comprimiría mal se queda determinista.
+- **Etapa 3 — gobernador de calidad con auto-backoff:** nuevo `src/qualityGovernor.ts`. Vigila el **expand rate** (cuántas veces el modelo pide el original de un bloque comprimido = señal de que se perdió info). Escalera de back-off: `1000→1500→2500→4000` chars. `≥8%` (con ≥30 compresiones) → sube el mínimo (menos agresivo); `<3%` → recupera un escalón. Con cooldown de 50 compresiones para no oscilar. Solo cambia ratio por seguridad, nunca aumenta la pérdida.
+- **Dashboard:** barra de calidad que aparece solo cuando hay algo que mirar (amber/red), mostrando expand rate, % de rechazos del guardrail y el `AI min chars` activo. Payload nuevo: `quality.{health,expand_rate_pct,ai_min_chars,backoff_level}`.
+### Pendiente
+- Etapa 5 (harness de calidad con corpus real) — recomendado para validar con números antes de bajar aún más el umbral.
 ## [1.72.3] - 2026-06-05
 ### Fixed
 - **Desajuste de escala AI vs total (parecía que el determinista solo ahorraba 1,1M).** En 1.72.2 el card "AI Compression" pasó a mostrar el ahorro AI **all-time** mientras el hero "Tokens Saved" es de **hoy** → comparados daban un determinista absurdo. Ahora el card AI es **today-scoped** igual que el hero: Calls/Spent = uso real de backend hoy, Saved = ahorro AI de hoy. Así el total de hoy = determinista + dedup + AI + … cuadra (el determinista vuelve a ser la mayor parte).

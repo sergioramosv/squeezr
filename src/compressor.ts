@@ -8,7 +8,7 @@ import { dedupAttachments } from './attachmentDedup.js'
 import { compressRepeatedReads } from './diffRead.js'
 import { hashText, getBlock, setBlock, SessionBlock } from './sessionCache.js'
 import type { Config } from './config.js'
-import { effectiveThreshold, effectiveKeepRecent, aiEnabled, effectiveBackend, runtimeOverrides } from './config.js'
+import { effectiveThreshold, effectiveKeepRecent, effectiveAiMinChars, aiEnabled, effectiveBackend, runtimeOverrides } from './config.js'
 import { circuitBreaker } from './circuitBreaker.js'
 import { tryConsumeAiCall, _config as _aiRateConfig } from './aiRateLimit.js'
 import { isAiCompressionEnabled } from './aiToggle.js'
@@ -858,11 +858,11 @@ export async function compressAnthropicMessages(
   // AFTER the first call). So AI must NEVER touch the cached prefix — only blocks
   // past the barrier are eligible. The deterministic pass above already handled
   // the prefix (stably). Without cache markers (cacheBarrier=-1) everything is eligible.
-// AI minimum block size. Measured from real session data (REINVENT_AI.md):
-  // blocks <500 chars EXPAND under AI (-22%), 500-2k gain ~42%, ≥2k gain 75-91%.
-  // Floor at 1500 so AI only touches blocks where it clearly wins — never expands.
-  const AI_MIN_CHARS = 1500
-  const aiThreshold = Math.max(threshold, AI_MIN_CHARS)
+// AI minimum block size. Governed at runtime by effectiveAiMinChars() (default
+  // 1000, raised automatically by the quality governor if the expand rate climbs).
+  // The per-block acceptance guardrail (compressionGuard) rejects any result that
+  // doesn't save enough or drops key tokens, so a smaller floor can't hurt quality.
+  const aiThreshold = Math.max(threshold, effectiveAiMinChars())
 const candidates = allResults.slice(0, Math.max(0, allResults.length - effectiveKeepRecent(config)))
   // Note: we do NOT filter by cacheBarrier here. The barrier was designed for
   // non-deterministic AI backends (Haiku varies between calls). Zest uses

@@ -416,6 +416,9 @@ code{font-family:'Cascadia Code','SF Mono',Consolas,monospace;font-size:.9em}
         </div>
       </div>
 
+      <!-- Compression quality (expand-rate health + auto-backoff) -->
+      <div id="quality-bar" style="display:none;align-items:center;gap:10px;margin-bottom:16px;padding:10px 14px;border-radius:10px;font-size:12.5px"></div>
+
       <!-- Controls -->
       <div class="section">
         <div class="section-head">
@@ -972,6 +975,28 @@ function render(d) {
   document.getElementById('h-comp').textContent  = fmt(tComps);
   var perEl = document.getElementById('overview-period');
   if (perEl && today.date) perEl.textContent = 'today · ' + today.date;
+  // Compression quality bar (expand-rate health + guardrail rejects + auto-backoff)
+  var qb = document.getElementById('quality-bar');
+  if (qb && d.quality) {
+    var h = d.quality.health;
+    var rate = d.quality.expand_rate_pct != null ? d.quality.expand_rate_pct : 0;
+    var rej = (d.guard && d.guard.reject_rate_pct != null) ? d.guard.reject_rate_pct : 0;
+    var colors = { green:'#10b981', amber:'#fbbf24', red:'#e5484d', unknown:'var(--text3)' };
+    var labels = {
+      green:'✓ Quality healthy', amber:'⚠ Quality watch', red:'⛔ Quality backoff active', unknown:'Quality: gathering data'
+    };
+    var c = colors[h] || colors.unknown;
+    if (h === 'green' || h === 'unknown') {
+      qb.style.display = 'none';   // only surface when there's something to see
+    } else {
+      qb.style.display = 'flex';
+      qb.style.color = c;
+      qb.style.background = 'color-mix(in srgb, ' + c + ' 10%, transparent)';
+      qb.style.border = '1px solid color-mix(in srgb, ' + c + ' 35%, transparent)';
+      qb.innerHTML = '<strong>' + labels[h] + '</strong>' +
+        '<span style="color:var(--text3)">expand rate ' + rate + '% · guardrail rejects ' + rej + '% · AI min ' + fmt(d.quality.ai_min_chars||0) + ' chars</span>';
+    }
+  }
   // Per-request metric (stable, doesn't dilute): avg tokens saved per request + last request %
   var avgPerReq = (tReqs > 0) ? Math.round(tSaved / tReqs) : 0;
   var lastOrig = d.last_original_chars || 0;

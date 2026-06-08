@@ -256,6 +256,7 @@ export interface RuntimeOverrides {
   aiEnabled?: boolean
   anthropicNativeCompact?: boolean
   compressionBackend?: CompressionBackend
+  aiMinChars?: number   // governed by the quality auto-backoff (qualityGovernor)
 }
 
 const MODES: Record<CompressionMode, Omit<RuntimeOverrides, 'mode'>> = {
@@ -288,6 +289,15 @@ export function effectiveThreshold(config: Config, pressure: number): number {
 /** Effective keepRecent — runtime override wins */
 export function effectiveKeepRecent(config: Config): number {
   return runtimeOverrides.keepRecent ?? config.keepRecent
+}
+// Minimum tool-result block size (chars) eligible for AI compression. Lowered from
+// 1500 → 1000 to compress more mid-size blocks (raises the ratio). Safe because the
+// per-block acceptance guardrail rejects any result that saves <15% or drops key
+// tokens, and the quality governor raises this floor automatically if the expand
+// rate climbs. The governor writes runtimeOverrides.aiMinChars.
+export const DEFAULT_AI_MIN_CHARS = 1000
+export function effectiveAiMinChars(): number {
+  return runtimeOverrides.aiMinChars ?? DEFAULT_AI_MIN_CHARS
 }
 
 /** Whether the runtime mode override allows AI compression.
