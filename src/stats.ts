@@ -86,7 +86,7 @@ export class Stats {
   private expandHits = 0
   private expandMisses = 0
 
-  record(originalChars: number, compressedChars: number, savings: Savings, latency?: LatencyInfo): void {
+  record(originalChars: number, compressedChars: number, savings: Savings, latency?: LatencyInfo, client?: string, model?: string): void {
     this.requests++
     this.totalOriginalChars += originalChars
     this.totalCompressedChars += compressedChars
@@ -130,7 +130,7 @@ for (const entry of savings.byTool) {
       console.log(`[squeezr] ${savings.compressed} block(s) AI-compressed | -${savings.savedChars.toLocaleString()} chars (~${tokens.toLocaleString()} tokens) (${pct}% total saved, incl. deterministic)`)
     }
 
-    this.persist(originalChars, compressedChars, savings)
+    this.persist(originalChars, compressedChars, savings, client, model)
   }
 
   /** @deprecated Pass savings.syspromptSavedChars instead */
@@ -143,7 +143,7 @@ for (const entry of savings.byTool) {
   /** Call instead of record() when a project name is known. */
   recordWithProject(project: string, originalChars: number, compressedChars: number, savings: Savings, latency?: LatencyInfo, client?: string, model?: string): void {
     if (project !== 'unknown') this.currentProject = project
-    this.record(originalChars, compressedChars, savings, latency)
+    this.record(originalChars, compressedChars, savings, latency, client, model)
 
     // Per-project session totals
     const p = this.currentProject
@@ -274,7 +274,7 @@ breakdown: {
    * This fixes the old triangular accumulation bug where session accumulators
    * were written in full on each request, inflating totals exponentially.
    */
-  private persist(originalChars: number, compressedChars: number, savings: Savings): void {
+  private persist(originalChars: number, compressedChars: number, savings: Savings, client?: string, model?: string): void {
     try {
       const dir = join(homedir(), '.squeezr')
       if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
@@ -323,6 +323,8 @@ existing.ai_compression_calls = (existing.ai_compression_calls ?? 0) + savings.c
         existing.today_ai_saved_chars = 0
         existing.today_ai_calls = 0
         existing.today_local_ai_calls = 0
+        existing.today_by_model = {}
+        existing.today_by_client = {}
       }
       existing.today_saved_chars = (existing.today_saved_chars ?? 0) + (originalChars - compressedChars)
       existing.today_original_chars = (existing.today_original_chars ?? 0) + originalChars
@@ -330,6 +332,23 @@ existing.ai_compression_calls = (existing.ai_compression_calls ?? 0) + savings.c
       existing.today_ai_saved_chars = (existing.today_ai_saved_chars ?? 0) + (savings.aiSavedChars ?? 0)
       existing.today_ai_calls = (existing.today_ai_calls ?? 0) + savings.compressed
       existing.today_local_ai_calls = (existing.today_local_ai_calls ?? 0) + (savings.localAiCalls ?? 0)
+      // Per-model / per-client breakdown for TODAY (so the Overview cards match the
+      // today hero, not all-time). Char-based; converted to tokens in the payload.
+      const dayDelta = originalChars - compressedChars
+      if (model) {
+        const tbm = (existing.today_by_model ??= {}) as Record<string, { requests: number; originalChars: number; savedChars: number }>
+        if (!tbm[model]) tbm[model] = { requests: 0, originalChars: 0, savedChars: 0 }
+        tbm[model].requests++
+        tbm[model].originalChars += originalChars
+        tbm[model].savedChars += dayDelta
+      }
+      if (client) {
+        const tbc = (existing.today_by_client ??= {}) as Record<string, { requests: number; originalChars: number; savedChars: number }>
+        if (!tbc[client]) tbc[client] = { requests: 0, originalChars: 0, savedChars: 0 }
+        tbc[client].requests++
+        tbc[client].originalChars += originalChars
+        tbc[client].savedChars += dayDelta
+      }
 
       // By-tool: write current session snapshot (these are already correct cumulative values)
       const bt = existing.by_tool ?? {}

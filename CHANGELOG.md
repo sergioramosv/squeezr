@@ -1,5 +1,8 @@
 # Changelog
 All notable changes to Squeezr will be documented here.
+## [1.72.1] - 2026-06-05
+### Fixed
+- **Overview ahora es TODO de hoy.** Las cards "By model", "Cost Comparison" y "Savings by client" seguían mostrando all-time; ahora usan datos del día. Nuevos contadores diarios `today_by_model`/`today_by_client` en stats.json (reset a medianoche), expuestos como `today.by_model`/`today.by_client` y consumidos por las tres cards del Overview. Etiquetas actualizadas a "today". `record()/persist()` reciben ahora client/model para el desglose diario. (Las pestañas Savings siguen con su propio filtro por periodo; "Savings by type" sigue siendo all-time a propósito.)
 ## [1.72.0] - 2026-06-05
 ### Fixed (CRÍTICO — pérdida de datos en AI compression)
 - **Los bloques >4000 chars perdían contenido silenciosamente.** `compressWithOllama` (y las rutas Haiku/GPT/Gemini) mandaban solo `text.slice(0,4000)` al modelo pero el resultado **reemplazaba el bloque entero** → todo lo posterior a ~4000 chars se descartaba. Ahora `compressLargeText` representa el bloque COMPLETO: ≤13000 chars una sola llamada; >13000 se trocea por líneas (máx 4 trozos) y se une; más allá se deja la versión determinista. `num_ctx` 2048→4096.

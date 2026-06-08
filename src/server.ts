@@ -917,6 +917,24 @@ async function buildStatsPayload() {
   const todaySavingsPct = todayOriginalTokens > 0
     ? Math.round((todaySavedTokens / todayOriginalTokens) * 1000) / 10
     : 0
+  // Convert today's char-based per-model/per-client maps to the same token shape
+  // the dashboard's buildModelHtml/buildClientHtml + calcCostFromModels expect.
+  const toTokenBreakdown = (raw: unknown): Record<string, { requests: number; original_tokens: number; saved_tokens: number; savings_pct: number }> => {
+    const out: Record<string, { requests: number; original_tokens: number; saved_tokens: number; savings_pct: number }> = {}
+    if (isToday && raw && typeof raw === 'object') {
+      for (const [k, v] of Object.entries(raw as Record<string, { requests?: number; originalChars?: number; savedChars?: number }>)) {
+        const orig = v.originalChars ?? 0
+        const saved = v.savedChars ?? 0
+        out[k] = {
+          requests: v.requests ?? 0,
+          original_tokens: Math.round(orig / 3.5),
+          saved_tokens: Math.round(saved / 3.5),
+          savings_pct: orig > 0 ? Math.round((saved / orig) * 1000) / 10 : 0,
+        }
+      }
+    }
+    return out
+  }
   const today = {
     saved_tokens: todaySavedTokens,
     original_tokens: todayOriginalTokens,
@@ -924,6 +942,8 @@ async function buildStatsPayload() {
     ai_calls: todayAiCalls,
     savings_pct: todaySavingsPct,
     date: todayKey,
+    by_model: toTokenBreakdown(persisted.today_by_model),
+    by_client: toTokenBreakdown(persisted.today_by_client),
   }
 
   return {

@@ -534,7 +534,7 @@ code{font-family:'Cascadia Code','SF Mono',Consolas,monospace;font-size:.9em}
 
       <!-- Model breakdown -->
       <div class="section">
-        <div class="section-head"><span class="section-title">By model</span><span style="font-size:11px;color:var(--text3)">all time · real pricing</span></div>
+        <div class="section-head"><span class="section-title">By model</span><span style="font-size:11px;color:var(--text3)">today · real pricing</span></div>
         <div class="section-body" id="model-body">
           <div style="font-size:13px;color:var(--text3)">No model data yet.</div>
         </div>
@@ -542,7 +542,7 @@ code{font-family:'Cascadia Code','SF Mono',Consolas,monospace;font-size:.9em}
 
 <!-- Savings by client -->
       <div class="section">
-        <div class="section-head"><span class="section-title">Savings by client</span></div>
+        <div class="section-head"><span class="section-title">Savings by client</span><span style="font-size:11px;color:var(--text3)">today</span></div>
         <div class="section-body" id="client-body-overview">
           <div style="font-size:13px;color:var(--text3)">No data yet — starts after first request.</div>
         </div>
@@ -947,8 +947,12 @@ function render(d) {
   // Sidebar version
   if (d.version) document.getElementById('sb-ver').textContent = 'v' + d.version;
 
-  // Cost comparison (#7) — weighted by actual models used (computed first so hero card can use it)
-  var modelCosts = calcCostFromModels(d.by_model, true);
+  // Overview = TODAY: model/client breakdowns come from today's date-stamped data,
+  // not all-time. Fall back to {} when there's no data yet today.
+  var todayByModel = (d.today && d.today.by_model) || {};
+  var todayByClient = (d.today && d.today.by_client) || {};
+  // Cost comparison (#7) — weighted by actual models used today (computed first so hero card can use it)
+  var modelCosts = calcCostFromModels(todayByModel, true);
 
 // Hero cards — OVERVIEW = TODAY (local calendar day, 00:00–now). Sourced from the
   // date-stamped daily counters in stats.json, NOT the all-time totals. If no request
@@ -1070,11 +1074,11 @@ function render(d) {
   setTxt('sp-saved',       costSaved > 0 ? fmtUsd(costSaved) : '—');
   setTxt('sp-saved-pct',   (ratioPct != null ? Math.round(ratioPct) + '% · ' : '') + priceNote);
   var noteEl = document.getElementById('cost-note'); if(noteEl) noteEl.textContent = priceNote;
-  // Model breakdown section
-  renderModelBreakdown(d.by_model, d.ai_usage && d.ai_usage.by_model);
+  // Model breakdown section (today)
+  renderModelBreakdown(todayByModel, d.ai_usage && d.ai_usage.by_model);
 
-  // CLI breakdown (#8)
-  renderClientBreakdown(d.by_client);
+  // CLI breakdown (#8) (today)
+  renderClientBreakdown(todayByClient);
   renderBreakdown(d.breakdown, tokensSaved);
 
   // Mode & bypass
