@@ -91,11 +91,22 @@ function recordAiUsage(model: string, inputTokens: number, outputTokens: number)
   aiUsageByModel[model].inputTokens += inputTokens
   aiUsageByModel[model].outputTokens += outputTokens
 }
+/**
+ * True when the Anthropic credential is a Claude Code / Claude Desktop OAuth
+ * subscription token (sk-ant-oat...) or any non-`sk-` bearer. A Haiku compression
+ * call made with such a token bills against the user's OWN 5h plan quota — it burns
+ * the plan instead of saving it. We must NEVER auto-route compression to Haiku on
+ * these keys; only an explicit, billed API key (sk-ant-api...) is safe for Haiku.
+ */
+export function isOAuthSubscriptionKey(apiKey: string): boolean {
+  return apiKey.startsWith('sk-ant-oat') || !apiKey.startsWith('sk-')
+}
+
 async function compressWithHaiku(text: string, apiKey: string): Promise<string> {
   // apiKey can be a real API key (sk-ant-api...), a Claude Code OAuth access
   // token (sk-ant-oat...), or another bearer token. OAuth tokens MUST go as
   // Authorization: Bearer + the oauth beta header — sent as x-api-key they 401.
-  const isOAuth = apiKey.startsWith('sk-ant-oat') || !apiKey.startsWith('sk-')
+  const isOAuth = isOAuthSubscriptionKey(apiKey)
   const authOpts = isOAuth ? { authToken: apiKey } : { apiKey }
   const oauthHeaders = isOAuth ? { 'anthropic-beta': 'oauth-2025-04-20' } : undefined
   // Force real API URL — ANTHROPIC_BASE_URL points to this proxy, which would cause
@@ -752,11 +763,21 @@ const candidates = allResults.slice(0, Math.max(0, allResults.length - effective
   }
 
   const aiT0 = Date.now()
-  const defaultFn: CompressFn = (t) => compressWithHaiku(t, apiKey)
-  const fn = getEffectiveCompressFn(defaultFn, config)
-  const freshlyCompressed = toCompress.length > 0
-    ? await runCompression(toCompress, fn, config)
-    : []
+  // SAFETY: never auto-route AI compression to Haiku on an OAuth subscription
+  // token — it bills against the user's 5h plan quota. When the resolved backend
+  // would hit Haiku (`auto` default, or explicit `haiku`) on such a key, skip AI
+  // entirely (deterministic savings already applied). The user can still pick a
+  // local (Zest) / gpt-mini / gemini-flash backend, which is billed elsewhere.
+  const resolvedBackend = effectiveBackend()
+  const wouldHitHaiku = resolvedBackend === 'auto' || resolvedBackend === 'haiku'
+  let freshlyCompressed: Array<{ index: number; subIndex?: number; original: string; result: string; tool: string }> = []
+  if (wouldHitHaiku && isOAuthSubscriptionKey(apiKey)) {
+    console.log('[squeezr] AI compression skipped: backend would use Haiku on an OAuth subscription token (would burn your 5h plan). Pick "Zest (local)" in the dashboard to compress with AI for free.')
+  } else if (toCompress.length > 0) {
+    const defaultFn: CompressFn = (t) => compressWithHaiku(t, apiKey)
+    const fn = getEffectiveCompressFn(defaultFn, config)
+    freshlyCompressed = await runCompression(toCompress, fn, config)
+  }
   const aiMs = Date.now() - aiT0
 
   let totalOriginal = 0

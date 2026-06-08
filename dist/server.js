@@ -7,7 +7,7 @@ import { config, applyMode, runtimeOverrides, anthropicNativeCompactEnabled, eff
 import { Stats } from './stats.js';
 import { DASHBOARD_HTML, LOGO_SVG } from './dashboard.js';
 import { getCache, emptySavings, aiUsageCounters, aiUsageByModel, localAiUsageCounters } from './compressor.js';
-import { compressAnthropicMessages, compressOpenAIMessages, compressGeminiContents, } from './compressor.js';
+import { compressAnthropicMessages, compressOpenAIMessages, compressGeminiContents, isOAuthSubscriptionKey, } from './compressor.js';
 import { isBypassed, setBypassed, toggleBypassed } from './bypass.js';
 import { isAiCompressionEnabled, setAiCompression, toggleAiCompression } from './aiToggle.js';
 import { circuitBreaker } from './circuitBreaker.js';
@@ -25,6 +25,22 @@ import { recentLogLines } from './logFeed.js';
 import { VERSION } from './version.js';
 import { recordRequest, getHistorySessions, getCurrentSession, getProjectAggregates, getAllSessionsForHistory, setSessionExtrasProvider, } from './history.js';
 import { updateAnthropicFromHeaders, updateOpenAIFromHeaders, updateGeminiFrom429, addAnthropicUsage, addOpenAIUsage, addGeminiUsage, makeSseUsageParser, maybeRefreshOpenAIBilling, maybeRefreshOpenAISessionLimits, storeKey, storedKey, limitsSnapshot, } from './limits.js';
+// ── System-prompt compression backend selector ──────────────────────────────────
+// Maps the configured compression backend to the model used for system-prompt
+// compression. Returns null when the only option would be a billed Haiku call on
+// an OAuth subscription token (which burns the 5h plan) — the caller then applies
+// deterministic-only compression instead of skipping the prompt untouched.
+function systemPromptBackend(apiKey) {
+    const b = effectiveBackend();
+    if (b === 'local')
+        return 'ollama'; // Zest, no API call
+    if (b === 'gpt-mini')
+        return 'gpt-mini';
+    if (b === 'gemini-flash')
+        return 'gemini-flash';
+    // 'auto' or 'haiku' → Haiku, but only with a billed API key, never on OAuth.
+    return isOAuthSubscriptionKey(apiKey) ? null : 'haiku';
+}
 // ── Project name extraction ────────────────────────────────────────────────────
 // Manual project override — set via /squeezr/project endpoint or MCP tool
 let manualProject = null;
@@ -361,13 +377,17 @@ app.post('/v1/messages', async (c) => {
             console.log(`[squeezr/tool-desc] ${td.compressedTools}/${td.totalTools} tool(s): -${td.savedChars.toLocaleString()} chars (~${tokens} tokens)`);
         }
     }
-    // System prompt compression (handles both string and array formats — Claude Code sends array)
-    if (config.compressSystemPrompt && !config.dryRun) {
+    // System prompt compression (handles both string and array formats — Claude Code sends array).
+    // The AI backend FOLLOWS the configured compression backend — it no longer hardcodes Haiku.
+    // 'local' → 'ollama' (deterministic-only, no API call); 'auto'/'haiku' → 'haiku' ONLY with a
+    // billed API key, never on an OAuth subscription token (that would burn the 5h plan).
+    const spBackend = systemPromptBackend(apiKey);
+    if (config.compressSystemPrompt && !config.dryRun && spBackend) {
         if (typeof body.system === 'string') {
             const dd = dedupSkillBlocks(body.system);
             skillDedupSaved += dd.savedChars;
             body.system = dd.text;
-            const sp = await compressSystemPrompt(body.system, apiKey, 'haiku');
+            const sp = await compressSystemPrompt(body.system, apiKey, spBackend);
             syspromptSaved += sp.originalLen - sp.compressedLen;
             body.system = sp.text;
         }
@@ -377,9 +397,27 @@ app.post('/v1/messages', async (c) => {
                     const dd = dedupSkillBlocks(block.text);
                     skillDedupSaved += dd.savedChars;
                     block.text = dd.text;
-                    const sp = await compressSystemPrompt(block.text, apiKey, 'haiku');
+                    const sp = await compressSystemPrompt(block.text, apiKey, spBackend);
                     syspromptSaved += sp.originalLen - sp.compressedLen;
                     block.text = sp.text;
+                }
+            }
+        }
+    }
+    else if (config.compressSystemPrompt && !config.dryRun && !spBackend) {
+        // Backend would have hit Haiku on an OAuth token — still apply the free
+        // deterministic skill-block dedup, just skip the billed AI pass.
+        if (typeof body.system === 'string') {
+            const dd = dedupSkillBlocks(body.system);
+            skillDedupSaved += dd.savedChars;
+            body.system = dd.text;
+        }
+        else if (Array.isArray(body.system)) {
+            for (const block of body.system) {
+                if (block.type === 'text' && typeof block.text === 'string') {
+                    const dd = dedupSkillBlocks(block.text);
+                    skillDedupSaved += dd.savedChars;
+                    block.text = dd.text;
                 }
             }
         }
@@ -1119,6 +1157,30 @@ ${text}`;
         return c.json({ error: String(e?.message ?? e), status }, status);
     }
 });
+// Write `backend = "..."` into the [compression] table of ~/.squeezr/squeezr.toml,
+// preserving the rest of the file. Inserts the [compression] table if missing.
+function persistBackendToToml(backend) {
+    try {
+        const tomlPath = USER_CONFIG_PATH;
+        mkdirSync(USER_CONFIG_DIR, { recursive: true });
+        let content = existsSync(tomlPath) ? readFileSync(tomlPath, 'utf-8') : '[compression]\n';
+        if (!/\[compression\]/.test(content))
+            content = '[compression]\n' + content;
+        const re = /^(\s*backend\s*=\s*)["'][^"']*["']/m;
+        if (re.test(content)) {
+            content = content.replace(re, `$1"${backend}"`);
+        }
+        else {
+            // Insert right after the [compression] header line.
+            content = content.replace(/(\[compression\][^\n]*\n)/, `$1backend = "${backend}"\n`);
+        }
+        writeFileSync(tomlPath, content, 'utf-8');
+        console.log(`[squeezr] backend persisted to squeezr.toml: ${backend}`);
+    }
+    catch (e) {
+        console.log(`[squeezr] failed to persist backend to toml: ${e.message}`);
+    }
+}
 // Get/set compression backend (which AI model compresses tool results)
 app.get('/squeezr/backend', (c) => {
     return c.json({ backend: effectiveBackend() });
@@ -1129,6 +1191,10 @@ app.post('/squeezr/backend', async (c) => {
         const valid = ['auto', 'local', 'haiku', 'gpt-mini', 'gemini-flash'];
         if (body.backend && valid.includes(body.backend)) {
             runtimeOverrides.compressionBackend = body.backend;
+            // Persist to ~/.squeezr/squeezr.toml so the choice survives restarts — the
+            // previous in-memory-only override silently reverted to `auto` (= Haiku on
+            // OAuth) on every restart, which burned the user's 5h plan.
+            persistBackendToToml(body.backend);
         }
     }
     catch { /* ignore */ }

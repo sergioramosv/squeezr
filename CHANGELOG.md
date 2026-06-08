@@ -1,5 +1,18 @@
 # Changelog
 All notable changes to Squeezr will be documented here.
+## [1.70.0] - 2026-06-05
+### Fixed (CRITICAL — quota burn)
+- **AI compression ya NO factura Haiku contra tu plan de 5h.** Causa raíz: con `ai_compression=true` y sin `backend` explícito, `backend` quedaba en `"auto"`, que para tráfico de Claude Code resuelve a **Haiku vía la API de Anthropic**. Con un token OAuth de suscripción cada llamada se factura contra la cuota del plan de 5h → se agotaba en minutos. Elegir `compression_model="zest"` NO cambiaba el backend (seguía en `auto`).
+- **Segundo leak: `compress_system_prompt` estaba hardcodeado a Haiku** (server.ts), e ignoraba `backend`. Como se auto-activa con `ai_compression=true`, mandaba el system prompt de Claude Code a Haiku en cada request.
+- **Salvaguarda nueva:** `isOAuthSubscriptionKey()` detecta tokens `sk-ant-oat…`/bearer no-`sk-`. Si el backend resuelto sería Haiku (`auto`/`haiku`) sobre un token OAuth, Squeezr **bloquea la llamada AI** (los tool results se quedan con compresión determinista, que es gratis) y lo loguea. Aplica tanto a tool results como a system prompt.
+### Added
+- **Dos modos de AI compression seleccionables en el dashboard (Settings → Compression backend):**
+  - **⚡ Zest (local · free):** comprime con el modelo local vía Ollama. Gratis, sin red, no consume cuota. El system-prompt usa compresión determinista (sin llamada API).
+  - **Haiku (API · billed):** comprime con la API de Anthropic. Solo seguro con una API key facturada aparte; sobre un token OAuth queda bloqueado por la salvaguarda.
+  - Aviso visual ⚠️ cuando el backend activo puede ir a Haiku.
+- **La selección de backend se PERSISTE en `squeezr.toml`** (`persistBackendToToml`). Antes `POST /squeezr/backend` solo cambiaba un override en memoria que se reseteaba a `auto` en cada reinicio (otra causa del consumo silencioso).
+### Changed
+- `compressSystemPrompt` ahora se invoca con el backend efectivo (`local→ollama`, `auto/haiku→haiku` solo con API key facturada), en vez de `'haiku'` fijo.
 ## [1.69.2] - 2026-06-05
 ### Fixed
 - **Live Log: scroll tipo terminal-tail fiable.** Se sustituyó el truco `justify-content:flex-end` (que en algunos navegadores recortaba por el lado equivocado y parecía invertido) por scroll programático: tras cada render se hace `el.scrollTop = el.scrollHeight`. Resultado: el log nuevo nace abajo, sube y se pierde por el borde superior, y la última línea queda siempre visible al fondo.

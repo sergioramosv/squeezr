@@ -733,15 +733,18 @@ code{font-family:'Cascadia Code','SF Mono',Consolas,monospace;font-size:.9em}
           <div style="display:flex;justify-content:space-between;width:100%;align-items:center;flex-wrap:wrap;gap:6px">
             <span class="s-key">Compression backend</span>
             <div style="display:flex;gap:4px;flex-wrap:wrap">
+              <button class="mode-btn" data-backend="local"        onclick="setBackend('local')">⚡ Zest (local · free)</button>
+              <button class="mode-btn" data-backend="haiku"        onclick="setBackend('haiku')">Haiku (API · billed)</button>
               <button class="mode-btn" data-backend="auto"         onclick="setBackend('auto')">Auto</button>
-              <button class="mode-btn" data-backend="local"        onclick="setBackend('local')">Zest (zest-0.8b)</button>
-              <button class="mode-btn" data-backend="haiku"        onclick="setBackend('haiku')">Haiku</button>
               <button class="mode-btn" data-backend="gpt-mini"     onclick="setBackend('gpt-mini')">GPT-4o-mini</button>
               <button class="mode-btn" data-backend="gemini-flash" onclick="setBackend('gemini-flash')">Gemini Flash</button>
             </div>
           </div>
           <div style="font-size:12px;color:var(--text3);line-height:1.4">
-            Modelo que comprime los tool results y mensajes históricos. <strong style="color:var(--text2)">Auto</strong> usa el modelo de la API que recibe la request (Haiku para Claude, GPT-mini para OpenAI, Flash para Gemini). <strong style="color:var(--text2)">Zest (zest-0.8b)</strong> es el modelo local (gratis, sin red, requiere Ollama). El resto fuerza ese modelo para todas las requests.
+            Las dos formas de AI compression: <strong style="color:var(--brand2)">⚡ Zest</strong> comprime con el modelo local vía Ollama — gratis, sin red, no consume tu cuota. <strong style="color:var(--text2)">Haiku</strong> comprime con la API de Anthropic. El resto fuerza ese modelo. La elección se guarda en <code>squeezr.toml</code> y sobrevive reinicios.
+          </div>
+          <div id="backend-warn" style="display:none;font-size:12px;line-height:1.4;color:#fbbf24;background:rgba(251,191,36,.08);border:1px solid rgba(251,191,36,.3);border-radius:8px;padding:8px 10px">
+            ⚠️ <strong>Haiku con suscripción Claude Code (token OAuth):</strong> cada llamada de compresión se factura contra tu cuota del plan de 5h — te lo come en minutos. Squeezr la <strong>bloquea automáticamente</strong> en este caso. Usa <strong>⚡ Zest (local)</strong> para AI compression gratis, o una API key facturada aparte.
           </div>
         </div>
         <div class="settings-row" style="flex-direction:column;align-items:flex-start;gap:8px">
@@ -1452,6 +1455,10 @@ function updateBackendButtons(active) {
     var isActive = b.getAttribute('data-backend') === active;
     b.className = 'mode-btn' + (isActive ? ' active' : '');
   }
+  // Warn whenever the active backend can route to Haiku (auto/haiku). On an OAuth
+  // subscription token Squeezr blocks it, but the user should understand why.
+  var warn = document.getElementById('backend-warn');
+  if (warn) warn.style.display = (active === 'haiku' || active === 'auto') ? 'block' : 'none';
 }
 
 function toggleNativeCompact() {
