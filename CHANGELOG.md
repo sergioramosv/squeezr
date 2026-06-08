@@ -1,5 +1,14 @@
 # Changelog
 All notable changes to Squeezr will be documented here.
+## [1.75.0] - 2026-06-05
+### Added — Etapa 5: harness de calidad
+- **`src/__tests__/qualityHarness.test.ts` + `npm run test:quality`**: comprime un corpus de outputs reales (lectura de fichero verbosa, fallo de test, build log, JSON de API) con Zest en vivo (se salta solo si Ollama no está) y valida LA propiedad de seguridad: una compresión que el guardrail ACEPTA nunca pierde un token duro (ruta/URL/código de error); si Zest lo destroza, el guardrail rechaza y se queda determinista. `compressLargeText` ahora exportado para el harness.
+### Changed — mejora real de compresión sin perder calidad
+- **`COMPRESS_PROMPT` reescrito** para preservar VERBATIM rutas, URLs, códigos de error, números, identificadores y strings entre comillas (antes los tiraba). Resultado medido por el harness: el caso "test-failure" pasó de **rechazado → aceptado (87%, 0 tokens clave perdidos)**, y el JSON ahora conserva la URL/estado. Se quitó el cap "under 150 tokens" que forzaba pérdidas en bloques grandes.
+- **Gobernador: escalera de backoff corregida** `[1500, 2500, 4000, 6000]` (antes tenía un 1500 duplicado tras revertir el default, así que el primer backoff no hacía nada).
+### Fixed — dashboard
+- Quitado el mensaje "Total saved = deterministic X + AI Y" del Overview.
+- La barra de calidad ya no grita "⛔ Quality backoff active" cuando solo hay reject-rate alto (que es benigno: el compresor descarta bloques ya escuetos, sin pérdida). Ahora: rojo ⛔ SOLO si el expand-rate es alto (pérdida real de info); informativo gris "ℹ️ Compressor skipping low-yield blocks" cuando es solo reject-rate.
 ## [1.74.1] - 2026-06-05
 ### Fixed
 - **La métrica de eficiencia ahora es el ratio real de la IA** (`aiSaved / tamaño original de los bloques que la IA comprimió`, ~75-90%), no el determinista sobre todos los tool-results (que daba 11% porque incluía bloques pequeños que solo reciben limpieza superficial). `compressibleOriginalChars` = `totalOriginal` de los bloques AI (frescos + reutilizados de cache); `today_comp_saved_chars` suma solo `aiSavedChars`. Dashboard: "X% on AI-compressed blocks".

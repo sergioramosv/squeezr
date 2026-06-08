@@ -46,11 +46,16 @@ export interface Savings {
 }
 
 const COMPRESS_PROMPT =
-  'You are compressing a coding tool output to save tokens. ' +
-  'Extract ONLY what is essential: errors, file paths, function names, ' +
-  'test failures, key values, warnings. ' +
-  'Be extremely concise, target under 150 tokens. ' +
-  'Output only the compressed content, nothing else.'
+  'You compress a coding tool output to save tokens WHILE preserving every fact ' +
+  'needed to act on it. Rules:\n' +
+  '1. Keep VERBATIM and complete (never paraphrase, abbreviate, or omit): file paths, ' +
+  'URLs, error/exception names and codes, line numbers, identifiers (function/class/' +
+  'variable names), numeric values, and quoted strings.\n' +
+  '2. Remove only redundancy: repeated/duplicate lines, boilerplate, filler prose, ' +
+  'decorative formatting, and obvious padding.\n' +
+  '3. Keep one item per line; preserve the original order.\n' +
+  'If almost everything is essential (e.g. many distinct paths), return it nearly ' +
+  'unchanged rather than dropping items. Output ONLY the compressed text.'
 
 // ── Sizing helpers (shared by every compression backend) ──────────────────────
 const CHARS_PER_TOK = 3.5
@@ -291,7 +296,7 @@ export function splitOnLines(text: string, maxChars: number): string[] {
 //  - block <= SAFE_INPUT  → one call over the whole block
 //  - block  > SAFE_INPUT  → split on line boundaries (<= MAX_CHUNKS) and join
 //  - too big to chunk safely → return the original (deterministic stays applied)
-async function compressLargeText(text: string, baseUrl: string, model: string): Promise<string> {
+export async function compressLargeText(text: string, baseUrl: string, model: string): Promise<string> {
   if (text.length <= OLLAMA_SAFE_INPUT) {
     return ollamaCompressChunk(text, baseUrl, model)
   }

@@ -11,8 +11,9 @@
  */
 import { runtimeOverrides, DEFAULT_AI_MIN_CHARS } from './config.js'
 
-// Backoff ladder for aiMinChars (chars). Index 0 = most aggressive (default).
-const LADDER = [DEFAULT_AI_MIN_CHARS, 1500, 2500, 4000]
+// Backoff ladder for aiMinChars (chars). Index 0 = most aggressive (the default);
+// each rung is strictly higher so backing off actually reduces AI attempts.
+const LADDER = [DEFAULT_AI_MIN_CHARS, 2500, 4000, 6000]
 let level = 0
 
 // Health thresholds on the expand rate (% of compressions that got expanded).

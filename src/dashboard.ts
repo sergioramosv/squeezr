@@ -416,8 +416,6 @@ code{font-family:'Cascadia Code','SF Mono',Consolas,monospace;font-size:.9em}
         </div>
       </div>
 
-      <!-- Today savings split: proves Total = deterministic + AI (+ dedup/etc) -->
-      <div id="today-split" style="font-size:12px;color:var(--text3);margin:-4px 0 14px 2px"></div>
       <!-- Compression quality (expand-rate health + auto-backoff) -->
       <div id="quality-bar" style="display:none;align-items:center;gap:10px;margin-bottom:16px;padding:10px 14px;border-radius:10px;font-size:12.5px"></div>
 
@@ -977,33 +975,31 @@ function render(d) {
   document.getElementById('h-comp').textContent  = fmt(tComps);
 var perEl = document.getElementById('overview-period');
   if (perEl && today.date) perEl.textContent = 'today · ' + today.date;
-  // Show the total = deterministic + AI split so it's clear BOTH are counted.
-  var splitEl = document.getElementById('today-split');
-  if (splitEl) {
-    var aiPart = today.ai_saved_tokens || 0;
-    var detPart = Math.max(0, tSaved - aiPart);
-    splitEl.innerHTML = 'Total saved = <strong style="color:var(--text2)">deterministic ' + fmt(detPart) + '</strong> + <strong style="color:var(--brand2)">AI ' + fmt(aiPart) + '</strong> tokens · today (all-time AI is larger; this is just today)';
-  }
-  // Compression quality bar (expand-rate health + guardrail rejects + auto-backoff)
+  // Quality bar. Two distinct situations, only one is an actual concern:
+  //  • high EXPAND rate = the model needed originals back → real info loss → red.
+  //  • high guardrail REJECT rate = compressor declined terse blocks (kept them
+  //    deterministic) → NO quality loss, just nothing worth AI-compressing → info only.
   var qb = document.getElementById('quality-bar');
   if (qb && d.quality) {
-    var h = d.quality.health;
     var rate = d.quality.expand_rate_pct != null ? d.quality.expand_rate_pct : 0;
     var rej = (d.guard && d.guard.reject_rate_pct != null) ? d.guard.reject_rate_pct : 0;
-    var colors = { green:'#10b981', amber:'#fbbf24', red:'#e5484d', unknown:'var(--text3)' };
-    var labels = {
-      green:'✓ Quality healthy', amber:'⚠ Quality watch', red:'⛔ Quality backoff active', unknown:'Quality: gathering data'
-    };
-    var c = colors[h] || colors.unknown;
-    if (h === 'green' || h === 'unknown') {
-      qb.style.display = 'none';   // only surface when there's something to see
-    } else {
+    var rejSamples = (d.guard ? (d.guard.accepted||0) + (d.guard.rejected||0) : 0);
+    if (rate >= 8) {
+      // Real quality concern: information was lost and recovered via expand.
       qb.style.display = 'flex';
-      qb.style.color = c;
-      qb.style.background = 'color-mix(in srgb, ' + c + ' 10%, transparent)';
-      qb.style.border = '1px solid color-mix(in srgb, ' + c + ' 35%, transparent)';
-      qb.innerHTML = '<strong>' + labels[h] + '</strong>' +
-        '<span style="color:var(--text3)">expand rate ' + rate + '% · guardrail rejects ' + rej + '% · AI min ' + fmt(d.quality.ai_min_chars||0) + ' chars</span>';
+      qb.style.color = '#e5484d';
+      qb.style.background = 'color-mix(in srgb, #e5484d 10%, transparent)';
+      qb.style.border = '1px solid color-mix(in srgb, #e5484d 35%, transparent)';
+      qb.innerHTML = '<strong>⛔ High expand rate</strong><span style="color:var(--text3)">' + rate + '% of compressed blocks were re-expanded → backing off (AI min ' + fmt(d.quality.ai_min_chars||0) + ')</span>';
+    } else if (rej >= 60 && rejSamples >= 8) {
+      // Benign: compressor is skipping low-yield (terse) blocks. No quality loss.
+      qb.style.display = 'flex';
+      qb.style.color = 'var(--text3)';
+      qb.style.background = 'var(--surface2)';
+      qb.style.border = '1px solid var(--border2)';
+      qb.innerHTML = 'ℹ️ <span style="color:var(--text2)">Compressor skipping low-yield blocks</span> <span style="color:var(--text3)">(' + rej + '% declined — this content is already terse; no quality loss, kept deterministic)</span>';
+    } else {
+      qb.style.display = 'none';
     }
   }
   // Per-request metric (stable, doesn't dilute): avg tokens saved per request + last request %
