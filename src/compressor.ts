@@ -375,12 +375,23 @@ function getEffectiveCompressFn(defaultFn: CompressFn, config: Config): Compress
   return defaultFn
 }
 
+// Local (Zest/Ollama) backends are FREE and run on the user's machine: a cold
+// model load + a long generation easily exceeds the 5s cloud timeout, and the
+// 20/5min rate limit (built to cap Haiku COST) only starves free local compression.
+// So for local we use a generous timeout and skip the rate limit entirely.
+// 15s balances "don't time out on a cold model load + generation" (the 5s cloud
+// default tripped the circuit breaker → AI compression died) against added request
+// latency (compression is inline). Measured Zest: ~0.9s hot, ~3.3s cold. Configurable.
+const LOCAL_CALL_TIMEOUT_MS = Number(process.env.SQUEEZR_LOCAL_TIMEOUT_MS) || 15_000
+
 async function runCompression(
   items: Array<{ index: number; subIndex?: number; text: string; tool: string }>,
   compressFn: CompressFn,
   config: Config,
+  isLocal = false,
 ): Promise<Array<{ index: number; subIndex?: number; original: string; result: string; tool: string }>> {
   const cache = getCache(config)
+  const callTimeout = isLocal ? LOCAL_CALL_TIMEOUT_MS : undefined
   let rateLimited = 0
   const results = await Promise.allSettled(
     items.map(async (item) => {
@@ -389,10 +400,10 @@ async function runCompression(
         const cached = cache.get(preprocessed)
         if (cached) return { ...item, original: item.text, result: cached }
       }
-      // Hard rate limit: a cache miss means a real API call — gate it. When the
-      // window is exhausted, leave the block uncompressed (deterministic already ran).
-      if (!tryConsumeAiCall()) { rateLimited++; throw new Error('ai-rate-limited') }
-      let compressed = await circuitBreaker.call(() => compressFn(preprocessed))
+      // Hard rate limit: a cache miss means a real API call — gate it (CLOUD ONLY;
+      // the limit exists to cap Haiku spend). Local Zest is free → never throttled.
+      if (!isLocal && !tryConsumeAiCall()) { rateLimited++; throw new Error('ai-rate-limited') }
+      let compressed = await circuitBreaker.call(() => compressFn(preprocessed), callTimeout)
       // QUALITY GUARDRAIL: reject results that don't save enough or that dropped a
       // critical token (path/URL/error code) or too many key tokens. A rejected
       // block is left in its deterministic-only form (never cached, never used).
@@ -401,10 +412,10 @@ async function runCompression(
       // critical tokens, give the model a second shot telling it EXACTLY which
       // tokens it must keep verbatim. Turns many rejects into accepts → more real
       // savings. Only one retry (bounded cost), and only for the dropped-token case.
-      if (!guard.accept && guard.lostHard && guard.lostHard.length > 0 && tryConsumeAiCall()) {
+      if (!guard.accept && guard.lostHard && guard.lostHard.length > 0 && (isLocal || tryConsumeAiCall())) {
         const must = guard.lostHard.slice(0, 25).join(', ')
         const correction = `CRITICAL: your previous output OMITTED these tokens, which MUST appear verbatim in the result: ${must}. Redo the compression of the SAME input keeping every one of them, plus all other paths/URLs/error codes/identifiers.`
-        const retry = await circuitBreaker.call(() => compressFn(preprocessed, correction))
+        const retry = await circuitBreaker.call(() => compressFn(preprocessed, correction), callTimeout)
         const retryGuard = validateCompression(item.text, retry)
         if (retryGuard.accept) { compressed = retry; guard = retryGuard; compressionGuardCounters.retriedOk++ }
       }
@@ -1013,10 +1024,10 @@ const candidates = allResults.slice(0, Math.max(0, allResults.length - effective
   } else {
     const defaultFn: CompressFn = (t, extra) => compressWithHaiku(t, apiKey, extra)
     const fn = getEffectiveCompressFn(defaultFn, config)
-    if (toCompress.length > 0) freshlyCompressed = await runCompression(toCompress, fn, config)
+    if (toCompress.length > 0) freshlyCompressed = await runCompression(toCompress, fn, config, resolvedBackend === 'local')
     // Fase B2: AI-compress long old assistant turns (same guard + retry pipeline).
     if (asstAiCandidates.length > 0 && isAiCompressionEnabled() && aiEnabled()) {
-      asstAiCompressed = await runCompression(asstAiCandidates, fn, config)
+      asstAiCompressed = await runCompression(asstAiCandidates, fn, config, resolvedBackend === 'local')
     }
   }
   const aiMs = Date.now() - aiT0
@@ -1280,7 +1291,7 @@ export async function compressOpenAIMessages(
 
   const oaiAiT0 = Date.now()
   const freshlyCompressed = toCompress.length > 0
-    ? await runCompression(toCompress, compressFn, config)
+    ? await runCompression(toCompress, compressFn, config, effectiveBackend() === 'local')
     : []
   const oaiAiMs = Date.now() - oaiAiT0
 
@@ -1457,7 +1468,7 @@ export async function compressGeminiContents(
   const gemDefaultFn: CompressFn = (t) => compressWithGeminiFlash(t, apiKey)
   const gemFn = getEffectiveCompressFn(gemDefaultFn, config)
   const freshlyCompressed = toCompress.length > 0
-    ? await runCompression(toCompress, gemFn, config)
+    ? await runCompression(toCompress, gemFn, config, effectiveBackend() === 'local')
     : []
   const gemAiMs = Date.now() - gemAiT0
 

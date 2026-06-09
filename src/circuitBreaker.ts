@@ -88,17 +88,20 @@ export class CircuitBreaker {
     }
   }
 
-  /** Wraps an async AI call with timeout and circuit logic. */
-  async call<T>(fn: () => Promise<T>): Promise<T> {
+  /** Wraps an async AI call with timeout and circuit logic. `timeoutMs` overrides
+   *  the default per-call timeout — local backends (Zest/Ollama) need far more than
+   *  the cloud default because a cold model load + long generation easily exceeds 5s. */
+  async call<T>(fn: () => Promise<T>, timeoutMs?: number): Promise<T> {
     if (!this.shouldAllow()) {
       throw new Error('Circuit breaker is open — AI compression skipped')
     }
 
+    const limit = timeoutMs ?? this.config.callTimeoutMs
     try {
       const result = await Promise.race([
         fn(),
         new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error('AI compression timeout')), this.config.callTimeoutMs)
+          setTimeout(() => reject(new Error('AI compression timeout')), limit)
         ),
       ])
       this.recordSuccess()

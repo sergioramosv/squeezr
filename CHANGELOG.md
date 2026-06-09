@@ -1,5 +1,13 @@
 # Changelog
 All notable changes to Squeezr will be documented here.
+## [1.80.5] - 2026-06-09
+### Fixed — la IA volvía a ahorrar 0: timeout y rate-limit pensados para Haiku ahogaban a Zest
+- **Causa raíz** (diagnóstico con datos en vivo): muchas `calls` de Zest pero `0 saved`. El log mostraba `Circuit breaker → OPEN (AI compression timeout)` y `AI rate limit hit (max 20/5min)`. Dos límites diseñados para CLOUD/Haiku estaban matando la compresión local gratuita:
+  1. **Timeout de 5s** por llamada: Zest (local, 0.8B) con carga en frío (~3.3s medido) + generación larga supera los 5s → timeout → 3 fallos → circuito abierto 60s → IA saltada por completo.
+  2. **Rate limit 20 llamadas/5min**: creado para capar el GASTO de Haiku (incidente de 215 llamadas). Zest es gratis y local → ese límite solo starvaba la compresión.
+- **Arreglo**: timeout y rate-limit ahora son backend-aware. Local (Zest/Ollama) → timeout 15s (configurable con `SQUEEZR_LOCAL_TIMEOUT_MS`) y SIN rate limit. Cloud (Haiku/GPT/Gemini) mantiene 5s + 20/5min para proteger el gasto. `circuitBreaker.call()` acepta timeout por llamada.
+### Notes
+- Tras 1.80.1 (structuredGuard) y 1.80.2 (probe), la IA legítimamente comprime menos (datos estructurados y densos se protegen/saltan). Parte del "9M de ayer" incluía compresiones de datos estructurados que corrompían campos (el bug del `date: ''`). Lo que queda para la IA —prosa/logs redundantes— ahora vuelve a comprimirse al quitar el timeout/rate-limit que lo bloqueaban.
 ## [1.80.4] - 2026-06-09
 ### Fixed — los dos % de Ratio ya no salen idénticos + Prompt Cache persistente
 - **Ratio (los dos números iguales)**: el número de la izquierda ("sin contar cache") medía el ahorro sobre la cola post-barrier, que en Claude Code son los mensajes recientes que NO comprimimos (keepRecent) → ahorro ~0 → hacía fallback al número de la derecha → ambos mostraban lo mismo (28%/28%) sin cambiar nunca. La métrica "non-cached" no funciona con el patrón de caché de Claude Code.
