@@ -1,6 +1,7 @@
 import { spawn } from 'node:child_process'
-import { existsSync } from 'node:fs'
+import { existsSync, readFileSync, writeFileSync, mkdirSync, renameSync } from 'node:fs'
 import { join } from 'node:path'
+import { homedir } from 'node:os'
 
 /**
  * Squeezr Limits — real-time rate limit tracking per AI CLI
@@ -128,6 +129,40 @@ export const anthropicUnified: UnifiedRateLimitState = {
 export const anthropicUsage = emptyUsage()
 export const openaiUsage    = emptyUsage()
 export const geminiUsage    = emptyUsage()
+
+// ── Anthropic usage persistence ─────────────────────────────────────────────
+// The Prompt Cache card (cache read/creation) + session token totals were
+// in-memory only and reset to 0 on every restart. Persist them atomically so
+// the card survives restarts (today_* fields still roll over by date below).
+// Persist ONLY the prompt-cache counters (cumulative, cross-restart). The other
+// session totals (input/output/requests) stay session-scoped on purpose — they're
+// labelled "session" elsewhere in the dashboard.
+const ANTHROPIC_USAGE_FILE = join(homedir(), '.squeezr', 'anthropic-usage.json')
+let lastAnthropicPersist = 0
+export function persistAnthropicUsage(force = false): void {
+  const now = Date.now()
+  if (!force && now - lastAnthropicPersist < 3000) return  // throttle disk writes
+  lastAnthropicPersist = now
+  try {
+    const dir = join(homedir(), '.squeezr')
+    if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
+    const tmp = ANTHROPIC_USAGE_FILE + '.tmp'
+    writeFileSync(tmp, JSON.stringify({
+      cacheCreationSession: anthropicUsage.cacheCreationSession ?? 0,
+      cacheReadSession: anthropicUsage.cacheReadSession ?? 0,
+    }))
+    renameSync(tmp, ANTHROPIC_USAGE_FILE)
+  } catch { /* best-effort; never break the proxy on a persistence error */ }
+}
+function loadAnthropicUsage(): void {
+  try {
+    if (!existsSync(ANTHROPIC_USAGE_FILE)) return
+    const d = JSON.parse(readFileSync(ANTHROPIC_USAGE_FILE, 'utf-8')) as Partial<UsageState>
+    anthropicUsage.cacheCreationSession = d.cacheCreationSession ?? 0
+    anthropicUsage.cacheReadSession = d.cacheReadSession ?? 0
+  } catch { /* corrupted file → start fresh */ }
+}
+loadAnthropicUsage()
 
 export const geminiErrors: GeminiErrorState = { errorCount429: 0, lastErrorEpoch: 0, hasData: false }
 
@@ -302,6 +337,7 @@ export function addAnthropicUsage(input: number, output: number, cacheCreation =
   // Only count as new request when input tokens arrive (message_start),
   // not on output (message_delta) — avoids double-counting in streaming.
   if (input > 0) anthropicUsage.requestsSession++
+  persistAnthropicUsage()  // throttled atomic write so the card survives restart
 }
 
 export function addOpenAIUsage(input: number, output: number): void {

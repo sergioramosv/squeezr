@@ -1,5 +1,12 @@
 # Changelog
 All notable changes to Squeezr will be documented here.
+## [1.80.4] - 2026-06-09
+### Fixed — los dos % de Ratio ya no salen idénticos + Prompt Cache persistente
+- **Ratio (los dos números iguales)**: el número de la izquierda ("sin contar cache") medía el ahorro sobre la cola post-barrier, que en Claude Code son los mensajes recientes que NO comprimimos (keepRecent) → ahorro ~0 → hacía fallback al número de la derecha → ambos mostraban lo mismo (28%/28%) sin cambiar nunca. La métrica "non-cached" no funciona con el patrón de caché de Claude Code.
+  - Ahora: izquierda = **% real del total enviado hoy** (acumulado del día, estable); derecha = **% de la ÚLTIMA request** (cambia en cada turno según el contenido). Dos cifras honestas y distintas. Eliminado el fallback engañoso.
+- **Prompt Cache (Anthropic) persistente**: los contadores Cache Read / Cache Creation / Hit Health eran solo en memoria y se reseteaban en cada reinicio. Ahora se persisten en `~/.squeezr/anthropic-usage.json` (escritura atómica throttled) y se recargan al arrancar. Etiqueta "this session" → "persisted". Solo se persisten los contadores de cache; los totales input/output/requests siguen siendo por-sesión a propósito.
+### Notes
+- El valor actual de cache (p.ej. 3.3M) del proceso anterior se pierde en ESTE reinicio (el proceso viejo no tenía persistencia). A partir de la primera request con esta versión, ya sobrevive a reinicios.
 ## [1.80.3] - 2026-06-09
 ### Fixed — Overview ahora es 100% "today" (no mezcla all-time)
 - **"Savings by type"** mostraba el desglose all-time (68.6M det, 42.5M tool desc… net 131.8M / gross 149.1M) mientras el resto del Overview era de hoy. Ahora usa contadores `today_*` por técnica (deterministic, AI, dedup, tool-desc, mcp-filter, stale-turns, skill-dedup, system-prompt), reseteados a medianoche. Etiqueta cambiada de "all time · persisted" → "today".

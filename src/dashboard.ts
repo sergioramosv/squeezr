@@ -404,11 +404,11 @@ code{font-family:'Cascadia Code','SF Mono',Consolas,monospace;font-size:.9em}
           <div style="display:flex;align-items:flex-end;gap:18px">
             <div>
 <div class="hc-val" id="h-ratio">—</div>
-              <div style="font-size:11px;color:var(--text3)" title="% comprimido sobre el contenido a precio completo, excluyendo el prefijo cacheado (que ya es 10x más barato)">sin contar cache</div>
+              <div style="font-size:11px;color:var(--text3)" title="% medio comprimido sobre todo lo enviado hoy (acumulado del día) — cifra estable">del total (hoy)</div>
             </div>
             <div>
               <div class="hc-val" id="h-engine" style="color:var(--text3)">—</div>
-              <div style="font-size:11px;color:var(--text3)" title="% sobre TODO el request, incluyendo el prefijo cacheado (que ya es barato) — por eso sale más bajo">del total (con cache)</div>
+              <div style="font-size:11px;color:var(--text3)" title="% comprimido en la ÚLTIMA request — cambia en cada turno según el contenido">última request</div>
             </div>
           </div>
           <div class="hc-sub" style="margin-top:6px"><span id="h-perreq">—</span></div>
@@ -506,7 +506,7 @@ code{font-family:'Cascadia Code','SF Mono',Consolas,monospace;font-size:.9em}
 
       <!-- Prompt Cache health (Anthropic) — the metric that caught the 2026-06-04 over-billing -->
       <div class="section">
-        <div class="section-head"><span class="section-title">Prompt Cache (Anthropic)</span><span style="font-size:11px;color:var(--text3)">this session · read=cheap (0.1x) · creation=re-billed (1.25x)</span></div>
+        <div class="section-head"><span class="section-title">Prompt Cache (Anthropic)</span><span style="font-size:11px;color:var(--text3)">persisted · read=cheap (0.1x) · creation=re-billed (1.25x)</span></div>
         <div class="section-body">
           <div class="cache-row">
             <div class="cache-card"><div class="cache-label">Cache Read</div><div class="cache-val" id="pc-read" style="color:var(--brand2)">—</div></div>
@@ -975,11 +975,11 @@ function render(d) {
   var tCost  = tSaved > 0 ? tSaved * 0.000003 : null;
   document.getElementById('h-saved').textContent = fmt(tSaved);
   document.getElementById('h-in').textContent    = fmt(tIn);
-  // PRIMARY ratio = non-cached (full-price) compression — excludes the cheap cached
-  // prefix that we don't compress on purpose. Falls back to overall if no cache.
-  var ncPct = today.noncached_pct != null ? today.noncached_pct : null;
-  document.getElementById('h-ratio').textContent = (ncPct != null && ncPct > 0) ? Math.round(ncPct) + '%'
-    : (tRatio != null ? Math.round(tRatio) + '%' : '—');
+  // LEFT ratio = overall today wire reduction (saved/original, cumulative day).
+  // Stable by nature — it's a daily average. (The old "non-cached" metric measured
+  // the post-barrier tail, which in Claude Code is the recent UNcompressed messages
+  // → always ~0 → it silently fell back to this same number, so both read equal.)
+  document.getElementById('h-ratio').textContent = tRatio != null ? Math.round(tRatio) + '%' : '—';
   document.getElementById('h-cost').textContent  = fmtUsd(tCost);
   document.getElementById('h-reqs').textContent  = fmt(tReqs);
   document.getElementById('h-comp').textContent  = fmt(tComps);
@@ -1001,11 +1001,11 @@ var eff = (today.efficiency_pct != null) ? today.efficiency_pct : null;
 // Right number = overall % over the WHOLE request (dragged down by the cached
   // prefix). Shown next to the non-cached % so the difference is visible.
   void eff;
+  // RIGHT ratio = the LAST request's reduction — changes every turn (directly
+  // answers "why is it always the same?": this one moves with the actual content).
   var engEl = document.getElementById('h-engine');
-  if (engEl) engEl.textContent = tRatio != null ? Math.round(tRatio) + '%' : '—';
-  if (prEl) prEl.textContent = avgPerReq > 0
-    ? '~' + fmt(avgPerReq) + ' tok/req' + (lastPct != null ? ' · last ' + lastPct + '%' : '')
-    : '—';
+  if (engEl) engEl.textContent = lastPct != null ? lastPct + '%' : '—';
+  if (prEl) prEl.textContent = avgPerReq > 0 ? '~' + fmt(avgPerReq) + ' tok/req' : '—';
 
   // Latency (elements removed from Overview but kept for potential future use)
   var lp = function(id, v){ var e = document.getElementById(id); if(e) e.textContent = v != null ? v : '—'; };
