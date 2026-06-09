@@ -1,5 +1,11 @@
 # Changelog
 All notable changes to Squeezr will be documented here.
+## [1.80.1] - 2026-06-09
+### Fixed — la IA ya no corrompe datos estructurados
+- **Bug de fidelidad**: en bloques de datos estructurados (JSON, JSONL, volcados de registros tipo `clave: valor`, tablas) el compresor de IA podía **alterar valores de campos en silencio** — p.ej. vaciar un campo `date` a `''` mientras un contador calculado en el propio script seguía reportándolo como no-vacío. Resultado: vista de datos auto-contradictoria (el caso de las 178.895 notificaciones).
+- **Arreglo de raíz**: nuevo `structuredGuard` (`looksStructured()`) detecta salida estructurada y la **excluye de la compresión de IA**. Esos bloques mantienen su forma determinista (sin reescritura, recuperable con `squeezr_expand`). La prosa se sigue comprimiendo con IA con normalidad.
+- Heurísticas (cualquiera basta, sesgadas a NO corromper): JSON objeto/array parseable, JSONL (mayoría de líneas JSON), volcados con ≥6 líneas `clave: valor` (≥60%), y tablas con delimitador/columnas consistentes. Log `[squeezr/struct-guard]`.
+- Tests: `src/__tests__/structuredGuard.test.ts` (9 casos: JSON/JSONL/dumps/tablas detectados; prosa y "foo: bar" incidentales NO marcados).
 ## [1.80.0] - 2026-06-05
 ### Added — ratio "sin contar cache" (el % honesto que pediste)
 - **El % principal del card Ratio ahora se mide solo sobre el contenido NO cacheado** (la cola post-barrier, lo que se factura a precio completo), excluyendo el prefijo cacheado de Anthropic — que ya es 10x más barato y que NO comprimimos a propósito. Era injusto que ese prefijo arrastrara el %.

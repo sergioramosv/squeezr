@@ -14,6 +14,7 @@ import { circuitBreaker } from './circuitBreaker.js'
 import { tryConsumeAiCall, _config as _aiRateConfig } from './aiRateLimit.js'
 import { isAiCompressionEnabled } from './aiToggle.js'
 import { validateCompression } from './compressionGuard.js'
+import { looksStructured } from './structuredGuard.js'
 import { readFileSync, writeFileSync, existsSync, mkdirSync, renameSync } from 'node:fs'
 import { join } from 'node:path'
 import { homedir } from 'node:os'
@@ -929,9 +930,20 @@ const candidates = allResults.slice(0, Math.max(0, allResults.length - effective
   // temperature=0 → same input always produces same output → byte-stable →
   // cache-safe. Removing the barrier lets Zest compress tool results that
   // land before the cache marker, which is the common case in Claude Code.
-  const toProcess = candidates.filter(c =>
-    c.text.length >= aiThreshold &&
-    !dedupedSet.has(`${c.index}:${c.subIndex}`))
+  // Structured data (JSON/JSONL/record dumps/tables) is EXCLUDED from AI
+  // compression: the model can silently alter field values (e.g. blank a `date`
+  // to '') and corrupt the data view. These blocks keep their deterministic-only
+  // form (recoverable via squeezr_expand). Prose still gets AI-compressed.
+  let structuredSkipped = 0
+  const toProcess = candidates.filter(c => {
+    if (c.text.length < aiThreshold) return false
+    if (dedupedSet.has(`${c.index}:${c.subIndex}`)) return false
+    if (looksStructured(c.text)) { structuredSkipped++; return false }
+    return true
+  })
+  if (structuredSkipped > 0) {
+    console.log(`[squeezr/struct-guard] ${structuredSkipped} structured block(s) kept deterministic-only (AI skipped to avoid data corruption)`)
+  }
 
 // Only bail early if there's NOTHING for the AI stage — neither tool-result
   // blocks nor queued assistant turns (Fase B2). Otherwise fall through so the
