@@ -557,9 +557,9 @@ code{font-family:'Cascadia Code','SF Mono',Consolas,monospace;font-size:.9em}
         </div>
       </div>
 
-      <!-- Savings by compression type (all-time, persisted) -->
+      <!-- Savings by compression type (today, persisted) -->
       <div class="section">
-        <div class="section-head"><span class="section-title">Savings by type</span><span style="font-size:11px;color:var(--text3)">all time · persisted</span></div>
+        <div class="section-head"><span class="section-title">Savings by type</span><span style="font-size:11px;color:var(--text3)">today</span></div>
         <div class="section-body" id="breakdown-body">
           <div style="font-size:13px;color:var(--text3)">No data yet.</div>
         </div>
@@ -1077,7 +1077,12 @@ var eff = (today.efficiency_pct != null) ? today.efficiency_pct : null;
       }
     }
   }
-  var actualTokens = tokensIn - tokensSaved;
+  // Cost Comparison is OVERVIEW = TODAY: use today's tokens (not all-time), so the
+  // sub-lines match the today money. (modelCosts already comes from today's models.)
+  var cmpIn     = today.original_tokens || 0;
+  var cmpSaved  = today.saved_tokens || 0;
+  var cmpActual = cmpIn - cmpSaved;
+  var cmpRatio  = today.savings_pct != null ? today.savings_pct : null;
   var costSaved, costWithout, costWith, priceNote;
   if (modelCosts && modelCosts.totalCost > 0) {
     // Precise: model-weighted pricing
@@ -1088,25 +1093,26 @@ var eff = (today.efficiency_pct != null) ? today.efficiency_pct : null;
   } else {
     // Fallback: flat $3/1M
     var flat = 0.000003;
-    costSaved   = tokensSaved * flat;
-    costWithout = tokensIn * flat;
-    costWith    = actualTokens * flat;
+    costSaved   = cmpSaved * flat;
+    costWithout = cmpIn * flat;
+    costWith    = cmpActual * flat;
     priceNote   = 'est. $3/1M (no model data)';
   }
   var setTxt = function(id, v){ var e = document.getElementById(id); if(e) e.textContent = v; };
   setTxt('sp-without',     costWithout > 0 ? fmtUsd(costWithout) : '—');
-  setTxt('sp-without-tok', tokensIn > 0 ? '~' + fmt(tokensIn) + ' tokens' : '—');
+  setTxt('sp-without-tok', cmpIn > 0 ? '~' + fmt(cmpIn) + ' tokens' : '—');
   setTxt('sp-with',        costWith > 0 ? fmtUsd(costWith) : '—');
-  setTxt('sp-with-tok',    actualTokens > 0 ? '~' + fmt(actualTokens) + ' tokens' : '—');
+  setTxt('sp-with-tok',    cmpActual > 0 ? '~' + fmt(cmpActual) + ' tokens' : '—');
   setTxt('sp-saved',       costSaved > 0 ? fmtUsd(costSaved) : '—');
-  setTxt('sp-saved-pct',   (ratioPct != null ? Math.round(ratioPct) + '% · ' : '') + priceNote);
+  setTxt('sp-saved-pct',   (cmpRatio != null ? Math.round(cmpRatio) + '% · ' : '') + priceNote);
   var noteEl = document.getElementById('cost-note'); if(noteEl) noteEl.textContent = priceNote;
   // Model breakdown section (today)
   renderModelBreakdown(todayByModel, d.ai_usage && d.ai_usage.by_model);
 
   // CLI breakdown (#8) (today)
   renderClientBreakdown(todayByClient);
-  renderBreakdown(d.breakdown, tokensSaved);
+  // Overview = TODAY: use today's per-technique breakdown + today's net saved.
+  renderBreakdown((d.today && d.today.breakdown) || d.breakdown, tSaved);
 
   // Mode & bypass
   updateMode(mode, byp);

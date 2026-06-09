@@ -1,5 +1,12 @@
 # Changelog
 All notable changes to Squeezr will be documented here.
+## [1.80.3] - 2026-06-09
+### Fixed — Overview ahora es 100% "today" (no mezcla all-time)
+- **"Savings by type"** mostraba el desglose all-time (68.6M det, 42.5M tool desc… net 131.8M / gross 149.1M) mientras el resto del Overview era de hoy. Ahora usa contadores `today_*` por técnica (deterministic, AI, dedup, tool-desc, mcp-filter, stale-turns, skill-dedup, system-prompt), reseteados a medianoche. Etiqueta cambiada de "all time · persisted" → "today".
+- **Cost Comparison** mostraba bien el dinero (ya venía de los modelos de hoy) pero la línea de tokens de debajo ponía `~1033M tokens` (eso era `total_original_chars` ALL-TIME). Ahora usa `today.original_tokens` / `today.saved_tokens` → la línea de tokens cuadra con el dinero y con el resto del Overview.
+- Backend: nuevos campos `today_det/dedup/tool_desc/mcp_filter/stale_turns/skill_dedup/sysprompt_saved_chars` en stats.json + `today.breakdown` en el payload (con guard isToday → 0 si no hubo requests hoy).
+### Notes
+- Los contadores `today_*` por técnica empiezan a poblarse desde este despliegue, así que el desglose de HOY refleja lo ahorrado a partir de ahora hasta medianoche; mañana ya es un día completo y consistente.
 ## [1.80.2] - 2026-06-09
 ### Added — sonda de compresibilidad (fin de las llamadas Zest desperdiciadas)
 - **Problema**: el card "AI Compression" mostraba muchas `calls` con `Saved —` (p.ej. 46 calls / 0 saved). No era un fallo de conteo: el guard rechazaba esas compresiones porque los bloques (listas de rutas, errores, salidas de tests) ya son **densos** y Zest los devolvía casi sin cambios → ahorro <15% → rechazo. La llamada a Zest ya se había gastado (gratis, pero con latencia) y la cifra parecía un bug.

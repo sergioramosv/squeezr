@@ -354,6 +354,14 @@ existing.ai_compression_calls = (existing.ai_compression_calls ?? 0) + savings.c
         existing.today_comp_saved_chars = 0
         existing.today_noncached_original_chars = 0
         existing.today_noncached_saved_chars = 0
+        // Per-technique TODAY breakdown (mirrors the all-time *_saved_chars below)
+        existing.today_det_saved_chars = 0
+        existing.today_dedup_saved_chars = 0
+        existing.today_tool_desc_saved_chars = 0
+        existing.today_mcp_filter_saved_chars = 0
+        existing.today_stale_turns_saved_chars = 0
+        existing.today_skill_dedup_saved_chars = 0
+        existing.today_sysprompt_saved_chars = 0
       }
       existing.today_saved_chars = (existing.today_saved_chars ?? 0) + (originalChars - compressedChars)
       existing.today_original_chars = (existing.today_original_chars ?? 0) + originalChars
@@ -361,6 +369,14 @@ existing.ai_compression_calls = (existing.ai_compression_calls ?? 0) + savings.c
       existing.today_ai_saved_chars = (existing.today_ai_saved_chars ?? 0) + (savings.aiSavedChars ?? 0)
       existing.today_ai_calls = (existing.today_ai_calls ?? 0) + savings.compressed
       existing.today_local_ai_calls = (existing.today_local_ai_calls ?? 0) + (savings.localAiCalls ?? 0)
+      // Per-technique TODAY breakdown — mirrors the all-time *_saved_chars deltas above.
+      existing.today_det_saved_chars = (existing.today_det_saved_chars ?? 0) + (savings.detSavedChars ?? 0)
+      existing.today_dedup_saved_chars = (existing.today_dedup_saved_chars ?? 0) + (savings.dedupSavedChars ?? 0)
+      existing.today_tool_desc_saved_chars = (existing.today_tool_desc_saved_chars ?? 0) + (savings.toolDescSavedChars ?? 0)
+      existing.today_mcp_filter_saved_chars = (existing.today_mcp_filter_saved_chars ?? 0) + (savings.mcpFilterSavedChars ?? 0)
+      existing.today_stale_turns_saved_chars = (existing.today_stale_turns_saved_chars ?? 0) + (savings.staleTurnsSavedChars ?? 0)
+      existing.today_skill_dedup_saved_chars = (existing.today_skill_dedup_saved_chars ?? 0) + (savings.skillDedupSavedChars ?? 0)
+      existing.today_sysprompt_saved_chars = (existing.today_sysprompt_saved_chars ?? 0) + (savings.syspromptSavedChars ?? 0)
 // Compression efficiency (today): AI savings vs original size of the blocks AI
       // actually compressed — the "% on the real compressions we make" (~75-90%),
       // not diluted by content we never compress.

@@ -892,6 +892,18 @@ async function buildStatsPayload() {
         ai_saved_tokens: aiTodaySavedTokens,
         ai_spent_tokens: aiTodaySpentTokens,
         ai_local_calls: aiTodayLocalCalls,
+        // Per-technique breakdown for TODAY (Savings-by-type card). Char counts,
+        // date-guarded so a stale day reads 0. Dashboard converts chars→tokens.
+        breakdown: {
+            tool_results_det: isToday ? (persisted.today_det_saved_chars ?? 0) : 0,
+            tool_results_ai: isToday ? (persisted.today_ai_saved_chars ?? 0) : 0,
+            read_dedup: isToday ? (persisted.today_dedup_saved_chars ?? 0) : 0,
+            tool_desc: isToday ? (persisted.today_tool_desc_saved_chars ?? 0) : 0,
+            mcp_filter: isToday ? (persisted.today_mcp_filter_saved_chars ?? 0) : 0,
+            stale_turns: isToday ? (persisted.today_stale_turns_saved_chars ?? 0) : 0,
+            skill_dedup: isToday ? (persisted.today_skill_dedup_saved_chars ?? 0) : 0,
+            system_prompt: isToday ? (persisted.today_sysprompt_saved_chars ?? 0) : 0,
+        },
     };
     return {
         ...session,
