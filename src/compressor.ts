@@ -15,6 +15,7 @@ import { tryConsumeAiCall, _config as _aiRateConfig } from './aiRateLimit.js'
 import { isAiCompressionEnabled } from './aiToggle.js'
 import { validateCompression } from './compressionGuard.js'
 import { looksStructured } from './structuredGuard.js'
+import { looksIncompressible } from './compressibilityProbe.js'
 import { readFileSync, writeFileSync, existsSync, mkdirSync, renameSync } from 'node:fs'
 import { join } from 'node:path'
 import { homedir } from 'node:os'
@@ -935,14 +936,21 @@ const candidates = allResults.slice(0, Math.max(0, allResults.length - effective
   // to '') and corrupt the data view. These blocks keep their deterministic-only
   // form (recoverable via squeezr_expand). Prose still gets AI-compressed.
   let structuredSkipped = 0
+  let incompressibleSkipped = 0
   const toProcess = candidates.filter(c => {
     if (c.text.length < aiThreshold) return false
     if (dedupedSet.has(`${c.index}:${c.subIndex}`)) return false
     if (looksStructured(c.text)) { structuredSkipped++; return false }
+    // Dense/incompressible blocks would be rejected by the guard anyway (saving
+    // < min-ratio) — skip the wasted AI call and keep the deterministic form.
+    if (looksIncompressible(c.text)) { incompressibleSkipped++; return false }
     return true
   })
   if (structuredSkipped > 0) {
     console.log(`[squeezr/struct-guard] ${structuredSkipped} structured block(s) kept deterministic-only (AI skipped to avoid data corruption)`)
+  }
+  if (incompressibleSkipped > 0) {
+    console.log(`[squeezr/probe] ${incompressibleSkipped} dense block(s) skipped AI (low compressibility — would reject; kept deterministic, no wasted Zest call)`)
   }
 
 // Only bail early if there's NOTHING for the AI stage — neither tool-result

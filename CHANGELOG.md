@@ -1,5 +1,13 @@
 # Changelog
 All notable changes to Squeezr will be documented here.
+## [1.80.2] - 2026-06-09
+### Added — sonda de compresibilidad (fin de las llamadas Zest desperdiciadas)
+- **Problema**: el card "AI Compression" mostraba muchas `calls` con `Saved —` (p.ej. 46 calls / 0 saved). No era un fallo de conteo: el guard rechazaba esas compresiones porque los bloques (listas de rutas, errores, salidas de tests) ya son **densos** y Zest los devolvía casi sin cambios → ahorro <15% → rechazo. La llamada a Zest ya se había gastado (gratis, pero con latencia) y la cifra parecía un bug.
+- **Arreglo de raíz**: nuevo `compressibilityProbe` (`looksIncompressible()`) estima la compresibilidad con un único `deflate` síncrono ANTES de llamar a la IA. Los bloques ya densos (deflate ratio ≥ 0.55) se saltan la IA y se quedan en forma determinista → **se acaban las llamadas a Zest que iban a ser rechazadas**.
+- Calibrado con salida real de Zest: deflate 0.17 → Zest ahorró 56% (se mantiene); deflate 0.63/0.76 → Zest ahorró 5%/0% (se salta). Sesgado a NO descartar de más (prosa ~0.45 se mantiene). Umbral configurable con `SQUEEZR_MAX_DEFLATE`. Log `[squeezr/probe]`.
+- Tests: `src/__tests__/compressibilityProbe.test.ts` (5 casos sobre muestras reales).
+### Notes
+- El card NO mentía ni inflaba el ratio: las `calls` son llamadas reales y `Saved` solo cuenta compresiones aceptadas. El ahorro que se ve viene de la compresión determinista (contada aparte). Esta mejora elimina las llamadas inútiles para que `calls` y `Saved` cuadren visualmente.
 ## [1.80.1] - 2026-06-09
 ### Fixed — la IA ya no corrompe datos estructurados
 - **Bug de fidelidad**: en bloques de datos estructurados (JSON, JSONL, volcados de registros tipo `clave: valor`, tablas) el compresor de IA podía **alterar valores de campos en silencio** — p.ej. vaciar un campo `date` a `''` mientras un contador calculado en el propio script seguía reportándolo como no-vacío. Resultado: vista de datos auto-contradictoria (el caso de las 178.895 notificaciones).
