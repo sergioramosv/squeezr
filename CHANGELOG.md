@@ -1,5 +1,9 @@
 # Changelog
 All notable changes to Squeezr will be documented here.
+## [1.80.6] - 2026-06-09
+### Fixed — timeouts falsos de Zest por concurrencia (compresión local en secuencia)
+- Tras 1.80.5 desaparecieron los "rate limit hit" pero seguían los `AI compression timeout` con Zest. Causa: hasta 5 bloques se comprimían en paralelo (`Promise.allSettled`), pero Ollama **serializa** las peticiones → los últimos esperan en cola y su reloj de timeout (15s) contaba la espera de los anteriores → timeout falso → circuit breaker abierto → IA saltada.
+- **Arreglo**: los backends locales (Zest/Ollama) ahora procesan los bloques **secuencialmente**, así cada timeout cuenta solo su propia llamada (no la cola). La latencia total es la misma (Ollama serializa igual), pero se acaban los timeouts falsos. Los backends cloud siguen en paralelo (sí son concurrentes de verdad).
 ## [1.80.5] - 2026-06-09
 ### Fixed — la IA volvía a ahorrar 0: timeout y rate-limit pensados para Haiku ahogaban a Zest
 - **Causa raíz** (diagnóstico con datos en vivo): muchas `calls` de Zest pero `0 saved`. El log mostraba `Circuit breaker → OPEN (AI compression timeout)` y `AI rate limit hit (max 20/5min)`. Dos límites diseñados para CLOUD/Haiku estaban matando la compresión local gratuita:

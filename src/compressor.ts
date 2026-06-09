@@ -393,8 +393,7 @@ async function runCompression(
   const cache = getCache(config)
   const callTimeout = isLocal ? LOCAL_CALL_TIMEOUT_MS : undefined
   let rateLimited = 0
-  const results = await Promise.allSettled(
-    items.map(async (item) => {
+  const processItem = async (item: { index: number; subIndex?: number; text: string; tool: string }) => {
       const preprocessed = preprocess(item.text)
       if (config.cacheEnabled) {
         const cached = cache.get(preprocessed)
@@ -426,8 +425,21 @@ async function runCompression(
       compressionGuardCounters.accepted++
       if (config.cacheEnabled) cache.set(preprocessed, compressed)
       return { ...item, original: item.text, result: compressed }
-    }),
-  )
+  }
+  // Local (Ollama) serialises requests anyway — running them SEQUENTIALLY means
+  // each block's timeout clock counts only its own call, not the queue wait behind
+  // siblings (which was causing false "timeout" → circuit-breaker trips). Cloud
+  // backends are genuinely concurrent, so keep them parallel.
+  let results: PromiseSettledResult<Awaited<ReturnType<typeof processItem>>>[]
+  if (isLocal) {
+    results = []
+    for (const item of items) {
+      try { results.push({ status: 'fulfilled', value: await processItem(item) }) }
+      catch (reason) { results.push({ status: 'rejected', reason } as PromiseRejectedResult) }
+    }
+  } else {
+    results = await Promise.allSettled(items.map(processItem))
+  }
   if (rateLimited > 0) {
     console.log(`[squeezr] AI rate limit hit — ${rateLimited} block(s) left uncompressed this window (max ${_aiRateConfig.MAX_CALLS_PER_WINDOW}/${_aiRateConfig.WINDOW_MS / 60000}min). Deterministic compression still applied.`)
   }
