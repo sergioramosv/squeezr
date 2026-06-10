@@ -1,5 +1,14 @@
 # Changelog
 All notable changes to Squeezr will be documented here.
+## [1.80.10] - 2026-06-10
+### Fixed — auditoría de calidad: 3 bugs que degradaban a Claude en el nivel determinístico
+> Con prompt cache (Claude Code siempre lo usa) los módulos dedup/diff/stale están desactivados → el ÚNICO nivel que toca los tool results es el determinístico. Por eso estos fallos afectaban a cada sesión.
+- **Read dejaba de ser verbatim → fallos de Edit + corrupción de valores**: `preprocessRead` aplicaba `minifyJson`, `stripTimestamps`, `deduplicateLines` y `collapseWhitespace` al contenido de cada fichero leído. Eso hace que lo que ve Claude difiera del disco → `Edit` falla por mismatch de `old_string`; minificar un `package.json` bonito lo dejaba en una línea; y `stripTimestamps` borraba subcadenas `HH:MM:SS`/ISO aunque fueran contenido real. Ahora `preprocessRead` solo limpia ruido ANSI/control (casi verbatim). La reducción de ficheros enormes la sigue haciendo `compactReadOutput` (head/tail), que no altera los bytes que conserva.
+- **`minifyJson` corrompía enteros grandes**: `JSON.parse`→`JSON.stringify` redondea enteros > 2^53 (IDs, snowflakes) emitiendo un valor DISTINTO. Ahora salta cualquier bloque con una secuencia de 16+ dígitos.
+- **`compactGrepOutput` rompía rutas Windows**: el regex `^([^:]+):` cortaba en el `:` de la unidad → agrupaba TODOS los matches bajo el fichero falso "C". Ahora reconoce el prefijo `C:\` y agrupa por la ruta completa.
+- Tests: 7 nuevos de regresión (Read verbatim de JSON/timestamps/blank lines, big-int safety, rutas Windows en grep). Suite sin regresiones.
+### Notas — pendiente (decisión de diseño)
+- La compactación determinística (Read head/tail, grep, glob, patrones bash, truncado genérico, lockfile) sigue siendo IRREVERSIBLE: omite contenido con una nota `[N lines omitted]` SIN `[squeezr:ID]`, así que Claude no puede recuperarlo ni con la directiva de expand reforzada en 1.80.9. Próximo paso propuesto: darles también un id de expand (determinístico = cache-safe).
 ## [1.80.9] - 2026-06-10
 ### Changed — squeezr_expand mucho más insistente (la descripción pasiva se ignoraba)
 - **Problema**: el único canal que le decía a Claude que usara `squeezr_expand` era la descripción de la tool, redactada de forma pasiva ("use this when you need more detail"). En la práctica el modelo trabajaba sobre el resumen comprimido en lugar de expandir → pérdida de fidelidad cuando hacía falta el contenido exacto (editar código, citar un error, leer un valor, aplicar un diff).

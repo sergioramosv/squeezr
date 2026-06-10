@@ -121,6 +121,11 @@ function deduplicateStackTraces(text: string): string {
 
 function minifyJson(text: string): string {
   return text.replace(/(\{[\s\S]{200,}?\})/g, (match) => {
+    // A JS number can't hold integers beyond 2^53 (~16 digits); JSON.parse would
+    // round them and JSON.stringify would emit the WRONG value — silent corruption
+    // of IDs, snowflakes, big counters. Leave any block with a 16+ digit run
+    // untouched rather than risk mangling a value.
+    if (/\d{16,}/.test(match)) return match
     try { return JSON.stringify(JSON.parse(match)) } catch { return match }
   })
 }
@@ -872,7 +877,10 @@ function compactGrepOutput(text: string, pressure = 0): string {
 
   for (const line of lines) {
     // Standard grep format: filepath:linenum:content  or  filepath:content
-    const match = line.match(/^([^:]+):(\d+:)?(.*)$/)
+    // The optional leading `[A-Za-z]:` keeps Windows drive-letter paths intact
+    // (e.g. C:\src\a.ts:10:foo) — without it `[^:]+` stopped at the drive colon and
+    // grouped every match under the bogus file "C".
+    const match = line.match(/^((?:[A-Za-z]:)?[^:]+):(\d+:)?(.*)$/)
     if (match) {
       const file = match[1]
       const content = match[3] ?? ''
@@ -984,14 +992,20 @@ function compactReadOutput(text: string): string {
  * Claude sees a file without blank lines but the real file still has them.
  */
 function preprocessRead(text: string): string {
-  let t = stripAnsi(text)
-  // stripProgressBars intentionally omitted — see comment above
-  t = stripTimestamps(t)
-  t = deduplicateStackTraces(t)
-  t = deduplicateLines(t)
-  t = minifyJson(t)
-  t = collapseWhitespace(t)
-  return t
+  // Read results must stay as close to VERBATIM as possible. Claude's Edit tool
+  // matches `old_string` against exactly what it saw in the Read, so ANY mutation
+  // makes its view diverge from disk and the edit fails:
+  //   - minifyJson re-serialises embedded JSON (pretty package.json → one line,
+  //     and JSON.parse/stringify silently drops big-integer precision = corruption)
+  //   - stripTimestamps deletes any `HH:MM:SS`/ISO substring even when it's real
+  //     file content (a string literal, a value)
+  //   - deduplicateLines / collapseWhitespace remove repeated or blank lines that
+  //     are part of the file
+  // None of these belong on a file read. We only strip ANSI/control noise, which a
+  // real source file practically never contains. Size reduction for genuinely huge
+  // files is handled separately by compactReadOutput (head/tail / structure), which
+  // never alters the bytes it keeps.
+  return stripAnsi(text)
 }
 
 /**

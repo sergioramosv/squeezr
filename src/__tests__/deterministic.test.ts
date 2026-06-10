@@ -1,6 +1,52 @@
 import { describe, it, expect } from 'vitest'
 import { preprocess, preprocessForTool, preprocessRatio } from '../deterministic.js'
 
+// ── Read fidelity (Edit-mismatch / corruption guards) ─────────────────────────
+
+describe('preprocessForTool - Read stays verbatim', () => {
+  it('does not minify embedded JSON in a read (Edit would mismatch)', () => {
+    const file = '{\n  "name": "pkg",\n  "version": "1.0.0",\n  "scripts": {\n    "build": "tsc"\n  }\n}'
+    expect(preprocessForTool(file, 'Read')).toBe(file)
+  })
+
+  it('does not strip timestamp-like substrings from a read', () => {
+    const file = 'const RELEASE = "2026-01-02T03:04:05Z"\nconst T = "12:34:56 "'
+    expect(preprocessForTool(file, 'Read')).toBe(file)
+  })
+
+  it('does not collapse blank lines or dedup repeated lines in a read', () => {
+    const file = 'a\n\n\n\nb\nx\nx\nx\nx\n'
+    expect(preprocessForTool(file, 'Read')).toBe(file)
+  })
+
+  it('still strips ANSI/control noise from a read', () => {
+    expect(preprocessForTool('\x1B[32mcode\x1B[0m', 'Read')).toBe('code')
+  })
+})
+
+describe('minifyJson - big integer safety', () => {
+  it('leaves blocks with 16+ digit integers untouched (precision corruption)', () => {
+    const block = '{ "id": 1234567890123456789, "name": "x", "padding": "' + 'y'.repeat(200) + '" }'
+    // The big id must survive verbatim (JSON.parse would round it)
+    expect(preprocess(block)).toContain('1234567890123456789')
+  })
+
+  it('still minifies safe JSON', () => {
+    const block = '{\n  "a": 1,\n  "b": "' + 'z'.repeat(200) + '"\n}'
+    const out = preprocess(block)
+    expect(out).not.toContain('\n  "a"')  // got minified
+  })
+})
+
+describe('compactGrepOutput - Windows paths', () => {
+  it('groups by full drive-letter path, not the bare drive', () => {
+    const lines = Array.from({ length: 25 }, (_, i) => `C:\\src\\app.ts:${i + 1}:match ${i}`)
+    const out = preprocessForTool(lines.join('\n'), 'Grep')
+    expect(out).toContain('C:\\src\\app.ts')
+    expect(out).not.toMatch(/^C \(/m)  // not grouped under bogus file "C"
+  })
+})
+
 // ── Base pipeline ─────────────────────────────────────────────────────────────
 
 describe('preprocess - base pipeline', () => {
