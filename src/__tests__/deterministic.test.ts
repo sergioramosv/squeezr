@@ -47,6 +47,16 @@ describe('compactGrepOutput - Windows paths', () => {
   })
 })
 
+// ── Expand results are never re-compressed ────────────────────────────────────
+describe('preprocessForTool - squeezr_expand result is verbatim', () => {
+  it('returns an expand-call result untouched, even when huge', () => {
+    const huge = Array.from({ length: 500 }, (_, i) => `recovered line ${i}`).join('\n')
+    // mcp-prefixed name (how Claude Code routes the MCP tool)
+    expect(preprocessForTool(huge, 'mcp__squeezr__squeezr_expand')).toBe(huge)
+    expect(preprocessForTool(huge, 'squeezr_expand')).toBe(huge)
+  })
+})
+
 // ── Reversibility: lossy deterministic compaction gets an expand pointer ──────
 describe('preprocessForTool - lossy compaction is recoverable', () => {
   it('appends a squeezr_expand pointer when a huge read is truncated', () => {

@@ -966,6 +966,8 @@ const candidates = allResults.slice(0, Math.max(0, allResults.length - effective
   const toProcess = candidates.filter(c => {
     if (c.text.length < aiThreshold) return false
     if (dedupedSet.has(`${c.index}:${c.subIndex}`)) return false
+    // Never AI-compress the result of an expand call — it must stay the full original.
+    if (String(c.tool).toLowerCase().endsWith('squeezr_expand')) return false
     if (looksStructured(c.text)) { structuredSkipped++; return false }
     // Dense/incompressible blocks would be rejected by the guard anyway (saving
     // < min-ratio) — skip the wasted AI call and keep the deterministic form.
@@ -1263,7 +1265,7 @@ export async function compressOpenAIMessages(
 
   // Step 2: AI compression for old blocks above threshold
   const candidates = allResults.slice(0, Math.max(0, allResults.length - effectiveKeepRecent(config)))
-  const toProcess = candidates.filter(c => c.text.length >= threshold && !dedupedIndices.has(c.index))
+  const toProcess = candidates.filter(c => c.text.length >= threshold && !dedupedIndices.has(c.index) && !String(c.tool).toLowerCase().endsWith('squeezr_expand'))
 
   if (toProcess.length === 0) return [msgs, emptySavings(false, detSaved, readDedupSaved, oaiDetMs)]
 
@@ -1456,7 +1458,7 @@ export async function compressGeminiContents(
 
   // Step 2: AI compression for old blocks above threshold
   const candidates = allResults.slice(0, Math.max(0, allResults.length - effectiveKeepRecent(config)))
-    .filter(c => c.text.length >= threshold && !geminiDedupedSet.has(`${c.index}:${c.subIndex}`))
+    .filter(c => c.text.length >= threshold && !geminiDedupedSet.has(`${c.index}:${c.subIndex}`) && !String(c.tool).toLowerCase().endsWith('squeezr_expand'))
 
   if (candidates.length === 0) return [cts, emptySavings(false, detSaved, geminiReadDedupSaved, gemDetMs)]
 

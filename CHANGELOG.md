@@ -1,5 +1,10 @@
 # Changelog
 All notable changes to Squeezr will be documented here.
+## [1.80.14] - 2026-06-10
+### Fixed — el resultado de squeezr_expand ya no se vuelve a comprimir (blindaje del expand)
+- Tras 1.80.11 el modelo recupera el original llamando a la tool MCP `squeezr_expand`. Pero ese resultado vuelve como tool_result y, en el siguiente turno, el proxy lo re-procesaba: la compactación determinística (o, con IA on, el paso de IA) podía re-truncarlo/re-resumirlo → el modelo expandía y aun así recibía algo recortado, o entraba en bucle de re-expansión.
+- **Arreglo**: Squeezr NUNCA comprime el resultado de un expand. `preprocessForTool` devuelve verbatim cualquier tool cuyo nombre acabe en `squeezr_expand` (cubre `mcp__squeezr__squeezr_expand`), y los filtros de candidatos de IA (Anthropic/OpenAI/Gemini) lo excluyen. El original recuperado llega íntegro.
+- Verificado end-to-end: el servidor MCP expone `squeezr_expand` y su handler devuelve el original completo (6480 chars en la prueba) desde `/squeezr/expand/:id`. 1 test nuevo.
 ## [1.80.13] - 2026-06-10
 ### Fixed — 🟢 suite de tests verde (15 fallos pre-existentes → 0; eran deuda, no bugs de producto)
 - **compressor.test (12 fallos)**: el mock de `fetch` devolvía forma Gemini sin `ok`, pero `effectiveBackend()` lee el config singleton GLOBAL (default `local` desde 1.80.7) → todo enrutaba a Ollama → "Ollama API error: undefined" → circuit breaker. Ahora el mock satisface forma Ollama + Gemini con `ok:true`; el regex del marcador se actualizó al formato de 1.80.9; y el test "Ollama backend" comprueba el `fetch /api/chat` nativo (Ollama ya no usa el SDK de OpenAI). El de Gemini fija backend `auto` para usar el default por API.

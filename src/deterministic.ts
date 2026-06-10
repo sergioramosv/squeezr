@@ -1049,6 +1049,11 @@ function makeRecoverable(original: string, compacted: string): string {
 export function preprocessForTool(text: string, toolName: string, pressure = 0): string {
   const tool = toolName.toLowerCase()
 
+  // NEVER compress the result of an expand call. The whole point of squeezr_expand
+  // is to deliver the FULL original back to the model; re-compacting it here (or
+  // tagging it for re-expansion) would defeat the recovery and could loop.
+  if (tool.endsWith('squeezr_expand')) return text
+
   if (tool === 'read') {
     return makeRecoverable(text, compactReadOutput(preprocessRead(text)))
   }
