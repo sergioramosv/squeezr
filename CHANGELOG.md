@@ -1,5 +1,12 @@
 # Changelog
 All notable changes to Squeezr will be documented here.
+## [1.80.11] - 2026-06-10
+### Fixed — 🔴 CRÍTICO: squeezr_expand no funcionaba en streaming (= no funcionaba en Claude Code)
+- **Causa raíz de la pérdida de calidad**: la interceptación de `squeezr_expand` (`handleAnthropicExpandCall`) solo corría en respuestas NO-streaming. Claude Code (y casi todos los CLIs) usan `stream:true`, y esa rama reenvía el SSE crudo y retorna antes de interceptar. El proxy inyectaba `squeezr_expand` en `tools[]` → el modelo la veía y la llamaba → en streaming ese `tool_use` llegaba a Claude Code, que no tiene handler para ella → error → el modelo se quedaba con el resumen comprimido (degradado) o alucinaba. Además `stats.recordExpand` nunca disparaba en streaming → expand-rate del dashboard = 0 siempre → el quality governor nunca reaccionaba (punto ciego). Todo lo que depende de expand heredaba el fallo: bloques de compresión IA, descripciones de tools en modo EXPAND, y los placeholders de dedup/diff.
+- **Arreglo**: exponer `squeezr_expand` como **tool MCP real** (`mcp__squeezr__squeezr_expand`). Al ser una tool del cliente, la llamada del modelo es un round-trip real por el cliente → funciona en streaming. El handler MCP recupera el original del store en memoria del proxy vía el endpoint HTTP `/squeezr/expand/:id` (fresco; no el fichero de disco que se persiste cada 60s). Cuando el cliente ya trae una tool expand ejecutable, el proxy deja de inyectar la `squeezr_expand` "bare" (que solo resolvía en no-streaming) para no duplicar ni ofrecer una tool no-cumplible. La directiva de 1.80.9 ahora menciona el nombre `mcp__squeezr__squeezr_expand`.
+- ⚠️ Requiere **reiniciar Claude Code** (no solo el proxy): el servidor MCP es un proceso aparte que Claude Code relanza; hasta entonces la tool nueva no aparece.
+- Tests: 2 nuevos (no inyectar bare cuando hay tool MCP expand; seguir inyectándola cuando no la hay). Endpoint `/squeezr/expand/:id` verificado.
+
 ## [1.80.10] - 2026-06-10
 ### Fixed — auditoría de calidad: 3 bugs que degradaban a Claude en el nivel determinístico
 > Con prompt cache (Claude Code siempre lo usa) los módulos dedup/diff/stale están desactivados → el ÚNICO nivel que toca los tool results es el determinístico. Por eso estos fallos afectaban a cada sesión.

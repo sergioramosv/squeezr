@@ -121,20 +121,27 @@ export const EXPAND_TOOL_ANTHROPIC_CHARS = JSON.stringify(EXPAND_TOOL_ANTHROPIC)
 export const EXPAND_TOOL_OPENAI_CHARS = JSON.stringify(EXPAND_TOOL_OPENAI).length
 // ── Inject helpers ────────────────────────────────────────────────────────────
 // Each returns the char cost it added (0 if the tool was already present).
+/** True when a client-executable expand tool is already present (e.g. the MCP tool
+ *  `mcp__squeezr__squeezr_expand`). When it is, we must NOT inject the bare proxy
+ *  tool: the bare one only resolves on non-streaming responses, while the MCP tool
+ *  is a real round-trip through the client and works in streaming. endsWith covers
+ *  both the bare name and any MCP server prefix. */
+function hasExpandTool(names: string[]): boolean {
+  return names.some((n) => n === 'squeezr_expand' || n.endsWith('__squeezr_expand'))
+}
+
 export function injectExpandToolAnthropic(body: Record<string, unknown>): void {
   if (!body.tools) body.tools = []
   const tools = body.tools as unknown[]
-  const already = tools.some((t) => (t as { name?: string }).name === 'squeezr_expand')
-  if (!already) tools.push(EXPAND_TOOL_ANTHROPIC)
+  const names = tools.map((t) => String((t as { name?: string }).name ?? ''))
+  if (!hasExpandTool(names)) tools.push(EXPAND_TOOL_ANTHROPIC)
 }
 
 export function injectExpandToolOpenAI(body: Record<string, unknown>): void {
   if (!body.tools) body.tools = []
   const tools = body.tools as unknown[]
-  const already = tools.some(
-    (t) => (t as { function?: { name?: string } }).function?.name === 'squeezr_expand',
-  )
-  if (!already) tools.push(EXPAND_TOOL_OPENAI)
+  const names = tools.map((t) => String((t as { function?: { name?: string } }).function?.name ?? ''))
+  if (!hasExpandTool(names)) tools.push(EXPAND_TOOL_OPENAI)
 }
 
 // ── System-prompt directive ────────────────────────────────────────────────────
@@ -148,8 +155,9 @@ export const SYSTEM_EXPAND_DIRECTIVE =
   'tagged `[squeezr:ID -N%]` — these are LOSSY summaries that omit detail. The moment you ' +
   'need the exact contents of one (to edit or quote code precisely, copy an error/log line ' +
   'verbatim, read an exact value/path/ID, or apply a diff), you MUST call the squeezr_expand ' +
-  'tool with that ID and use the returned text — do NOT guess, paraphrase, or reconstruct ' +
-  'compressed content from its summary. Expansion is instant and free.'
+  'tool (it may be listed as `mcp__squeezr__squeezr_expand`) with that ID and use the returned ' +
+  'text — do NOT guess, paraphrase, or reconstruct compressed content from its summary. ' +
+  'Expansion is instant and free.'
 
 export const SYSTEM_EXPAND_DIRECTIVE_CHARS = SYSTEM_EXPAND_DIRECTIVE.length
 

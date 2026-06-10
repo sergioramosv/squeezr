@@ -23,6 +23,7 @@ import {
   ListToolsRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js'
 import { z } from 'zod'
+import { EXPAND_TOOL_DESCRIPTION } from './expand.js'
 import { readFileSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -249,6 +250,23 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         'Use this when you want a visual overview of Squeezr\'s activity.',
       inputSchema: { type: 'object', properties: {}, required: [] },
     },
+    {
+      // The expand tool MUST be a real, client-executable tool. The proxy-injected
+      // `squeezr_expand` only resolves on NON-streaming responses; Claude Code (and
+      // most CLIs) stream, so the injected tool's call is never intercepted. Exposing
+      // it via MCP makes the model's call a real round-trip through the client → it
+      // works in streaming. The handler fetches the original from the proxy's
+      // in-memory store over HTTP (fresh; not the 60s-stale disk file).
+      name: 'squeezr_expand',
+      description: EXPAND_TOOL_DESCRIPTION,
+      inputSchema: {
+        type: 'object',
+        properties: {
+          id: { type: 'string', description: 'The 6-char ID from [squeezr:ID] in the compressed content' },
+        },
+        required: ['id'],
+      },
+    },
   ],
 }))
 
@@ -264,6 +282,22 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
       result.content[0].text += updateBanner(newVer)
     }
     return result
+  }
+
+  // ── squeezr_expand ──────────────────────────────────────────────────────────
+  if (name === 'squeezr_expand') {
+    const id = String((args as { id?: unknown })?.id ?? '').trim()
+    if (!id) {
+      return { content: [{ type: 'text', text: 'squeezr_expand needs an "id" — the 6-char code shown in a [squeezr:ID] marker.' }], isError: true }
+    }
+    const res = await proxyGet('/squeezr/expand/' + encodeURIComponent(id))
+    if (!res || typeof res.content !== 'string') {
+      return {
+        content: [{ type: 'text', text: `No stored content for id "${id}" — it may have expired or the proxy restarted. Re-run the original tool (Read/Bash/etc.) to regenerate the content.` }],
+        isError: true,
+      }
+    }
+    return { content: [{ type: 'text', text: res.content as string }] }
   }
 
   // ── squeezr_status ──────────────────────────────────────────────────────────

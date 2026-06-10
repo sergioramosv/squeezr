@@ -21,6 +21,20 @@ describe('expand tool description (forceful)', () => {
   })
 })
 
+describe('injectExpandToolAnthropic — defers to a client-executable MCP expand tool', () => {
+  it('does NOT inject the bare tool when mcp__squeezr__squeezr_expand is present', () => {
+    const body: Record<string, unknown> = { tools: [{ name: 'mcp__squeezr__squeezr_expand' }] }
+    injectExpandToolAnthropic(body)
+    const names = (body.tools as Array<{ name: string }>).map(t => t.name)
+    expect(names.filter(n => n.endsWith('squeezr_expand')).length).toBe(1)
+    expect(names).not.toContain('squeezr_expand') // bare not added (only the MCP one)
+  })
+  it('still injects the bare tool when no expand tool is present', () => {
+    const body: Record<string, unknown> = { tools: [{ name: 'Read' }] }
+    injectExpandToolAnthropic(body)
+    expect((body.tools as Array<{ name: string }>).some(t => t.name === 'squeezr_expand')).toBe(true)
+  })
+})
 describe('injectExpandDirectiveAnthropic', () => {
   it('appends a NEW trailing block and never mutates existing cache_control blocks', () => {
     const cached = { type: 'text', text: 'SYSTEM CORE', cache_control: { type: 'ephemeral' } }
