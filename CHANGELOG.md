@@ -1,5 +1,10 @@
 # Changelog
 All notable changes to Squeezr will be documented here.
+## [1.80.13] - 2026-06-10
+### Fixed — 🟢 suite de tests verde (15 fallos pre-existentes → 0; eran deuda, no bugs de producto)
+- **compressor.test (12 fallos)**: el mock de `fetch` devolvía forma Gemini sin `ok`, pero `effectiveBackend()` lee el config singleton GLOBAL (default `local` desde 1.80.7) → todo enrutaba a Ollama → "Ollama API error: undefined" → circuit breaker. Ahora el mock satisface forma Ollama + Gemini con `ok:true`; el regex del marcador se actualizó al formato de 1.80.9; y el test "Ollama backend" comprueba el `fetch /api/chat` nativo (Ollama ya no usa el SDK de OpenAI). El de Gemini fija backend `auto` para usar el default por API.
+- **staleTurns.test (3 fallos)**: testeaban el símbolo `[⧖` y la extracción de keywords, ambos ELIMINADOS (las keywords inline disparaban falsos positivos de la Usage Policy de Anthropic). Tests actualizados al placeholder genérico actual; añadida aserción de que NO filtra contenido del turno. Eliminado el código muerto `extractKeywords`.
+- Nota: ninguno era un bug de producto; eran tests desactualizados tras cambios de comportamiento (default backend `local`, nuevo marcador, símbolo retirado). Una suite roja oculta regresiones futuras.
 ## [1.80.12] - 2026-06-10
 ### Fixed — 🟠 ALTA: la compactación determinística era irreversible (contenido irrecuperable)
 - **Problema**: `Read` head/tail, extracción semántica, `grep`, `glob`, los patrones bash, el truncado genérico y el lockfile omitían contenido con una nota `[N lines omitted]` SIN `[squeezr:ID]`. A diferencia de los bloques de compresión IA, no había forma de recuperarlo — ni con la directiva de expand reforzada (no había id que expandir). Era la razón de fondo por la que el expand no ayudaba en estas compactaciones.

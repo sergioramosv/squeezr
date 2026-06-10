@@ -77,7 +77,7 @@ describe('collapseStaleTurns', () => {
     collapseStaleTurns(msgs as never, 10, 5)
     const staleAssistant = msgs.filter(m => m.role === 'assistant')[0]
     const compressed = staleAssistant.content as string
-    expect(compressed.startsWith('[⧖')).toBe(true)
+    expect(compressed.startsWith('[squeezr:')).toBe(true)
     expect(compressed.length).toBeLessThan(LONG_TEXT.length)
   })
 
@@ -89,7 +89,7 @@ describe('collapseStaleTurns', () => {
     collapseStaleTurns(msgs as never, 10, 5)
     const staleAssistant = msgs.filter(m => m.role === 'assistant')[0]
     const firstBlock = (staleAssistant.content as Block[])[0]
-    expect((firstBlock.text as string).startsWith('[⧖')).toBe(true)
+    expect((firstBlock.text as string).startsWith('[squeezr:')).toBe(true)
   })
 
   it('skips blocks below MIN_BLOCK_LEN (250 chars)', () => {
@@ -105,12 +105,17 @@ describe('collapseStaleTurns', () => {
     expect(result.staleCount).toBe(10)
   })
 
-  it('extracts file path keywords into summary', () => {
+  it('condenses to a generic placeholder WITHOUT leaking turn content', () => {
+    // Keyword extraction was intentionally removed: inlining user content (paths,
+    // errors) into the placeholder triggered Anthropic Usage Policy false positives.
+    // The condensed block must NOT echo the original content back.
     const textWithPath = 'I modified the file src/components/Button.tsx to fix the bug. '.repeat(6)
     const msgs = makeConversation(11, textWithPath)
     collapseStaleTurns(msgs as never, 10, 5)
     const staleAssistant = msgs.filter(m => m.role === 'assistant')[0]
-    expect(staleAssistant.content as string).toContain('Button.tsx')
+    const condensed = staleAssistant.content as string
+    expect(condensed.startsWith('[squeezr:')).toBe(true)
+    expect(condensed).not.toContain('Button.tsx')
   })
 
   it('handles empty messages array gracefully', () => {

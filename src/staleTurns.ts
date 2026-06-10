@@ -19,20 +19,6 @@ interface AMsg {
   content: string | Array<{ type?: string; text?: string }>
 }
 
-function extractKeywords(text: string): string[] {
-  const kw: string[] = []
-  const paths = text.match(/(?:[./\\][\w./\\-]*|[\w-]+\/[\w./\\-]+)\.(?:ts|js|tsx|jsx|py|go|rs|json|md|yaml|yml|toml|css|html|sh)\b/g) ?? []
-  kw.push(...paths.filter(p => p.includes('/') || p.includes('\\')).slice(0, 3))
-  const errors = text.match(/(?:Error|TypeError|SyntaxError|ReferenceError|Warning):\s*[^\n]{3,60}/g) ?? []
-  kw.push(...errors.slice(0, 2).map(e => e.slice(0, 60)))
-  const fns = text.match(/(?:function|class|const|let|var|def|async\s+function)\s+([a-zA-Z_]\w{2,25})/g) ?? []
-  kw.push(...fns.slice(0, 3).map(f => {
-    const m = f.match(/\s+([a-zA-Z_]\w{2,25})$/)
-    return m ? m[1] : ''
-  }).filter(Boolean))
-  return [...new Set(kw.filter(k => k.length > 2))].slice(0, 6)
-}
-
 function compressTextBlock(text: string): string {
   // Plain ASCII placeholder — no Unicode symbols, no user content keywords.
   // The ⧖ symbol and inline keywords previously used here were triggering

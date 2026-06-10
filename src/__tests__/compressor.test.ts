@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { clearExpandStore } from '../expand.js'
 import { clearSessionCache } from '../sessionCache.js'
+import { runtimeOverrides } from '../config.js'
 
 // Mock AI SDKs before importing compressor
 vi.mock('@anthropic-ai/sdk', () => ({
@@ -38,10 +39,17 @@ vi.mock('../aiToggle.js', () => ({
   toggleAiCompression: () => true,
 }))
 
-// Mock fetch for Gemini
+// Mock fetch for the fetch-based backends. Must satisfy BOTH shapes because the
+// default backend is now `local` (Ollama, /api/chat → {message:{content}}) and
+// effectiveBackend() reads the global config singleton, not the per-test config.
+// Gemini uses {candidates}. `ok: true` keeps ollamaCompressChunk from throwing.
 const mockFetch = vi.fn().mockResolvedValue({
+  ok: true,
   json: async () => ({
     candidates: [{ content: { parts: [{ text: 'AI compressed summary' }] } }],
+    message: { content: 'AI compressed summary' },
+    prompt_eval_count: 10,
+    eval_count: 5,
   }),
 })
 vi.stubGlobal('fetch', mockFetch)
@@ -84,6 +92,10 @@ beforeEach(() => {
   clearExpandStore()
   clearSessionCache()
   vi.clearAllMocks()
+  // effectiveBackend() reads the GLOBAL config singleton (default `local`), so by
+  // default these tests exercise the Ollama path (mock fetch above returns a valid
+  // Ollama-shaped body). Tests that need a specific cloud backend set it explicitly.
+  runtimeOverrides.compressionBackend = undefined
 })
 
 // ── Anthropic format ──────────────────────────────────────────────────────────
@@ -137,7 +149,7 @@ describe('compressAnthropicMessages', () => {
     const msgs = makeMessages(['x'.repeat(1600), 'y'.repeat(1600)])
     const [result] = await compressAnthropicMessages(msgs as any, 'key', baseConfig)
     const compressed = (result[1] as any).content[0].content as string
-    expect(compressed).toMatch(/\[squeezr:[a-f0-9]{6} -\d+%\]/)
+    expect(compressed).toMatch(/\[squeezr:[a-f0-9]{6} -\d+% — squeezr_expand\("[a-f0-9]{6}"\) for full exact text\]/)
   })
 
   it('does not compress blocks below threshold', async () => {
@@ -267,11 +279,13 @@ describe('compressOpenAIMessages', () => {
   })
 
   it('uses Ollama backend for local keys', async () => {
-    const OpenAI = (await import('openai')).default as any
-    const msgs = makeMessages(['z'.repeat(200), 'v'.repeat(200)])
+    const msgs = makeMessages(['z'.repeat(1600), 'v'.repeat(1600)])
     await compressOpenAIMessages(msgs as any, 'ollama-key', { ...baseConfig, isLocalKey: () => true }, true)
-    // OpenAI client should be called (Ollama uses OpenAI-compatible API)
-    expect(OpenAI).toHaveBeenCalled()
+    // Local compression uses Ollama's native /api/chat over fetch (not the OpenAI SDK).
+    expect(mockFetch).toHaveBeenCalledWith(
+      expect.stringContaining('/api/chat'),
+      expect.any(Object),
+    )
   })
 
   it('does not inject expand tool for local requests', async () => {
@@ -322,6 +336,7 @@ describe('compressGeminiContents', () => {
   })
 
   it('uses fetch with Gemini API URL', async () => {
+    runtimeOverrides.compressionBackend = 'auto'  // use the per-API default (Gemini), not the global `local`
     const cts = makeContents(['g'.repeat(200), 'h'.repeat(200)])
     await compressGeminiContents(cts as any, 'my-google-key', baseConfig)
     expect(mockFetch).toHaveBeenCalledWith(
