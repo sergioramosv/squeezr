@@ -27,6 +27,8 @@
  *      Glob — compact large file listings into directory summary
  */
 
+import { storeOriginal } from './expand.js'
+
 // ── Pattern hit tracking (for squeezr discover) ───────────────────────────────
 
 export const detPatternHits: Record<string, number> = {}
@@ -1014,11 +1016,41 @@ function preprocessRead(text: string): string {
  * Called on ALL tool results including recent ones — covers turn-1 compression
  * without the user needing to prefix commands with `rtk`.
  */
+// Minimum chars a compaction must REMOVE before we bother attaching a recovery
+// pointer (~200 tokens). Below this the shrink is pure noise cleanup
+// (ANSI/whitespace), not truncation, and the original is small anyway — no point
+// storing it. This floor also prevents tagging tiny outputs that legitimately
+// shrink a lot in percentage terms.
+const LOSSY_MIN_DROPPED_CHARS = 800
+
+/**
+ * Make a deterministic compaction RECOVERABLE.
+ *
+ * Read/grep/glob/bash compaction drops content with a plain "[N omitted]" note
+ * and, until now, NO way to get it back (unlike AI blocks). That made the loss
+ * irreversible even with the expand tool. If the compaction dropped substantial
+ * content, store the original and append a `squeezr_expand(id)` pointer so the
+ * model can recover the full output on demand.
+ *
+ * Cache-safe: the id is MD5(original) (deterministic), the note is appended
+ * deterministically → same input always yields the same bytes → Anthropic's
+ * prefix cache still hits. Mirrors AI-block behaviour.
+ */
+function makeRecoverable(original: string, compacted: string): string {
+  if (compacted === original) return compacted
+  // Don't double-tag content that already carries an expand pointer (dedup/diff
+  // placeholders, or a prior pass).
+  if (compacted.includes('squeezr_expand(') || compacted.includes('[squeezr:')) return compacted
+  if (original.length - compacted.length < LOSSY_MIN_DROPPED_CHARS) return compacted
+  const id = storeOriginal(original)
+  return `${compacted}\n[squeezr_expand("${id}") — full untruncated output]`
+}
+
 export function preprocessForTool(text: string, toolName: string, pressure = 0): string {
   const tool = toolName.toLowerCase()
 
   if (tool === 'read') {
-    return compactReadOutput(preprocessRead(text))
+    return makeRecoverable(text, compactReadOutput(preprocessRead(text)))
   }
 
   let t = preprocess(text)
@@ -1034,5 +1066,5 @@ export function preprocessForTool(text: string, toolName: string, pressure = 0):
     if (lines.length > 30) { hit('globCompacted'); t = compactFileListing(t) }
   }
 
-  return t
+  return makeRecoverable(text, t)
 }

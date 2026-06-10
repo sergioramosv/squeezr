@@ -1,5 +1,12 @@
 # Changelog
 All notable changes to Squeezr will be documented here.
+## [1.80.12] - 2026-06-10
+### Fixed — 🟠 ALTA: la compactación determinística era irreversible (contenido irrecuperable)
+- **Problema**: `Read` head/tail, extracción semántica, `grep`, `glob`, los patrones bash, el truncado genérico y el lockfile omitían contenido con una nota `[N lines omitted]` SIN `[squeezr:ID]`. A diferencia de los bloques de compresión IA, no había forma de recuperarlo — ni con la directiva de expand reforzada (no había id que expandir). Era la razón de fondo por la que el expand no ayudaba en estas compactaciones.
+- **Arreglo**: nuevo chokepoint en `preprocessForTool` (`makeRecoverable`): cuando una compactación tira contenido sustancial (≥800 chars ≈ 200 tokens), guarda el original en el expand store y añade `[squeezr_expand("ID") — full untruncated output]`. Ahora la tool MCP de expand (1.80.11) recupera el original completo bajo demanda. **Cache-safe**: el id es MD5(original) determinístico y la nota se añade de forma determinística → mismos bytes entre requests → el cache de Anthropic sigue acertando. El suelo de 800 chars evita tagear limpiezas de ruido (ANSI/whitespace) en outputs pequeños.
+- Tests: 4 nuevos (read truncado obtiene puntero + round-trip por el store; read pequeño intacto; bash truncado obtiene puntero). Suite sin regresiones.
+### Notas
+- El expand store crece sin límite (igual que ya hacían los bloques IA). Con esta extensión almacena más originales determinísticos. Pendiente (baja prioridad): LRU/cap en el expand store.
 ## [1.80.11] - 2026-06-10
 ### Fixed — 🔴 CRÍTICO: squeezr_expand no funcionaba en streaming (= no funcionaba en Claude Code)
 - **Causa raíz de la pérdida de calidad**: la interceptación de `squeezr_expand` (`handleAnthropicExpandCall`) solo corría en respuestas NO-streaming. Claude Code (y casi todos los CLIs) usan `stream:true`, y esa rama reenvía el SSE crudo y retorna antes de interceptar. El proxy inyectaba `squeezr_expand` en `tools[]` → el modelo la veía y la llamaba → en streaming ese `tool_use` llegaba a Claude Code, que no tiene handler para ella → error → el modelo se quedaba con el resumen comprimido (degradado) o alucinaba. Además `stats.recordExpand` nunca disparaba en streaming → expand-rate del dashboard = 0 siempre → el quality governor nunca reaccionaba (punto ciego). Todo lo que depende de expand heredaba el fallo: bloques de compresión IA, descripciones de tools en modo EXPAND, y los placeholders de dedup/diff.

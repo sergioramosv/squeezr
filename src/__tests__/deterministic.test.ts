@@ -47,6 +47,32 @@ describe('compactGrepOutput - Windows paths', () => {
   })
 })
 
+// ── Reversibility: lossy deterministic compaction gets an expand pointer ──────
+describe('preprocessForTool - lossy compaction is recoverable', () => {
+  it('appends a squeezr_expand pointer when a huge read is truncated', () => {
+    const big = Array.from({ length: 400 }, (_, i) => `line ${i}`).join('\n')
+    const out = preprocessForTool(big, 'Read')
+    expect(out).toContain('squeezr_expand("')
+    expect(out).toContain('omitted')
+  })
+  it('does NOT append a pointer to a small verbatim read', () => {
+    const small = 'const a = 1\nconst b = 2\n'
+    expect(preprocessForTool(small, 'Read')).toBe(small)
+  })
+  it('appends a pointer when a long bash output is truncated', () => {
+    const log = Array.from({ length: 200 }, (_, i) => `noise output line ${i}`).join('\n')
+    expect(preprocessForTool(log, 'Bash')).toContain('squeezr_expand("')
+  })
+  it('the pointer id round-trips through the expand store', async () => {
+    const big = Array.from({ length: 400 }, (_, i) => `unique-line-${i}`).join('\n')
+    const out = preprocessForTool(big, 'Read')
+    const id = out.match(/squeezr_expand\("([0-9a-f]{6})"\)/)?.[1]
+    expect(id).toBeTruthy()
+    const { retrieveOriginal } = await import('../expand.js')
+    expect(retrieveOriginal(id!)).toBe(big)
+  })
+})
+
 // ── Base pipeline ─────────────────────────────────────────────────────────────
 
 describe('preprocess - base pipeline', () => {
