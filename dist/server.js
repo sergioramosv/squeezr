@@ -11,7 +11,7 @@ import { compressAnthropicMessages, compressOpenAIMessages, compressGeminiConten
 import { isBypassed, setBypassed, toggleBypassed } from './bypass.js';
 import { isAiCompressionEnabled, setAiCompression, toggleAiCompression } from './aiToggle.js';
 import { circuitBreaker } from './circuitBreaker.js';
-import { injectExpandToolAnthropic, injectExpandToolOpenAI, handleAnthropicExpandCall, handleOpenAIExpandCall, retrieveOriginal, expandStoreSize, EXPAND_TOOL_ANTHROPIC_CHARS, } from './expand.js';
+import { injectExpandToolAnthropic, injectExpandToolOpenAI, injectExpandDirectiveAnthropic, injectExpandDirectiveOpenAI, handleAnthropicExpandCall, handleOpenAIExpandCall, retrieveOriginal, expandStoreSize, EXPAND_TOOL_ANTHROPIC_CHARS, } from './expand.js';
 import { compressSystemPrompt } from './systemPrompt.js';
 import { captureRequest } from './requestCapture.js';
 import { dedupSkillBlocks } from './skillDedup.js';
@@ -451,6 +451,10 @@ app.post('/v1/messages', async (c) => {
         + estimateSystemChars(body.system);
     // Inject expand tool (after measurement so its size doesn't distort savings_pct)
     injectExpandToolAnthropic(body);
+    // Inject the expand DIRECTIVE into the system prompt so the instruction sits in
+    // the highest-weight channel (tool description alone was observed to be ignored).
+    // Cache-safe: appends a new trailing block, never mutates cache_control blocks.
+    injectExpandDirectiveAnthropic(body);
     // Attach per-feature savings to the savings object for accurate breakdown reporting
     savings.toolDescSavedChars = toolDescSaved;
     savings.mcpFilterSavedChars = mcpFilterSaved;
@@ -613,8 +617,10 @@ app.post('/v1/chat/completions', async (c) => {
     const oaiCompressedRequestChars = estimateChars(compressedMsgs)
         + estimateChars(body.tools ?? [])
         + estimateSystemChars(body.system);
-    if (!isLocal)
+    if (!isLocal) {
         injectExpandToolOpenAI(body);
+        injectExpandDirectiveOpenAI(body);
+    }
     savings.syspromptSavedChars = oaiSyspromptSaved;
     stats.recordWithProject(oaiProject, originalOaiRequestChars, oaiCompressedRequestChars, savings, oaiCompLatency, oaiClientId, oaiModelId);
     recordRequest(oaiProject, Math.max(0, originalOaiRequestChars - oaiCompressedRequestChars), savings.compressed, savings.byTool, originalOaiRequestChars, oaiModelId, oaiClientId);

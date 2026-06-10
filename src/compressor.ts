@@ -467,7 +467,10 @@ async function runCompression(
 function buildAndCache(original: string, result: string): { fullString: string; savedChars: number; overheadChars: number } {
   const ratio = Math.round((1 - result.length / Math.max(original.length, 1)) * 100)
   const id = storeOriginal(original)
-  const fullString = `[squeezr:${id} -${ratio}%] ${result}`
+  // Self-instructing marker: the breadcrumb at the point of use. Names the verb and
+  // repeats the ID so the model can call expand directly. Still starts with
+  // `[squeezr:` so toolResultDedup's already-compressed guard keeps matching.
+  const fullString = `[squeezr:${id} -${ratio}% — squeezr_expand("${id}") for full exact text] ${result}`
   const overheadChars = fullString.length - result.length  // tag overhead
   // Real savings: original minus what's actually sent (fullString, including tag)
   const savedChars = original.length - fullString.length

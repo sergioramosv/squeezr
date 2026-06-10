@@ -6,9 +6,79 @@ import {
   clearExpandStore,
   injectExpandToolAnthropic,
   injectExpandToolOpenAI,
+  injectExpandDirectiveAnthropic,
+  injectExpandDirectiveOpenAI,
   handleAnthropicExpandCall,
   handleOpenAIExpandCall,
+  EXPAND_DIRECTIVE_SENTINEL,
+  EXPAND_TOOL_DESCRIPTION,
 } from '../expand.js'
+
+describe('expand tool description (forceful)', () => {
+  it('is imperative and names squeezr_expand + the no-guess rule', () => {
+    expect(EXPAND_TOOL_DESCRIPTION).toMatch(/MUST call squeezr_expand/)
+    expect(EXPAND_TOOL_DESCRIPTION).toMatch(/NEVER guess|do not guess|never guess/i)
+  })
+})
+
+describe('injectExpandDirectiveAnthropic', () => {
+  it('appends a NEW trailing block and never mutates existing cache_control blocks', () => {
+    const cached = { type: 'text', text: 'SYSTEM CORE', cache_control: { type: 'ephemeral' } }
+    const body: Record<string, unknown> = { system: [cached] }
+    const before = JSON.stringify(cached)
+    injectExpandDirectiveAnthropic(body)
+    const sys = body.system as Array<{ type?: string; text?: string }>
+    // The original cached block is byte-for-byte identical (cache stays valid)
+    expect(JSON.stringify(sys[0])).toBe(before)
+    // A new trailing directive block was added without cache_control
+    expect(sys.length).toBe(2)
+    expect(sys[1].text).toContain(EXPAND_DIRECTIVE_SENTINEL)
+    expect(sys[1]).not.toHaveProperty('cache_control')
+  })
+
+  it('is idempotent (does not add the directive twice)', () => {
+    const body: Record<string, unknown> = { system: [{ type: 'text', text: 'core' }] }
+    injectExpandDirectiveAnthropic(body)
+    injectExpandDirectiveAnthropic(body)
+    const sys = body.system as unknown[]
+    expect(sys.length).toBe(2)
+  })
+
+  it('handles string system prompts', () => {
+    const body: Record<string, unknown> = { system: 'you are a coding agent' }
+    injectExpandDirectiveAnthropic(body)
+    expect(body.system as string).toContain(EXPAND_DIRECTIVE_SENTINEL)
+    // idempotent on strings too
+    const after = body.system
+    injectExpandDirectiveAnthropic(body)
+    expect(body.system).toBe(after)
+  })
+
+  it('creates a system prompt when none exists', () => {
+    const body: Record<string, unknown> = {}
+    injectExpandDirectiveAnthropic(body)
+    expect(body.system as string).toContain(EXPAND_DIRECTIVE_SENTINEL)
+  })
+})
+
+describe('injectExpandDirectiveOpenAI', () => {
+  it('appends to an existing system message, idempotently', () => {
+    const body: Record<string, unknown> = { messages: [{ role: 'system', content: 'rules' }, { role: 'user', content: 'hi' }] }
+    injectExpandDirectiveOpenAI(body)
+    const msgs = body.messages as Array<{ role: string; content: string }>
+    expect(msgs[0].content).toContain(EXPAND_DIRECTIVE_SENTINEL)
+    injectExpandDirectiveOpenAI(body)
+    expect((msgs[0].content.match(new RegExp(EXPAND_DIRECTIVE_SENTINEL.replace(/[[\]/]/g, '\\$&'), 'g')) ?? []).length).toBe(1)
+  })
+
+  it('prepends a system message when none exists', () => {
+    const body: Record<string, unknown> = { messages: [{ role: 'user', content: 'hi' }] }
+    injectExpandDirectiveOpenAI(body)
+    const msgs = body.messages as Array<{ role: string; content: string }>
+    expect(msgs[0].role).toBe('system')
+    expect(msgs[0].content).toContain(EXPAND_DIRECTIVE_SENTINEL)
+  })
+})
 
 describe('storeOriginal / retrieveOriginal', () => {
   beforeEach(() => clearExpandStore())

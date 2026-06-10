@@ -1,5 +1,13 @@
 # Changelog
 All notable changes to Squeezr will be documented here.
+## [1.80.9] - 2026-06-10
+### Changed — squeezr_expand mucho más insistente (la descripción pasiva se ignoraba)
+- **Problema**: el único canal que le decía a Claude que usara `squeezr_expand` era la descripción de la tool, redactada de forma pasiva ("use this when you need more detail"). En la práctica el modelo trabajaba sobre el resumen comprimido en lugar de expandir → pérdida de fidelidad cuando hacía falta el contenido exacto (editar código, citar un error, leer un valor, aplicar un diff).
+- **3 canales reforzados (todos cache-safe)**:
+  1. **Descripción de la tool** reescrita en imperativo: nombra los disparadores exactos ("MUST call squeezr_expand antes de fiarte del contenido exacto") y la regla "NEVER guess/reconstruct from the summary". Compartida entre Anthropic y OpenAI.
+  2. **Directiva en el system prompt** (`injectExpandDirectiveAnthropic`/`OpenAI`): la instrucción va al canal de mayor peso. **Cache-safe por construcción**: añade un bloque de texto NUEVO al final, nunca muta los bloques con `cache_control` → el prefijo cacheado sigue byte-idéntico → el cache de Anthropic sigue acertando. Idempotente vía sentinel.
+  3. **Marcador inline** ahora auto-explicativo: `[squeezr:ID -N% — squeezr_expand("ID") for full exact text]` (antes solo `[squeezr:ID -N%]`). Sigue empezando por `[squeezr:` para que el guard de `toolResultDedup` lo detecte.
+- Tests: 7 nuevos (descripción imperativa, cache-safety = no muta bloques con cache_control, idempotencia, string/array/sin-system, OpenAI). Suite sin regresiones.
 ## [1.80.8] - 2026-06-10
 ### Fixed — falso positivo de lockfile borraba ficheros fuente enteros (pérdida irreversible)
 - **Bug**: `looksLikeLockfile()` devolvía `true` con que el texto *contuviera una vez* `integrity sha`, `"resolved"` o `# yarn lockfile`. Cualquier fichero que solo *mencione* esas cadenas —código, docs, tests, y de forma irónica el propio `deterministic.ts` que las define como patrones— se clasificaba como lockfile y se sustituía por `[lockfile — N lines, ~0 packages — omitted]`. La rama lockfile no guarda copia para `squeezr_expand`, así que el contenido se perdía de forma **irreversible** (Claude se quedaba sin el fichero). Detectado en dogfooding al leer `src/deterministic.ts` (1014 líneas) → omitido entero con "~0 packages" (un lockfile real tiene cientos).

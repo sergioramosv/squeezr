@@ -67,11 +67,26 @@ export function persistExpandStore(): void {
 
 // ── Tool definitions ──────────────────────────────────────────────────────────
 
+// Shared, deliberately FORCEFUL description. Squeezr replaces large tool results
+// with lossy summaries marked `[squeezr:ID -N%]`. If the model works from the
+// summary when it actually needed the exact bytes (editing code, quoting an error,
+// reading a value, applying a diff), it produces wrong output. So the description
+// is imperative and names the exact triggers — passive wording ("use when you need
+// more detail") was observed to be ignored.
+export const EXPAND_TOOL_DESCRIPTION =
+  'Retrieve the FULL, exact original text of a Squeezr-compressed tool result. ' +
+  'Squeezr replaces large tool outputs with a lossy summary tagged `[squeezr:ID -N%]` ' +
+  '(ID = 6 hex chars; -N% = how much was removed). The summary OMITS detail. ' +
+  'You MUST call squeezr_expand(ID) before relying on the exact contents of any such ' +
+  'result — e.g. editing/quoting code precisely, copying an error or log line verbatim, ' +
+  'reading exact values/IDs/paths, or applying a diff. NEVER guess, reconstruct, ' +
+  'paraphrase, or approximate compressed content from its summary — expand it. ' +
+  'Expansion is instant and free (served from a local store, no model/API cost). ' +
+  'If a higher -N% is shown, more was removed, so expanding matters more.'
+
 export const EXPAND_TOOL_ANTHROPIC = {
   name: 'squeezr_expand',
-  description:
-    'Retrieve the full original content of a Squeezr-compressed tool result. ' +
-    'Use this when you need more detail than the compressed summary provides.',
+  description: EXPAND_TOOL_DESCRIPTION,
   input_schema: {
     type: 'object',
     properties: {
@@ -120,6 +135,69 @@ export function injectExpandToolOpenAI(body: Record<string, unknown>): void {
     (t) => (t as { function?: { name?: string } }).function?.name === 'squeezr_expand',
   )
   if (!already) tools.push(EXPAND_TOOL_OPENAI)
+}
+
+// ── System-prompt directive ────────────────────────────────────────────────────
+// A tool description alone was observed to be too weak — the model ignored the
+// compressed markers and worked from summaries. This directive is added to the
+// system prompt so the instruction sits in the highest-weight channel. A unique
+// sentinel makes injection idempotent and detectable.
+export const EXPAND_DIRECTIVE_SENTINEL = '[Squeezr/expand-directive]'
+export const SYSTEM_EXPAND_DIRECTIVE =
+  `${EXPAND_DIRECTIVE_SENTINEL} Some tool results below are compressed to save tokens and ` +
+  'tagged `[squeezr:ID -N%]` — these are LOSSY summaries that omit detail. The moment you ' +
+  'need the exact contents of one (to edit or quote code precisely, copy an error/log line ' +
+  'verbatim, read an exact value/path/ID, or apply a diff), you MUST call the squeezr_expand ' +
+  'tool with that ID and use the returned text — do NOT guess, paraphrase, or reconstruct ' +
+  'compressed content from its summary. Expansion is instant and free.'
+
+export const SYSTEM_EXPAND_DIRECTIVE_CHARS = SYSTEM_EXPAND_DIRECTIVE.length
+
+/**
+ * Append the expand directive to an Anthropic request's system prompt.
+ *
+ * Cache-safe by construction: it appends a NEW trailing text block and never
+ * mutates existing blocks, so any block carrying `cache_control` stays byte-for-byte
+ * identical → Anthropic's prefix cache keeps hitting. The new block has no
+ * cache_control, so it sits in the cheap post-barrier tail. Idempotent via sentinel.
+ * Returns chars added (0 if already present / no system to attach to).
+ */
+export function injectExpandDirectiveAnthropic(body: Record<string, unknown>): number {
+  const sys = body.system
+  if (typeof sys === 'string') {
+    if (sys.includes(EXPAND_DIRECTIVE_SENTINEL)) return 0
+    body.system = sys + '\n\n' + SYSTEM_EXPAND_DIRECTIVE
+    return SYSTEM_EXPAND_DIRECTIVE.length + 2
+  }
+  if (Array.isArray(sys)) {
+    const blocks = sys as Array<{ type?: string; text?: string }>
+    if (blocks.some(b => b.type === 'text' && typeof b.text === 'string' && b.text.includes(EXPAND_DIRECTIVE_SENTINEL))) return 0
+    blocks.push({ type: 'text', text: SYSTEM_EXPAND_DIRECTIVE })
+    return SYSTEM_EXPAND_DIRECTIVE.length
+  }
+  // No system prompt at all — create one so the directive still lands.
+  if (sys === undefined) {
+    body.system = SYSTEM_EXPAND_DIRECTIVE
+    return SYSTEM_EXPAND_DIRECTIVE.length
+  }
+  return 0
+}
+
+/** OpenAI variant: prepend the directive to the system/developer message (or add one). */
+export function injectExpandDirectiveOpenAI(body: Record<string, unknown>): number {
+  const msgs = body.messages as Array<{ role?: string; content?: unknown }> | undefined
+  if (!Array.isArray(msgs)) return 0
+  const sysMsg = msgs.find(m => m.role === 'system' || m.role === 'developer')
+  if (sysMsg && typeof sysMsg.content === 'string') {
+    if (sysMsg.content.includes(EXPAND_DIRECTIVE_SENTINEL)) return 0
+    sysMsg.content = sysMsg.content + '\n\n' + SYSTEM_EXPAND_DIRECTIVE
+    return SYSTEM_EXPAND_DIRECTIVE.length + 2
+  }
+  if (!sysMsg) {
+    msgs.unshift({ role: 'system', content: SYSTEM_EXPAND_DIRECTIVE })
+    return SYSTEM_EXPAND_DIRECTIVE.length
+  }
+  return 0
 }
 
 // ── Response interception ─────────────────────────────────────────────────────

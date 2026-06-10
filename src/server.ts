@@ -20,6 +20,8 @@ import { circuitBreaker } from './circuitBreaker.js'
 import {
   injectExpandToolAnthropic,
   injectExpandToolOpenAI,
+  injectExpandDirectiveAnthropic,
+  injectExpandDirectiveOpenAI,
   handleAnthropicExpandCall,
   handleOpenAIExpandCall,
   retrieveOriginal,
@@ -498,6 +500,10 @@ body.messages = compressedMsgs
 
   // Inject expand tool (after measurement so its size doesn't distort savings_pct)
   injectExpandToolAnthropic(body)
+  // Inject the expand DIRECTIVE into the system prompt so the instruction sits in
+  // the highest-weight channel (tool description alone was observed to be ignored).
+  // Cache-safe: appends a new trailing block, never mutates cache_control blocks.
+  injectExpandDirectiveAnthropic(body)
 
   // Attach per-feature savings to the savings object for accurate breakdown reporting
   savings.toolDescSavedChars = toolDescSaved
@@ -674,7 +680,7 @@ const messages = (body.messages ?? []) as unknown[]
   const oaiCompressedRequestChars = estimateChars(compressedMsgs)
     + estimateChars(body.tools ?? [])
     + estimateSystemChars(body.system)
-  if (!isLocal) injectExpandToolOpenAI(body)
+  if (!isLocal) { injectExpandToolOpenAI(body); injectExpandDirectiveOpenAI(body) }
   savings.syspromptSavedChars = oaiSyspromptSaved
   stats.recordWithProject(oaiProject, originalOaiRequestChars, oaiCompressedRequestChars, savings, oaiCompLatency, oaiClientId, oaiModelId)
   recordRequest(oaiProject, Math.max(0, originalOaiRequestChars - oaiCompressedRequestChars), savings.compressed, savings.byTool, originalOaiRequestChars, oaiModelId, oaiClientId)
