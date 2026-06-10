@@ -1,5 +1,11 @@
 # Changelog
 All notable changes to Squeezr will be documented here.
+## [1.80.8] - 2026-06-10
+### Fixed — falso positivo de lockfile borraba ficheros fuente enteros (pérdida irreversible)
+- **Bug**: `looksLikeLockfile()` devolvía `true` con que el texto *contuviera una vez* `integrity sha`, `"resolved"` o `# yarn lockfile`. Cualquier fichero que solo *mencione* esas cadenas —código, docs, tests, y de forma irónica el propio `deterministic.ts` que las define como patrones— se clasificaba como lockfile y se sustituía por `[lockfile — N lines, ~0 packages — omitted]`. La rama lockfile no guarda copia para `squeezr_expand`, así que el contenido se perdía de forma **irreversible** (Claude se quedaba sin el fichero). Detectado en dogfooding al leer `src/deterministic.ts` (1014 líneas) → omitido entero con "~0 packages" (un lockfile real tiene cientos).
+- **Arreglo**: la firma debe ser **dominante**, no estar presente una vez. Ahora se exige `integrity sha` o `resolved`/`"resolved":` ≥10 ocurrencias (un lockfile real las repite en cada dependencia), y el header `# yarn lockfile` solo cuenta si encabeza el fichero (primeros 64 chars). Un fichero fuente que menciona los patrones una vez ya no se borra; los lockfiles reales se siguen resumiendo.
+- Test de regresión añadido: un fichero fuente de 600 líneas con las firmas mencionadas una vez NO se clasifica como lockfile (sí pasa por extracción semántica de estructura, que conserva las firmas).
+
 ## [1.80.7] - 2026-06-09
 ### Changed — defaults seguros: la IA nunca gasta tokens al actualizar sin querer
 - **Backend por defecto `auto` → `local`** (Zest, gratis). `auto` enrutaba a Haiku en Claude Code → con una key de pago podía facturar al actualizar. Ahora el default nunca es un backend cloud de pago; Haiku/GPT/Gemini son opt-in explícito (`backend = "haiku" | "gpt-mini" | "gemini-flash"`).

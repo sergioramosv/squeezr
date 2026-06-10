@@ -907,7 +907,18 @@ const READ_HEAD_LINES = 100
 const READ_TAIL_LINES = 80
 
 function looksLikeLockfile(text: string): boolean {
-  return text.includes('integrity sha') || text.includes('"resolved"') || text.includes('# yarn lockfile')
+  // A genuine lockfile repeats its resolution signature on nearly every
+  // dependency — hundreds of times. Source files, docs and tests that merely
+  // *mention* `"resolved"` or `integrity sha` once (e.g. this very file, which
+  // contains the patterns below as string literals) must NOT be misclassified:
+  // the lockfile branch is destructive (it keeps no expand copy), so a false
+  // positive deletes real content irreversibly. Require the signature to be
+  // DOMINANT, not merely present. The yarn header is authoritative only when it
+  // leads the file.
+  if (text.slice(0, 64).includes('# yarn lockfile')) return true
+  const integrity = (text.match(/integrity sha/g) ?? []).length
+  const resolved = (text.match(/"resolved":|resolved "/g) ?? []).length
+  return integrity >= 10 || resolved >= 10
 }
 
 // Detect source language from first 30 lines of content

@@ -459,6 +459,22 @@ describe('preprocessForTool - Read tool', () => {
     expect(out).toContain('omitted')
     expect(out.length).toBeLessThan(lockfile.length / 10)
   })
+
+  it('does NOT misclassify a source file that merely mentions lockfile patterns', () => {
+    // Regression: a 600-line source file that contains the lockfile signature
+    // strings ONCE (as the detector's own patterns) must not be nuked as a
+    // lockfile. Real harm: this destroys content with no expand copy.
+    const src = [
+      `function looksLikeLockfile(text) {`,
+      `  return text.includes('integrity sha') || text.includes('"resolved"') || text.includes('# yarn lockfile')`,
+      `}`,
+      ...Array.from({ length: 600 }, (_, i) => `const value${i} = compute(${i})`),
+    ].join('\n')
+    const out = preprocessForTool(src, 'Read')
+    expect(out).not.toContain('lockfile —') // not the lockfile-omitted summary
+    // It is a >500-line TS file → semantic structure extraction keeps signatures
+    expect(out).toContain('looksLikeLockfile')
+  })
 })
 
 // ── Glob tool ─────────────────────────────────────────────────────────────────
