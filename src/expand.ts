@@ -24,12 +24,37 @@ const EXPAND_STORE_PATH = join(homedir(), '.squeezr', 'expand_store.json')
 
 const store = new Map<string, string>()
 
+// The expand store is ALL-TIME and persisted, so it accumulates across every
+// session. Two consequences this guards against:
+//  1. Collisions: a 6-hex id has only 16.7M values; by the birthday paradox the
+//     store WILL eventually have two different originals share a 6-char id, and the
+//     second would silently overwrite the first → expand(id) returns the WRONG
+//     content. storeOriginal extends the id when it would collide with DIFFERENT
+//     content, so a given id never maps to two originals.
+//  2. Unbounded growth: capped via FIFO/LRU eviction.
+const MAX_EXPAND_ENTRIES = 5000
+
 export function storeOriginal(original: string): string {
-  // Deterministic ID: same content always gets the same ID.
-  // This is required for KV cache warming — random IDs would produce different
-  // bytes on each request even for identical content, breaking Anthropic's prefix cache.
-  const id = createHash('md5').update(original).digest('hex').slice(0, 6)
+  // Deterministic ID: same content always gets the same ID. Required for KV cache
+  // warming — a varying id would change the prefix bytes each request and break
+  // Anthropic's prompt cache. The 6-char prefix is kept for ~all content; it only
+  // grows on a genuine collision (a tiny fraction = store-occupied fraction), so
+  // determinism (hence cache-safety) holds in practice.
+  const full = createHash('md5').update(original).digest('hex')
+  let id = full.slice(0, 6)
+  while (store.has(id) && store.get(id) !== original && id.length < full.length) {
+    id = full.slice(0, id.length + 2)
+  }
+  // delete+set so a re-stored (still-active) block moves to the end → LRU-on-write:
+  // blocks referenced by the current conversation are re-stored every request and
+  // thus survive; only stale cross-session blocks sit at the front and evict first.
+  store.delete(id)
   store.set(id, original)
+  while (store.size > MAX_EXPAND_ENTRIES) {
+    const oldest = store.keys().next().value
+    if (oldest === undefined) break
+    store.delete(oldest)
+  }
   return id
 }
 

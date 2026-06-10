@@ -14,6 +14,29 @@ import {
   EXPAND_TOOL_DESCRIPTION,
 } from '../expand.js'
 
+describe('storeOriginal — collision-safety + bounded store', () => {
+  beforeEach(() => clearExpandStore())
+  it('is idempotent: same content → same id, retrievable', () => {
+    const a = storeOriginal('the quick brown fox '.repeat(50))
+    const b = storeOriginal('the quick brown fox '.repeat(50))
+    expect(a).toBe(b)
+    expect(retrieveOriginal(a)).toBe('the quick brown fox '.repeat(50))
+  })
+  it('different contents are each retrievable correctly (no cross-contamination)', () => {
+    const ids = new Map<string, string>()
+    for (let i = 0; i < 500; i++) {
+      const content = `unique content number ${i} ` + 'x'.repeat(i)
+      ids.set(storeOriginal(content), content)
+    }
+    for (const [id, content] of ids) expect(retrieveOriginal(id)).toBe(content)
+  })
+  it('bounds the store (FIFO eviction past the cap)', () => {
+    for (let i = 0; i < 5200; i++) storeOriginal(`entry-${i}-${'y'.repeat(20)}`)
+    expect(expandStoreSize()).toBeLessThanOrEqual(5000)
+    // the most recently stored is still present; the oldest evicted
+    expect(retrieveOriginal(storeOriginal('entry-5199-' + 'y'.repeat(20)))).toBeTruthy()
+  })
+})
 describe('expand tool description (forceful)', () => {
   it('is imperative and names squeezr_expand + the no-guess rule', () => {
     expect(EXPAND_TOOL_DESCRIPTION).toMatch(/MUST call squeezr_expand/)

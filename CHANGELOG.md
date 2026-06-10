@@ -1,5 +1,11 @@
 # Changelog
 All notable changes to Squeezr will be documented here.
+## [1.80.15] - 2026-06-10
+### Fixed — 🟠 colisiones de id en el expand store (expand devolvía contenido EQUIVOCADO) + store sin límite
+- **Descubierto** al ver 2538 entradas en `~/.squeezr/expand_store.json` (9.2 MB, todas con id de 6 hex). El store es de TODAS las sesiones y nunca se purgaba. Un id de 6 hex solo tiene 16.7M valores → por la paradoja del cumpleaños, a 2538 entradas la probabilidad de que dos originales DISTINTOS compartan id es **17.5%** (y sube al crecer). Cuando colisionan, el segundo sobreescribe al primero → `squeezr_expand(id)` devuelve el contenido equivocado. Bug de calidad silencioso.
+- **Arreglo (`storeOriginal`)**: si un id de 6 chars ya apunta a contenido DISTINTO, se extiende (8, 10, … hex) hasta ser único → un id nunca mapea a dos originales. Se mantiene 6 chars para ~todo el contenido (solo crece en colisión real, fracción ínfima), así el id sigue siendo determinístico y cache-safe.
+- **Store acotado**: cap LRU de 5000 entradas (FIFO con re-inserción en escritura → los bloques de la conversación activa se re-guardan cada request y sobreviven; solo se evictan los viejos de otras sesiones). Antes crecía sin límite (camino a cientos de MB).
+- Las colisiones ya ocurridas en el store histórico no se pueden deshacer (el original sobreescrito se perdió en su día), pero a partir de ahora ningún expand devuelve contenido ajeno. 3 tests nuevos (idempotencia, no-cross-contamination con 500 entradas, eviction del cap).
 ## [1.80.14] - 2026-06-10
 ### Fixed — el resultado de squeezr_expand ya no se vuelve a comprimir (blindaje del expand)
 - Tras 1.80.11 el modelo recupera el original llamando a la tool MCP `squeezr_expand`. Pero ese resultado vuelve como tool_result y, en el siguiente turno, el proxy lo re-procesaba: la compactación determinística (o, con IA on, el paso de IA) podía re-truncarlo/re-resumirlo → el modelo expandía y aun así recibía algo recortado, o entraba en bucle de re-expansión.
