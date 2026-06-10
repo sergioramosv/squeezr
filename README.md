@@ -51,7 +51,13 @@ Every request passes through Squeezr on `localhost:8080`. Compression layers, in
 4. **Deterministic preprocessing** — zero-latency regex rules on every tool result: ANSI/progress-bar/timestamp stripping, line dedup, JSON minification, plus ~30 tool-specific patterns (git, vitest/jest, tsc, eslint, cargo, pytest, docker, kubectl, gh…). Byte-stable → cache-safe.
 5. **Cross-turn dedup & diff-reads** — repeated tool outputs collapse to references; repeated file reads become diffs against the latest read. (Only past the cache barrier.)
 6. **Stale-turn summarization** — conversations >40 turns get old assistant prose collapsed to keyword summaries. (Only for clients without prompt caching.)
-7. **AI compression** (opt-in, off by default) — blocks ≥1500 chars summarized by a small model. Measured on real data: 75–91% compression on large blocks. Backends: **Zest (local, free, deterministic)**, Haiku, GPT-4o-mini, Gemini Flash. Guarded by a rate limiter (20 calls/5 min), a persistent on/off toggle, and the cache barrier.
+7. **AI compression** (opt-in, off by default) — old blocks above the AI floor (~1000 chars, auto-raised by the quality governor) summarized by a small model. Backends: **Zest (local, free, deterministic)**, Haiku, GPT-4o-mini, Gemini Flash. Heavily guarded so it only ever helps:
+   - **Structured-data guard** — JSON / JSONL / record dumps / tables are *never* AI-rewritten (a model can silently blank a field value); they stay in their deterministic form. Prose/logs still get compressed.
+   - **Compressibility probe** — a one-shot `deflate` estimate skips already-dense blocks (path/error/test dumps) that wouldn't beat the min-ratio, so no wasted backend calls.
+   - **Acceptance guardrail + retry-with-correction** — every AI result is validated; if it dropped a critical token (path/URL/error code) the model is re-prompted with the exact tokens to restore, else the result is rejected and the deterministic form is kept. Nothing that loses a hard token is ever used.
+   - **Quality governor** — watches expand-rate and guard-reject-rate and auto-raises the min block size (or pauses) when quality dips.
+   - **Backend-aware limits** — local Zest is free → no rate limit, generous timeout, processed sequentially (Ollama serialises anyway). Cloud backends keep a hard cap (20 calls/5 min) and a short timeout to protect spend.
+   - Plus the persistent on/off toggle and the cache barrier.
 
 ### Recovery: nothing is ever lost
 
@@ -67,7 +73,7 @@ Compression aggressiveness scales with context usage: <50% → light (1500-char 
 
 | Page | What it shows |
 |------|---------------|
-| **Overview** | All-time tokens saved (single source of truth), ratio + per-request average, cost saved, Top Tools (real per-tool block counts), Session Cache (AI layer), AI Compression card (calls / saved / spent / net), **Prompt Cache health** (read vs creation + hit %), Savings by type (per-technique breakdown), by model (incl. what compression backends spend), by client, compression mode + **Bypass / AI Compression toggles** |
+| **Overview** | **Today-scoped** (resets at midnight): tokens saved, two honest ratios — **% of total sent today** and **% of the last request** (changes every turn), cost comparison (today), Cost/Savings-by-type breakdown (today), Top Tools, Session Cache, AI Compression card (calls / saved / spent / net), **Prompt Cache health** (read vs creation + hit %, **persisted across restarts**), by model / by client, compression mode + **Bypass / AI Compression toggles** |
 | **Savings** | Day / Week / Month / All-time filters with period navigation — per-period tokens, cost, sessions, charts, By Model / By Client / Top Tools / AI Compression / Session Cache, all persisted across restarts |
 | **Settings** | Client base-URL reference, ports, version/uptime, bypass & circuit breaker state, **AI Compression on/off**, **Restart / Stop buttons**, update check |
 
@@ -76,11 +82,13 @@ Compression aggressiveness scales with context usage: <50% → light (1500-char 
 Squeezr sits in the critical path. It is designed to never break your workflow — and never burn your plan:
 
 - **Bypass mode (persisted)** — one click/command disables all compression; survives restarts. The emergency stop.
-- **AI compression master switch (persisted, default OFF)** — with a subscription OAuth token, AI compression calls bill against *your own plan*; only enable it with a separately billed API key or the free local Zest backend.
-- **AI rate limiter** — hard cap of 20 AI calls per 5-minute sliding window, process-global.
-- **AI minimum block size (1500 chars)** — measured on real data: small blocks *expand* under AI compression; Squeezr never AI-compresses them.
+- **AI compression master switch (persisted, default OFF)** — with a subscription OAuth token, AI compression calls bill against *your own plan*; Squeezr refuses to auto-route to Haiku on an OAuth token. Use the free local Zest backend or a separately billed API key.
+- **AI rate limiter (cloud only)** — hard cap of 20 AI calls per 5-minute sliding window for paid cloud backends (protects spend). Local Zest is free → not rate-limited.
+- **AI minimum block size (~1000 chars, governed)** — small blocks can't be compressed without loss; Squeezr never AI-compresses below the floor, and the quality governor raises it automatically if reject/expand rates climb.
+- **Structured-data & compressibility guards** — AI never rewrites structured data (JSON/records → no field corruption), and dense/incompressible blocks skip AI entirely.
+- **Acceptance guardrail + retry-with-correction** — AI output that drops a critical token or doesn't save enough is rejected (after one corrective retry); the deterministic form is kept.
 - **Cache barrier** — unstable passes can't touch the cached prefix (see prompt-cache safety above).
-- **Circuit breaker** — 3 consecutive AI backend failures → AI compression disabled for 60s, deterministic continues.
+- **Circuit breaker + backend-aware timeouts** — 3 consecutive AI backend failures → AI disabled for 60s, deterministic continues. Local calls get a generous timeout and run sequentially (Ollama serialises) so they don't false-timeout.
 - **Atomic persistence** — stats, history, caches and toggles are written atomically (tmp + rename); a crash can't corrupt them.
 - **Self-test on startup** — detects port squatting (the classic `$.speed` Claude Code error), env-var drift, and pipeline issues.
 
@@ -95,7 +103,7 @@ One source of truth (`~/.squeezr/stats.json`, continuous net counters — never 
 
 ## Zest — Squeezr's own compression model
 
-Zest (`zest-0.8b`, fine-tuned from Qwen3.5-0.8B with LoRA) is Squeezr's local compression model: free, runs on CPU via Ollama, and **deterministic in greedy decoding** — which makes AI compression byte-stable and therefore cache-safe. Status: v3 trained (89% eval accuracy), GGUF packaging in progress. Design doc: [docs/REINVENT_AI.md](docs/REINVENT_AI.md)
+Zest (`zest-0.8b`, fine-tuned from Qwen3.5-0.8B with LoRA) is Squeezr's local compression model: free, runs on CPU via Ollama, and **deterministic in greedy decoding** (temperature 0) — which makes AI compression byte-stable and therefore cache-safe. Status: deployed and selectable as the `local` backend (Ollama). Training data is being regenerated against Squeezr's own runtime guard (every example must keep all hard tokens — paths/URLs/error codes — and clear the min-ratio) so the model learns guard-passing compression instead of token-dropping. Design doc: [docs/REINVENT_AI.md](docs/REINVENT_AI.md)
 
 ## MCP server
 
@@ -112,8 +120,10 @@ User config lives at **`~/.squeezr/squeezr.toml`** (survives npm updates). A pro
 threshold = 800              # min chars to compress a tool result
 keep_recent = 3              # recent tool results never touched
 ai_compression = false       # MASTER switch for AI calls — default OFF (see Safety)
+backend = "local"            # auto | local (Zest) | haiku | gpt-mini | gemini-flash
 compress_system_prompt = true
 compress_conversation = true
+compress_assistant_ai = false # AI-compress long old assistant turns (prose-heavy chats)
 stale_turns = true           # auto-disabled when prompt-cache markers are present
 tool_desc_compress = true    # first-paragraph truncation + expand recovery
 tool_desc_expand = true

@@ -209,8 +209,12 @@ this.toolDescCompress = c.tool_desc_compress ?? false
     this.assistantAiMinChars = c.assistant_ai_min_chars ?? 2000
     this.anthropicNativeCompact = c.anthropic_native_compact ?? false  // opt-in beta
     const validBackends = new Set<CompressionBackend>(['auto', 'local', 'haiku', 'gpt-mini', 'gemini-flash'])
-    const backendRaw = (c.backend ?? 'auto') as CompressionBackend
-    this.compressionBackend = validBackends.has(backendRaw) ? backendRaw : 'auto'
+    // Default to the FREE local backend (Zest), never a paid cloud one. With AI
+    // compression off by default this is belt-and-suspenders: even if a user enables
+    // AI, updating to this version can never silently start billing Haiku/GPT/Gemini.
+    // Cloud backends are opt-in only (explicit backend = "haiku" | "gpt-mini" | …).
+    const backendRaw = (c.backend ?? 'local') as CompressionBackend
+    this.compressionBackend = validBackends.has(backendRaw) ? backendRaw : 'local'
     this.dryRun = env('SQUEEZR_DRY_RUN', '') === '1'
     this.skipTools = new Set((c.skip_tools ?? []).map(t => t.toLowerCase()))
     this.onlyTools = new Set((c.only_tools ?? []).map(t => t.toLowerCase()))

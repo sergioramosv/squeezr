@@ -1,5 +1,12 @@
 # Changelog
 All notable changes to Squeezr will be documented here.
+## [1.80.7] - 2026-06-09
+### Changed — defaults seguros: la IA nunca gasta tokens al actualizar sin querer
+- **Backend por defecto `auto` → `local`** (Zest, gratis). `auto` enrutaba a Haiku en Claude Code → con una key de pago podía facturar al actualizar. Ahora el default nunca es un backend cloud de pago; Haiku/GPT/Gemini son opt-in explícito (`backend = "haiku" | "gpt-mini" | "gemini-flash"`).
+- `ai_compression` sigue **OFF por defecto** (ya lo era). Combinado con el backend local por defecto: actualizar a esta versión no puede iniciar gasto de tokens en silencio.
+- README actualizado (estaba desde la 1.46.3): capas de compresión IA con structured-guard / compressibility-probe / guardrail+retry / quality-governor / límites backend-aware; dashboard Overview today-scoped + dos ratios (total hoy / última request); Prompt Cache persistente; estado de Zest; selector de backend y nuevos env (`SQUEEZR_LOCAL_TIMEOUT_MS`, `SQUEEZR_MAX_DEFLATE`).
+### Notes
+- En la instancia de desarrollo se puso `ai_compression = false` en `~/.squeezr/squeezr.toml` hasta que el Zest reentrenado (dataset guard-compliant) esté desplegado — el modelo actual rechaza el 100% (0 ahorro) y solo desperdiciaba llamadas.
 ## [1.80.6] - 2026-06-09
 ### Fixed — timeouts falsos de Zest por concurrencia (compresión local en secuencia)
 - Tras 1.80.5 desaparecieron los "rate limit hit" pero seguían los `AI compression timeout` con Zest. Causa: hasta 5 bloques se comprimían en paralelo (`Promise.allSettled`), pero Ollama **serializa** las peticiones → los últimos esperan en cola y su reloj de timeout (15s) contaba la espera de los anteriores → timeout falso → circuit breaker abierto → IA saltada.
