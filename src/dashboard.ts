@@ -293,6 +293,15 @@ code{font-family:'Cascadia Code','SF Mono',Consolas,monospace;font-size:.9em}
   background:var(--surface3);padding:2px 8px;border-radius:5px;
   border:1px solid var(--border2);color:var(--text)
 }
+.ai-dev-banner{
+  font-size:12.5px;line-height:1.55;color:var(--text2);width:100%;
+  background:rgba(251,191,36,.06);border:1px solid rgba(251,191,36,.25);
+  border-radius:8px;padding:11px 13px
+}
+.ai-dev-banner .ai-dev-title{display:block;margin-bottom:4px;font-weight:700;color:var(--yellow)}
+.ai-risks{margin:0;padding-left:18px;font-size:12px;line-height:1.55;color:var(--text3);display:flex;flex-direction:column;gap:7px}
+.ai-risks li{margin:0}
+.ai-risks strong{color:var(--text2)}
 
 /* ── Action buttons ── */
 .action-btn{padding:7px 18px;border-radius:8px;border:1px solid var(--border2);background:var(--surface2);color:var(--text);font-size:13px;font-family:inherit;cursor:pointer;font-weight:500;transition:all .12s}
@@ -443,7 +452,6 @@ code{font-family:'Cascadia Code','SF Mono',Consolas,monospace;font-size:.9em}
             <button class="mode-btn" data-mode="aggressive" onclick="setMode('aggressive')">Aggressive</button>
             <div class="divider-v"></div>
             <button class="bypass-btn" id="bypass-btn" onclick="toggleBypass()">Toggle Bypass</button>
-            <button class="bypass-btn" id="ai-comp-btn" onclick="toggleAiCompression()" title="AI compression (costs tokens). Off = deterministic only (free)">AI Compression: —</button>
           </div>
         </div>
       </div>
@@ -713,47 +721,11 @@ code{font-family:'Cascadia Code','SF Mono',Consolas,monospace;font-size:.9em}
         </div>
         <div class="settings-row" style="flex-direction:column;align-items:flex-start;gap:4px">
           <div style="display:flex;justify-content:space-between;width:100%;align-items:center">
-            <span class="s-key">AI Compression</span>
-            <button class="action-btn" id="ai-comp-btn-settings" onclick="toggleAiCompression()">—</button>
-          </div>
-          <div style="font-size:12px;color:var(--text3);line-height:1.4">
-            Master switch for AI compression calls (Haiku/GPT/Gemini). When <strong style="color:var(--text2)">off</strong>, only free deterministic compression runs — <em>zero</em> token cost. ⚠️ With a Claude Code subscription token, leaving this <strong style="color:var(--text2)">on</strong> bills compression against your own 5h plan limit. Persists across restarts.
-          </div>
-        </div>
-        <div class="settings-row" style="flex-direction:column;align-items:flex-start;gap:4px">
-          <div style="display:flex;justify-content:space-between;width:100%;align-items:center">
             <span class="s-key">Bypass</span>
             <span class="s-val"><code id="cfg-bypass">—</code></span>
           </div>
           <div style="font-size:12px;color:var(--text3);line-height:1.4">
             When <strong style="color:var(--text2)">enabled</strong>, all requests pass through to the API <em>without compression</em> — useful to check if Squeezr is causing any issue. Stats are still logged. Resets automatically when the proxy restarts.
-          </div>
-        </div>
-        <div class="settings-row" style="flex-direction:column;align-items:flex-start;gap:4px">
-          <div style="display:flex;justify-content:space-between;width:100%;align-items:center">
-            <span class="s-key">Circuit Breaker</span>
-            <span class="s-val"><code id="cfg-cb">—</code></span>
-          </div>
-          <div style="font-size:12px;color:var(--text3);line-height:1.4">
-            Protects against latency spikes. If the local AI compression model (Ollama) fails <strong style="color:var(--text2)">3 times in a row</strong>, it auto-disables AI compression and falls back to deterministic rules only. Returns to normal after 60s without errors. Deterministic compression always stays active.
-          </div>
-        </div>
-        <div class="settings-row" style="flex-direction:column;align-items:flex-start;gap:8px">
-          <div style="display:flex;justify-content:space-between;width:100%;align-items:center;flex-wrap:wrap;gap:6px">
-            <span class="s-key">Compression backend</span>
-            <div style="display:flex;gap:4px;flex-wrap:wrap">
-              <button class="mode-btn" data-backend="local"        onclick="setBackend('local')">⚡ Zest (local · free)</button>
-              <button class="mode-btn" data-backend="haiku"        onclick="setBackend('haiku')">Haiku (API · billed)</button>
-              <button class="mode-btn" data-backend="auto"         onclick="setBackend('auto')">Auto</button>
-              <button class="mode-btn" data-backend="gpt-mini"     onclick="setBackend('gpt-mini')">GPT-4o-mini</button>
-              <button class="mode-btn" data-backend="gemini-flash" onclick="setBackend('gemini-flash')">Gemini Flash</button>
-            </div>
-          </div>
-          <div style="font-size:12px;color:var(--text3);line-height:1.4">
-            Las dos formas de AI compression: <strong style="color:var(--brand2)">⚡ Zest</strong> comprime con el modelo local vía Ollama — gratis, sin red, no consume tu cuota. <strong style="color:var(--text2)">Haiku</strong> comprime con la API de Anthropic. El resto fuerza ese modelo. La elección se guarda en <code>squeezr.toml</code> y sobrevive reinicios.
-          </div>
-          <div id="backend-warn" style="display:none;font-size:12px;line-height:1.4;color:#fbbf24;background:rgba(251,191,36,.08);border:1px solid rgba(251,191,36,.3);border-radius:8px;padding:8px 10px">
-            ⚠️ <strong>Haiku con suscripción Claude Code (token OAuth):</strong> cada llamada de compresión se factura contra tu cuota del plan de 5h — te lo come en minutos. Squeezr la <strong>bloquea automáticamente</strong> en este caso. Usa <strong>⚡ Zest (local)</strong> para AI compression gratis, o una API key facturada aparte.
           </div>
         </div>
         <div class="settings-row" style="flex-direction:column;align-items:flex-start;gap:8px">
@@ -763,6 +735,73 @@ code{font-family:'Cascadia Code','SF Mono',Consolas,monospace;font-size:.9em}
           </div>
           <div style="font-size:12px;color:var(--text3);line-height:1.4">
             Activa el header <code style="font-size:11px">anthropic-beta: compact-2026-01-12</code>. Cuando el contexto excede el threshold, Anthropic <strong style="color:var(--text2)">resume tu conversación automáticamente en sus servidores</strong>. Stacks con la compresión de Squeezr — comprimes primero, ellos resumen lo que queda. <strong>Solo Claude</strong> (no afecta OpenAI/Gemini). Reseteable.
+          </div>
+        </div>
+      </div>
+
+      <!-- ── AI Compression (apartado dedicado) ── -->
+      <div class="settings-block">
+        <div class="settings-head">AI Compression <span style="font-size:10px;background:rgba(251,191,36,.12);color:var(--yellow);padding:1px 6px;border-radius:3px;margin-left:4px">experimental · en desarrollo</span></div>
+
+        <!-- Estado de desarrollo -->
+        <div class="settings-row" style="flex-direction:column;align-items:flex-start">
+          <div class="ai-dev-banner">
+            <span class="ai-dev-title">🚧 Todavía no rinde en producción — desactivada por defecto.</span>
+            La compresión por IA aún no aporta ahorro neto real. El modelo local <strong>Zest</strong> aprendió a recortar tokens "duros" (rutas, códigos de error, IDs) que el guard de runtime rechaza, así que hoy el guard tumba casi todas sus salidas → ~0 de ahorro. Lo estamos <strong>reentrenando con un dataset guard-compliant</strong> (Zest v4) usando un port fiel del validador. Mientras tanto la <strong>compresión determinística</strong> —gratis y siempre activa— es la que hace el trabajo de verdad. Enciende esto solo si quieres experimentar.
+          </div>
+        </div>
+
+        <!-- Toggle maestro -->
+        <div class="settings-row" style="flex-direction:column;align-items:flex-start;gap:4px">
+          <div style="display:flex;justify-content:space-between;width:100%;align-items:center">
+            <span class="s-key">Activar AI Compression</span>
+            <button class="action-btn" id="ai-comp-btn-settings" onclick="toggleAiCompression()">—</button>
+          </div>
+          <div style="font-size:12px;color:var(--text3);line-height:1.4">
+            Interruptor maestro de las llamadas de compresión por IA. En <strong style="color:var(--text2)">off</strong> solo corre la determinística (coste cero de tokens). Persiste entre reinicios. La determinística sigue activa pase lo que pase.
+          </div>
+        </div>
+
+        <!-- Qué puedes usar hoy -->
+        <div class="settings-row" style="flex-direction:column;align-items:flex-start;gap:8px">
+          <div style="display:flex;justify-content:space-between;width:100%;align-items:center;flex-wrap:wrap;gap:6px">
+            <span class="s-key">Qué puedes usar hoy</span>
+            <div style="display:flex;gap:4px;flex-wrap:wrap">
+              <button class="mode-btn" data-backend="local"        onclick="setBackend('local')">⚡ Zest (local · free)</button>
+              <button class="mode-btn" data-backend="haiku"        onclick="setBackend('haiku')">Haiku (API · billed)</button>
+              <button class="mode-btn" data-backend="auto"         onclick="setBackend('auto')">Auto</button>
+              <button class="mode-btn" data-backend="gpt-mini"     onclick="setBackend('gpt-mini')">GPT-4o-mini</button>
+              <button class="mode-btn" data-backend="gemini-flash" onclick="setBackend('gemini-flash')">Gemini Flash</button>
+            </div>
+          </div>
+          <div style="font-size:12px;color:var(--text3);line-height:1.4">
+            <strong style="color:var(--brand2)">⚡ Zest (local · gratis):</strong> comprime con el modelo local vía Ollama — sin red, sin coste, no toca tu cuota. Es la opción recomendada para experimentar (aunque hoy aún rinde poco, ver arriba).<br>
+            <strong style="color:var(--text2)">Haiku / GPT-4o-mini / Gemini Flash (API):</strong> comprimen con un modelo en la nube. Más calidad de resumen, pero <em>cuestan</em>: o una API key facturada aparte, o —ojo— tu propia suscripción (ver riesgos). La elección se guarda en <code>squeezr.toml</code> y sobrevive reinicios.
+          </div>
+          <div id="backend-warn" style="display:none;font-size:12px;line-height:1.4;color:#fbbf24;background:rgba(251,191,36,.08);border:1px solid rgba(251,191,36,.3);border-radius:8px;padding:8px 10px">
+            ⚠️ <strong>Haiku con suscripción Claude Code (token OAuth):</strong> cada llamada de compresión se factura contra tu cuota del plan de 5h — te lo come en minutos. Squeezr la <strong>bloquea automáticamente</strong> en este caso. Usa <strong>⚡ Zest (local)</strong> para AI compression gratis, o una API key facturada aparte.
+          </div>
+        </div>
+
+        <!-- Riesgos -->
+        <div class="settings-row" style="flex-direction:column;align-items:flex-start;gap:6px">
+          <span class="s-key">⚠️ Riesgos que debes conocer</span>
+          <ul class="ai-risks">
+            <li><strong>Coste contra tu suscripción:</strong> con un token OAuth de Claude Code, los backends <em>Haiku</em> y <em>Auto</em> facturarían cada compresión contra tu plan de 5h. Squeezr lo bloquea automáticamente, pero por eso aparece el aviso. <strong>Zest local nunca consume cuota.</strong></li>
+            <li><strong>Pérdida de fidelidad:</strong> la IA <em>resume</em> y puede omitir detalle. Los datos estructurados (JSON, JSONL, tablas) están protegidos y nunca pasan por IA, y todo bloque comprimido es recuperable con <code style="font-size:11px">squeezr_expand</code>.</li>
+            <li><strong>Latencia:</strong> cada llamada de IA añade tiempo a la petición. El circuit breaker desactiva la IA tras 3 fallos seguidos y vuelve a determinística.</li>
+            <li><strong>Ahorro negativo en bloques pequeños:</strong> por debajo de ~1.5k caracteres la IA suele <em>expandir</em> en lugar de comprimir; por eso hay un mínimo de tamaño antes de llamarla.</li>
+          </ul>
+        </div>
+
+        <!-- Circuit breaker -->
+        <div class="settings-row" style="flex-direction:column;align-items:flex-start;gap:4px">
+          <div style="display:flex;justify-content:space-between;width:100%;align-items:center">
+            <span class="s-key">Circuit Breaker</span>
+            <span class="s-val"><code id="cfg-cb">—</code></span>
+          </div>
+          <div style="font-size:12px;color:var(--text3);line-height:1.4">
+            Protege contra picos de latencia. Si el modelo de IA falla <strong style="color:var(--text2)">3 veces seguidas</strong>, auto-desactiva la IA y cae a reglas determinísticas. Vuelve a la normalidad tras 60s sin errores. La determinística siempre sigue activa.
           </div>
         </div>
       </div>

@@ -1,5 +1,16 @@
 # Changelog
 All notable changes to Squeezr will be documented here.
+## [1.80.16] - 2026-06-11
+### Changed — dashboard: AI Compression sale del overview y pasa a un apartado dedicado en Settings
+- **Overview**: eliminado el botón `AI Compression: ON/OFF` de la barra de "Compression Mode". La AI compression todavía no rinde en producción (ver 1.80.x / Zest), así que dejarla a un clic en la pantalla principal invitaba a encenderla sin contexto. El badge de estado `AI: on/off` se mantiene como indicador de solo lectura; la determinística (gratis, siempre activa) queda como protagonista.
+- **Settings — nuevo bloque "AI Compression" (experimental · en desarrollo)** que consolida todo lo relacionado con IA, antes disperso en el bloque "Compression":
+  - **Banner de estado de desarrollo**: explica que la IA aún no aporta ahorro neto (Zest aprendió a recortar tokens duros que el guard rechaza → ~0 ahorro) y que se está reentrenando con un dataset guard-compliant (Zest v4).
+  - **Toggle maestro ON/OFF** (movido desde "Compression"): interruptor persistente; en off solo corre la determinística.
+  - **"Qué puedes usar hoy"**: selector de backend (Zest local gratis / Haiku / Auto / GPT-4o-mini / Gemini Flash) con explicación de coste de cada uno + aviso de Haiku-vs-suscripción.
+  - **Riesgos**: lista explícita — coste contra tu suscripción (OAuth), pérdida de fidelidad (estructurados protegidos + `squeezr_expand`), latencia (circuit breaker) y ahorro negativo en bloques pequeños (<1.5k chars).
+  - **Circuit Breaker** movido también aquí (es protección de la capa IA).
+- El bloque "Compression" queda enfocado en lo general/gratis: Mode, Bypass y Anthropic Native Compact.
+- Solo HTML/CSS/JS del dashboard (`src/dashboard.ts`); sin cambios de comportamiento del proxy. Build verde.
 ## [1.80.15] - 2026-06-10
 ### Fixed — 🟠 colisiones de id en el expand store (expand devolvía contenido EQUIVOCADO) + store sin límite
 - **Descubierto** al ver 2538 entradas en `~/.squeezr/expand_store.json` (9.2 MB, todas con id de 6 hex). El store es de TODAS las sesiones y nunca se purgaba. Un id de 6 hex solo tiene 16.7M valores → por la paradoja del cumpleaños, a 2538 entradas la probabilidad de que dos originales DISTINTOS compartan id es **17.5%** (y sube al crecer). Cuando colisionan, el segundo sobreescribe al primero → `squeezr_expand(id)` devuelve el contenido equivocado. Bug de calidad silencioso.
