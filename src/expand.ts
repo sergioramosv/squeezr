@@ -288,7 +288,7 @@ interface OpenAIChoice {
 /** Returns the original content if the Anthropic response contains a squeezr_expand call. */
 export function handleAnthropicExpandCall(
   responseBody: Record<string, unknown>,
-): { toolUseId: string; original: string } | null {
+): { toolUseId: string; original: string; id: string } | null {
   const content = responseBody.content as AnthropicContent[] | undefined
   if (!content) return null
   for (const block of content) {
@@ -296,7 +296,7 @@ export function handleAnthropicExpandCall(
       const id = block.input?.id ?? ''
       const original = retrieveOriginal(id)
       if (original && block.id) {
-        return { toolUseId: block.id, original }
+        return { toolUseId: block.id, original, id }
       }
     }
   }
@@ -306,7 +306,7 @@ export function handleAnthropicExpandCall(
 /** Returns the original content if the OpenAI response contains a squeezr_expand call. */
 export function handleOpenAIExpandCall(
   responseBody: Record<string, unknown>,
-): { toolCallId: string; original: string } | null {
+): { toolCallId: string; original: string; id: string } | null {
   const choices = responseBody.choices as OpenAIChoice[] | undefined
   if (!choices?.[0]) return null
   const toolCalls = choices[0].message?.tool_calls
@@ -315,8 +315,9 @@ export function handleOpenAIExpandCall(
     if (call.function.name === 'squeezr_expand') {
       try {
         const args = JSON.parse(call.function.arguments)
-        const original = retrieveOriginal(args.id ?? '')
-        if (original) return { toolCallId: call.id, original }
+        const id = args.id ?? ''
+        const original = retrieveOriginal(id)
+        if (original) return { toolCallId: call.id, original, id }
       } catch { /* ignore */ }
     }
   }
