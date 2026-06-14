@@ -133,13 +133,20 @@ export function persistExpandStore(): void {
 // is imperative and names the exact triggers — passive wording ("use when you need
 // more detail") was observed to be ignored.
 export const EXPAND_TOOL_DESCRIPTION =
-  'Retrieve the FULL, exact original text of a Squeezr-compressed tool result. ' +
+  'Retrieve the exact original text of a Squeezr-compressed tool result. ' +
   'Squeezr replaces large tool outputs with a lossy summary tagged `[squeezr:ID -N%]` ' +
   '(ID = 6 hex chars; -N% = how much was removed). The summary OMITS detail. ' +
   'You MUST call squeezr_expand(ID) before relying on the exact contents of any such ' +
   'result — e.g. editing/quoting code precisely, copying an error or log line verbatim, ' +
   'reading exact values/IDs/paths, or applying a diff. NEVER guess, reconstruct, ' +
-  'paraphrase, or approximate compressed content from its summary — expand it. ' +
+  'paraphrase, or approximate compressed content from its summary — expand it.\n' +
+  'TWO kinds of expand:\n' +
+  '• WHOLE: squeezr_expand("ID") returns the entire original block.\n' +
+  '• PARTIAL: a compacted block may offer per-part ids written next to each piece, ' +
+  'e.g. a function signature, a per-file diff, or a line range, shown as ' +
+  '`squeezr_expand("ID~2")`. Calling it returns ONLY that part — much cheaper. ' +
+  'Prefer the PART id when you only need that one function/file/range; use the WHOLE ' +
+  'ID only when you truly need everything.\n' +
   'Expansion is instant and free (served from a local store, no model/API cost). ' +
   'If a higher -N% is shown, more was removed, so expanding matters more.'
 
@@ -151,7 +158,7 @@ export const EXPAND_TOOL_ANTHROPIC = {
     properties: {
       id: {
         type: 'string',
-        description: 'The 6-char ID from [squeezr:ID] in the compressed content',
+        description: 'A whole-block id (6 hex, e.g. "a1b2c3") to get the entire original, OR a part id with a ~N suffix (e.g. "a1b2c3~2") shown next to a single function/file/line-range to get ONLY that part',
       },
     },
     required: ['id'],
@@ -166,7 +173,7 @@ export const EXPAND_TOOL_OPENAI = {
     parameters: {
       type: 'object',
       properties: {
-        id: { type: 'string', description: 'The 6-char ID from [squeezr:ID] in the compressed content' },
+        id: { type: 'string', description: 'A whole-block id (6 hex, e.g. "a1b2c3") to get the entire original, OR a part id with a ~N suffix (e.g. "a1b2c3~2") shown next to a single function/file/line-range to get ONLY that part' },
       },
       required: ['id'],
     },
@@ -216,6 +223,8 @@ export const SYSTEM_EXPAND_DIRECTIVE =
   'verbatim, read an exact value/path/ID, or apply a diff), you MUST call the squeezr_expand ' +
   'tool (it may be listed as `mcp__squeezr__squeezr_expand`) with that ID and use the returned ' +
   'text — do NOT guess, paraphrase, or reconstruct compressed content from its summary. ' +
+  'Some markers also expose PART ids like `ID~2` next to a single function, file or line ' +
+  'range — call squeezr_expand("ID~2") to get ONLY that part instead of the whole block. ' +
   'Expansion is instant and free.'
 
 export const SYSTEM_EXPAND_DIRECTIVE_CHARS = SYSTEM_EXPAND_DIRECTIVE.length
