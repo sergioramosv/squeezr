@@ -27,7 +27,7 @@
  *      Glob — compact large file listings into directory summary
  */
 
-import { storeOriginal } from './expand.js'
+import { storeOriginal, storeSegments } from './expand.js'
 
 // ── Pattern hit tracking (for squeezr discover) ───────────────────────────────
 
@@ -313,11 +313,29 @@ function compactGitDiff(text: string, pressure = 0): string {
     }
   }
 
+  // Per-file recovery: split the ORIGINAL diff by file so the model can pull back
+  // the FULL diff of one file via squeezr_expand("<id>~i") (contiguous slices).
+  let recovery = ''
+  const fileBlocks: Array<{ path: string; body: string[] }> = []
+  for (const line of lines) {
+    if (line.startsWith('diff --git')) {
+      const m = line.match(/ b\/(\S+)/)
+      fileBlocks.push({ path: m ? m[1] : `file${fileBlocks.length + 1}`, body: [line] })
+    } else if (fileBlocks.length) {
+      fileBlocks[fileBlocks.length - 1].body.push(line)
+    }
+  }
+  if (fileBlocks.length > 1) {
+    const { subIds } = storeSegments(text, fileBlocks.map(b => b.body.join('\n')))
+    recovery = '\n\nFull diff per file: ' +
+      fileBlocks.map((b, i) => `${b.path} → squeezr_expand("${subIds[i]}")`).join('  ·  ')
+  }
+
   // Prepend changed-function summary for large diffs
   if (out.length > 100 && changedFns.size > 0) {
-    return `Changed: ${[...changedFns].join(', ')}\n` + out.join('\n')
+    return `Changed: ${[...changedFns].join(', ')}\n` + out.join('\n') + recovery
   }
-  return out.join('\n')
+  return out.join('\n') + recovery
 }
 
 // compact git log: one line per commit (full format); cap --oneline format
@@ -941,20 +959,67 @@ function detectCodeLanguage(text: string): 'ts' | 'py' | 'go' | 'rs' | null {
   return null
 }
 
-// Extract top-level structural lines (imports, signatures) — bodies omitted
+// Top-level structural line (column 0) per language.
+const STRUCT_CHECKS: Record<string, (t: string) => boolean> = {
+  ts: (t) => /^(import |export |async function |function |class |const |let |var |type |interface |enum |@\w)/.test(t),
+  py: (t) => /^(import |from .+ import|def |class |@\w)/.test(t),
+  go: (t) => /^(import|func |type |var |const |package )\b/.test(t),
+  rs: (t) => /^(use |pub |fn |struct |enum |impl |trait |mod |const |static )\b/.test(t),
+}
+
+// An INDENTED member/method that opens a block — so we can segment per method,
+// not just per top-level symbol. Conservative: must open a block ('{' for brace
+// langs, ':' decl for python) and must NOT be a control statement (if/for/…), so
+// plain calls never match.
+function isMemberOpen(line: string, lang: 'ts' | 'py' | 'go' | 'rs'): boolean {
+  if (!/^\s+\S/.test(line)) return false  // must be indented (nested in a class/impl)
+  const t = line.trim()
+  if (lang === 'py') return /^(async\s+)?def\s+\w+/.test(t)
+  if (!/\{\s*$/.test(line)) return false  // brace langs: must open a block
+  if (/^(if|for|while|switch|catch|else|try|do|return|case|default|match)\b/.test(t)) return false
+  if (/^[}{]/.test(t)) return false
+  // method/getter/fn signature, or a nested type/impl
+  return /[\w$]\s*\([^)]*\)\s*(:[^{]+)?(=>\s*)?\{\s*$/.test(t) || /\b(class|struct|impl|interface|enum|trait|fn|func)\b/.test(t)
+}
+
+// Extract structure (imports + signatures) and make each member's BODY recoverable
+// on its own via squeezr_expand("<id>~i") — so the model can pull back ONE function
+// instead of re-fetching the whole file. Segments are contiguous slices (safe).
 function extractCodeStructure(text: string, lang: 'ts' | 'py' | 'go' | 'rs'): string {
   const lines = text.split('\n')
-  const checks: Record<string, (t: string) => boolean> = {
-    ts: (t) => /^(import |export |async function |function |class |const |let |var |type |interface |enum |@\w)/.test(t),
-    py: (t) => /^(import |from .+ import|def |class |@\w)/.test(t),
-    go: (t) => /^(import|func |type |var |const |package )\b/.test(t),
-    rs: (t) => /^(use |pub |fn |struct |enum |impl |trait |mod |const |static )\b/.test(t),
+  const check = STRUCT_CHECKS[lang]
+  // Anchors = lines we KEEP (top-level structural + indented member openings).
+  const anchors: number[] = []
+  for (let i = 0; i < lines.length; i++) {
+    if (check(lines[i]) || isMemberOpen(lines[i], lang)) anchors.push(i)
   }
-  const check = checks[lang]
-  const structural = lines.filter(l => check(l))
-  if (structural.length < 2) return text  // not enough structure — fall through
-  const omitted = lines.length - structural.length
-  return structural.join('\n') + `\n... [${omitted} implementation lines omitted]`
+  if (anchors.length < 2) return text  // not enough structure — fall through
+
+  // A body = the lines between one anchor and the next. Anchors with a real body
+  // (gap > 1 line) become individually-recoverable segments.
+  const bodies: string[] = []
+  const bodySegForAnchor: (number | null)[] = []
+  for (let k = 0; k < anchors.length; k++) {
+    const start = anchors[k]
+    const end = k + 1 < anchors.length ? anchors[k + 1] : lines.length
+    if (end - start > 1) {
+      bodySegForAnchor.push(bodies.length)
+      bodies.push(lines.slice(start, end).join('\n'))
+    } else {
+      bodySegForAnchor.push(null)
+    }
+  }
+  const omitted = lines.length - anchors.length
+  if (bodies.length === 0) {
+    return anchors.map(i => lines[i]).join('\n') + `\n... [${omitted} implementation lines omitted]`
+  }
+  const { id, subIds } = storeSegments(text, bodies)
+  const out = anchors.map((i, k) => {
+    const seg = bodySegForAnchor[k]
+    return seg === null ? lines[i] : `${lines[i]}   [squeezr_expand("${subIds[seg]}")]`
+  })
+  out.push(`... [${omitted} implementation lines omitted — squeezr_expand("${id}") for the whole file]`)
+  return out.join('\n')
 }
 
 function compactReadOutput(text: string): string {
@@ -980,8 +1045,22 @@ function compactReadOutput(text: string): string {
   hit('readHeadTail')
   const head = lines.slice(0, READ_HEAD_LINES)
   const tail = lines.slice(-READ_TAIL_LINES)
-  const omitted = lines.length - READ_HEAD_LINES - READ_TAIL_LINES
-  return [...head, `\n... [${omitted} lines omitted] ...\n`, ...tail].join('\n')
+  const middle = lines.slice(READ_HEAD_LINES, lines.length - READ_TAIL_LINES)
+  const omitted = middle.length
+  // Make the omitted MIDDLE recoverable by RANGE: chunk it so the model can pull
+  // back just the lines it needs (e.g. a span in the middle of a log) instead of
+  // re-fetching the whole file. Contiguous slices → faithful content.
+  const CHUNK = 150
+  const chunks: string[] = []
+  for (let i = 0; i < middle.length; i += CHUNK) chunks.push(middle.slice(i, i + CHUNK).join('\n'))
+  const { id, subIds } = storeSegments(text, chunks)
+  const header = `... [${omitted} lines omitted — squeezr_expand("${id}") for the whole file, or a range:]`
+  const notes = chunks.map((_, i) => {
+    const from = READ_HEAD_LINES + i * CHUNK + 1
+    const to = Math.min(READ_HEAD_LINES + (i + 1) * CHUNK, READ_HEAD_LINES + middle.length)
+    return `    lines ${from}-${to} → squeezr_expand("${subIds[i]}")`
+  })
+  return [...head, '', header, ...notes, '', ...tail].join('\n')
 }
 
 // ── Entry point ───────────────────────────────────────────────────────────────

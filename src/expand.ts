@@ -62,6 +62,40 @@ export function retrieveOriginal(id: string): string | undefined {
   return store.get(id)
 }
 
+/**
+ * Store the full original PLUS individually-addressable SEGMENTS, so the model can
+ * recover just one piece (a function, a file's diff, a log range) instead of
+ * re-fetching the whole block — which otherwise costs more over two turns than not
+ * compressing at all.
+ *
+ * Returns the parent id (= storeOriginal(original), deterministic → cache-safe) and
+ * a sub-id per segment, formatted "<parentId>~<index>". squeezr_expand(parentId)
+ * still returns the whole; squeezr_expand("<parentId>~i") returns only that segment.
+ *
+ * Segments are always CONTIGUOUS slices of the original (never reassembled), so an
+ * expand can never return mangled or cross-contaminated content — at worst a slightly
+ * wider/narrower faithful slice.
+ *
+ * `~` is URL-safe (unreserved), so sub-ids pass cleanly through the MCP
+ * `/squeezr/expand/:id` path and the tool argument.
+ */
+export function storeSegments(original: string, segments: string[]): { id: string; subIds: string[] } {
+  const id = storeOriginal(original)
+  const subIds: string[] = []
+  for (let i = 0; i < segments.length; i++) {
+    const subId = `${id}~${i}`
+    store.delete(subId)        // LRU-on-write: keep referenced segments fresh
+    store.set(subId, segments[i])
+    subIds.push(subId)
+  }
+  while (store.size > MAX_EXPAND_ENTRIES) {
+    const oldest = store.keys().next().value
+    if (oldest === undefined) break
+    store.delete(oldest)
+  }
+  return { id, subIds }
+}
+
 export function expandStoreSize(): number {
   return store.size
 }

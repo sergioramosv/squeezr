@@ -1,5 +1,15 @@
 # Changelog
 All notable changes to Squeezr will be documented here.
+## [1.81.0] - 2026-06-14
+### Added — expand SEGMENTADO: recuperar UNA parte en vez de todo el bloque
+- **Problema**: hasta ahora `squeezr_expand(id)` devolvía el bloque entero. Si comprimíamos un fichero de 900 líneas a sus firmas y luego Claude necesitaba el cuerpo de UNA función, recuperaba las 900 líneas otra vez — y se quedaban en el contexto. En 2 turnos podía salir más caro que no comprimir. (Idea reportada por el uso real.)
+- **Nuevo mecanismo común** (`expand.ts` → `storeSegments`): guarda el original completo **y** segmentos individuales direccionables con sub-id `"<id>~<i>"`. `squeezr_expand("<id>")` sigue trayendo todo; `squeezr_expand("<id>~i")` trae solo esa parte. Los segmentos son **slices contiguos** del original (nunca reensamblados) → un expand jamás devuelve contenido mezclado o corrupto. `~` es URL-safe → pasa limpio por el endpoint MCP `/squeezr/expand/:id` y por el argumento de la tool. IDs deterministas (MD5) → cache-safe.
+- **Segmentadores enchufados** (deterministic.ts):
+  - **Código** (`extractCodeStructure`): además de imports + firmas, cada **método/función** queda recuperable por separado (`firma   [squeezr_expand("id~i")]`). Detecta también métodos indentados dentro de clases (no solo top-level), evitando sentencias de control. Mantiene el puntero al fichero completo.
+  - **git diff** (`compactGitDiff`): índice "Full diff per file" con un `squeezr_expand` por fichero — el modelo recupera el diff completo de UN fichero.
+  - **Read grande no-código** (`compactReadOutput` head/tail): el **medio omitido** se trocea en rangos de 150 líneas, cada uno recuperable (`lines X-Y → squeezr_expand`), más el puntero al fichero entero. Útil para logs: traer un rango concreto en vez de todo.
+- **Pendiente (v2)**: segmentar salida de tests por test que falla (depende mucho del framework; se difiere para no devolver contenido equivocado).
+- Tests: 5 nuevos (`segmentedExpand.test.ts`) + 2 existentes actualizados al nuevo formato de head/tail. Suite 376/376 verde.
 ## [1.80.16] - 2026-06-11
 ### Changed — dashboard: AI Compression sale del overview y pasa a un apartado dedicado en Settings
 - **Overview**: eliminado el botón `AI Compression: ON/OFF` de la barra de "Compression Mode". La AI compression todavía no rinde en producción (ver 1.80.x / Zest), así que dejarla a un clic en la pantalla principal invitaba a encenderla sin contexto. El badge de estado `AI: on/off` se mantiene como indicador de solo lectura; la determinística (gratis, siempre activa) queda como protagonista.
