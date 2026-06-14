@@ -1,5 +1,10 @@
 # Changelog
 All notable changes to Squeezr will be documented here.
+## [1.81.1] - 2026-06-14
+### Fixed — `deduplicateLines` ya no rompe la vista de código/markup del modelo
+- **Problema** (detectado editando en vivo): el patrón determinístico `deduplicateLines` colapsa cualquier línea repetida ≥3 veces. En salidas de Bash que vuelcan ficheros/código (`cat`, `sed`, `git`…), eso colapsaba líneas estructurales repetidas — `}`, `</div>`, `);`, líneas en blanco — y le corrompía al modelo la vista del contenido: los `old_string` de Edit dejaban de casar y los recuentos de llaves/divs salían mal. (Irónicamente, Squeezr comprimiendo el propio fichero que se editaba.)
+- **Arreglo**: `deduplicateLines` ahora es **consciente de código**. Nunca colapsa una línea que parezca código o markup (lleva `< > { } ( ) ; =`, o es un cierre/apertura tipo `}` / `</div>` / `);`). Solo se pliega prosa repetida tipo log — que es para lo que sirve. El contenido editable se ve **verbatim**. (El tool Read ya era casi verbatim; esto cierra el agujero de la salida de Bash y del pipeline base.)
+- Tests: 3 nuevos (`dedupCodeAware.test.ts`): markup y cierres repetidos NO se colapsan; prosa de log SÍ. Suite 379/379 verde.
 ## [1.81.0] - 2026-06-14
 ### Added — expand SEGMENTADO: recuperar UNA parte en vez de todo el bloque
 - **Problema**: hasta ahora `squeezr_expand(id)` devolvía el bloque entero. Si comprimíamos un fichero de 900 líneas a sus firmas y luego Claude necesitaba el cuerpo de UNA función, recuperaba las 900 líneas otra vez — y se quedaban en el contexto. En 2 turnos podía salir más caro que no comprimir. (Idea reportada por el uso real.)

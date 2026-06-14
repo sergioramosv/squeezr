@@ -58,6 +58,18 @@ function collapseWhitespace(text: string): string {
   return text.replace(/[ \t]+$/gm, '').replace(/\n{3,}/g, '\n\n').trim()
 }
 
+// A line that looks like CODE or MARKUP. We must NEVER collapse repeated
+// occurrences of these — `}`, `</div>`, `);`, `<div>`, `const x = 1` etc. are
+// structure the model needs VERBATIM to edit (collapsing them breaks Edit's
+// old_string matching and miscounts brackets). Only log-like prose gets folded.
+function looksCodeLine(raw: string): boolean {
+  const t = raw.trim()
+  if (!t) return false
+  if (/[<>{}();=]/.test(t)) return true              // markup / code punctuation
+  if (/^[}\])>]+[,;]?$/.test(t) || /^[[({<]+$/.test(t)) return true  // pure brackets
+  return false
+}
+
 function deduplicateLines(text: string): string {
   const lines = text.split('\n')
   const counts = new Map<string, number>()
@@ -70,7 +82,8 @@ function deduplicateLines(text: string): string {
   for (const line of lines) {
     const key = line.trim()
     const total = counts.get(key) ?? 1
-    if (total < 3) { out.push(line); continue }
+    // Keep code/markup lines verbatim; only fold repeated log-like prose.
+    if (total < 3 || looksCodeLine(line)) { out.push(line); continue }
     const emitted = seen.get(key) ?? 0
     if (emitted === 0) {
       out.push(line)
