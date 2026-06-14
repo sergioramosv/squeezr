@@ -87,6 +87,8 @@ export class Stats {
   private expandCalls = Stats.persistedNum('expand_calls')
   private expandHits = Stats.persistedNum('expand_hits')
   private expandMisses = Stats.persistedNum('expand_misses')
+  // Partial expands = squeezr_expand("<id>~i") (recover one segment) vs whole-block.
+  private expandPartial = Stats.persistedNum('expand_partial')
 
   record(originalChars: number, compressedChars: number, savings: Savings, latency?: LatencyInfo, client?: string, model?: string): void {
     this.requests++
@@ -176,11 +178,13 @@ for (const entry of savings.byTool) {
     if (project !== 'unknown') this.currentProject = project
   }
 
-  /** Track an expand call — the key quality metric for compression. */
-  recordExpand(found: boolean): void {
+  /** Track an expand call — the key quality metric for compression.
+   *  `partial` = true when the id targets a single segment ("<id>~i"). */
+  recordExpand(found: boolean, partial = false): void {
     this.expandCalls++
     if (found) this.expandHits++
     else this.expandMisses++
+    if (partial) this.expandPartial++
     // Expands can happen without a following compression — persist immediately so
     // the count survives a restart even if no record() runs before shutdown.
     this.persistExpandCounters()
@@ -194,6 +198,7 @@ for (const entry of savings.byTool) {
       existing.expand_calls = this.expandCalls
       existing.expand_hits = this.expandHits
       existing.expand_misses = this.expandMisses
+      existing.expand_partial = this.expandPartial
       const tmp = STATS_FILE + '.tmp'
       writeFileSync(tmp, JSON.stringify(existing))
       renameSync(tmp, STATS_FILE)
@@ -253,6 +258,8 @@ breakdown: {
         calls: this.expandCalls,
         hits: this.expandHits,
         misses: this.expandMisses,
+        partial: this.expandPartial,                       // recover ONE segment
+        whole: Math.max(0, this.expandCalls - this.expandPartial), // recover the whole block
         rate_pct: this.totalCompressions > 0
           ? Math.round((this.expandCalls / this.totalCompressions) * 1000) / 10
           : 0,
@@ -331,6 +338,7 @@ existing.ai_compression_calls = (existing.ai_compression_calls ?? 0) + savings.c
       existing.expand_calls = this.expandCalls
       existing.expand_hits = this.expandHits
       existing.expand_misses = this.expandMisses
+      existing.expand_partial = this.expandPartial
       // Local AI calls (Zest/Ollama) — persisted separately, not added to cost counters
       if (savings.localAiCalls != null && savings.localAiCalls > 0) {
         existing.local_ai_calls = (existing.local_ai_calls ?? 0) + savings.localAiCalls

@@ -492,7 +492,7 @@ code{font-family:'Cascadia Code','SF Mono',Consolas,monospace;font-size:.9em}
           <div class="section-body">
             <div class="cache-row">
               <div class="cache-card"><div class="cache-label">Reuses</div><div class="cache-val" id="c-hits">—</div></div>
-              <div class="cache-card"><div class="cache-label">Expands</div><div class="cache-val" id="c-miss">—</div></div>
+              <div class="cache-card"><div class="cache-label">Expands</div><div class="cache-val" id="c-miss">—</div><div id="c-miss-split" style="font-size:11px;color:var(--muted);margin-top:2px">—</div></div>
               <div class="cache-card"><div class="cache-label">LRU Size</div><div class="cache-val" id="c-rate">—</div></div>
             </div>
             <div style="margin-top:8px;font-size:11px;color:var(--text3);text-align:center">0 here is normal when AI compression is off</div>
@@ -1053,6 +1053,11 @@ var eff = (today.efficiency_pct != null) ? today.efficiency_pct : null;
 // Session cache
   document.getElementById('c-hits').textContent = fmt(cacheHits);
   document.getElementById('c-miss').textContent = fmt(cacheMiss);
+  // Expands desglosados: "todo" (bloque entero) vs "parcial" (un segmento, id~i)
+  var expPartial = (d.expand && d.expand.partial != null) ? d.expand.partial : 0;
+  var expWhole   = (d.expand && d.expand.whole != null) ? d.expand.whole : Math.max(0, cacheMiss - expPartial);
+  var splitEl = document.getElementById('c-miss-split');
+  if (splitEl) splitEl.textContent = fmt(expWhole) + ' todo · ' + fmt(expPartial) + ' parcial';
   document.getElementById('c-rate').textContent = cacheSize > 0 ? fmt(cacheSize) : '—';
   // AI Compression card — TODAY-scoped (consistent with the hero), persists across
   // restart and resets at midnight. Calls/Spent = real backend usage today; Saved =

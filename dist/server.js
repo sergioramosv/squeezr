@@ -514,7 +514,7 @@ app.post('/v1/messages', async (c) => {
     // Handle expand() call if model requested one (track expand rate)
     const expandCall = handleAnthropicExpandCall(respBody);
     if (expandCall) {
-        stats.recordExpand(true);
+        stats.recordExpand(true, expandCall.id.includes('~'));
         const { toolUseId, original } = expandCall;
         const continueMessages = [
             ...body.messages,
@@ -667,7 +667,7 @@ app.post('/v1/chat/completions', async (c) => {
     }
     const expandCall = !isLocal ? handleOpenAIExpandCall(respBody) : null;
     if (expandCall) {
-        stats.recordExpand(true);
+        stats.recordExpand(true, expandCall.id.includes('~'));
         const { toolCallId, original } = expandCall;
         const continueMessages = [
             ...body.messages,
@@ -1093,7 +1093,7 @@ app.post('/squeezr/project', async (c) => {
 app.get('/squeezr/expand/:id', (c) => {
     const id = c.req.param('id');
     const original = retrieveOriginal(id);
-    stats.recordExpand(!!original);
+    stats.recordExpand(!!original, id.includes('~'));
     if (!original)
         return c.json({ error: 'Not found or expired' }, 404);
     return c.json({ id, content: original });
