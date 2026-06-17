@@ -1,5 +1,11 @@
 # Changelog
 All notable changes to Squeezr will be documented here.
+## [1.81.2] - 2026-06-17
+### Fixed — dashboard Savings: las hero cards no cambiaban al navegar entre días
+- **Problema** (reportado por el uso real): en la página **Savings**, con el periodo en **Day**, al pulsar las flechitas ◀ / ▶ para ver otro día el gráfico y los breakdowns de abajo sí cambiaban, pero las **hero cards de arriba** (tokens saved, cost, sessions, %) seguían mostrando los números de **hoy**.
+- **Causa**: `renderSavingsData` sobrescribía siempre los totales con `lastStats.today.*` cuando `savingsPeriod === 'day'`, sin comprobar `savingsOffset`. Ese override mantiene la cabecera de "hoy" consistente con el Overview, pero se aplicaba también al navegar a días pasados.
+- **Arreglo**: el override (y la línea de eficiencia del engine `sv-engine`) ahora solo se aplican cuando `savingsOffset === 0` (día actual). Al navegar a otro día, las hero cards se calculan desde las sesiones filtradas del historial, igual que el gráfico de abajo.
+
 ## [1.81.1] - 2026-06-14
 ### Fixed — `deduplicateLines` ya no rompe la vista de código/markup del modelo
 - **Problema** (detectado editando en vivo): el patrón determinístico `deduplicateLines` colapsa cualquier línea repetida ≥3 veces. En salidas de Bash que vuelcan ficheros/código (`cat`, `sed`, `git`…), eso colapsaba líneas estructurales repetidas — `}`, `</div>`, `);`, líneas en blanco — y le corrompía al modelo la vista del contenido: los `old_string` de Edit dejaban de casar y los recuentos de llaves/divs salían mal. (Irónicamente, Squeezr comprimiendo el propio fichero que se editaba.)

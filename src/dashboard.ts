@@ -1936,7 +1936,7 @@ function renderSavingsData(d) {
   // Keep the "Day" headline identical to the Overview hero (same date-stamped
   // today_* source), instead of summing history sessions which over-count across
   // restarts. Fixes the "Savings says 22M but Overview says 19M" inconsistency.
-  if (savingsPeriod === 'day' && lastStats && lastStats.today) {
+  if (savingsPeriod === 'day' && savingsOffset === 0 && lastStats && lastStats.today) {
     totalSaved = lastStats.today.saved_tokens || totalSaved;
     totalOrig  = lastStats.today.original_tokens || totalOrig;
     totalReqs  = lastStats.today.requests || totalReqs;
@@ -1975,7 +1975,7 @@ document.getElementById('sv-tokens').textContent    = fmt(totalSaved);
   // date-stamped counters); other periods aren't tracked historically.
   var svEngineEl = document.getElementById('sv-engine');
   if (svEngineEl) {
-    var svEff = (savingsPeriod === 'day' && lastStats && lastStats.today && lastStats.today.efficiency_pct != null) ? lastStats.today.efficiency_pct : null;
+    var svEff = (savingsPeriod === 'day' && savingsOffset === 0 && lastStats && lastStats.today && lastStats.today.efficiency_pct != null) ? lastStats.today.efficiency_pct : null;
     svEngineEl.innerHTML = svEff != null && svEff > 0
       ? 'engine <strong style="color:var(--brand2)">' + Math.round(svEff) + '%</strong> on compressed'
       : 'total saved (of all sent)';
