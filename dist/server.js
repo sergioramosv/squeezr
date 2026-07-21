@@ -14,6 +14,7 @@ import { circuitBreaker } from './circuitBreaker.js';
 import { injectExpandToolAnthropic, injectExpandToolOpenAI, injectExpandDirectiveAnthropic, injectExpandDirectiveOpenAI, handleAnthropicExpandCall, handleOpenAIExpandCall, retrieveOriginal, expandStoreSize, EXPAND_TOOL_ANTHROPIC_CHARS, } from './expand.js';
 import { compressSystemPrompt } from './systemPrompt.js';
 import { shapeRequest } from './outputShaper.js';
+import { warnIfVolatile } from './cacheAligner.js';
 import { captureRequest } from './requestCapture.js';
 import { dedupSkillBlocks } from './skillDedup.js';
 import { collapseStaleTurns } from './staleTurns.js';
@@ -290,6 +291,10 @@ app.post('/v1/messages', async (c) => {
     }
     // Extract project name BEFORE compressing system prompt (compression destroys <cwd> tags)
     const project = extractProjectName(body);
+    // Cache-aligner (detector-only): if the CLIENT's system prompt embeds volatile tokens
+    // (UUID/timestamp/JWT/hash) they may bust Anthropic's prompt cache. Warns once per
+    // distinct signature; never mutates the prompt.
+    warnIfVolatile(body.system);
     const messages = (body.messages ?? []);
     // Measure FULL request (messages + tools + system) before ANY compression
     const originalRequestChars = estimateFullRequestChars(body);

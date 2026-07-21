@@ -30,6 +30,7 @@ import {
 } from './expand.js'
 import { compressSystemPrompt } from './systemPrompt.js'
 import { shapeRequest } from './outputShaper.js'
+import { warnIfVolatile } from './cacheAligner.js'
 import { captureRequest } from './requestCapture.js'
 import { dedupSkillBlocks } from './skillDedup.js'
 import { collapseStaleTurns } from './staleTurns.js'
@@ -323,6 +324,11 @@ const clientId = detectAnthropicClient(c.req.header('user-agent') ?? '', c.req.h
   }
   // Extract project name BEFORE compressing system prompt (compression destroys <cwd> tags)
   const project = extractProjectName(body)
+
+  // Cache-aligner (detector-only): if the CLIENT's system prompt embeds volatile tokens
+  // (UUID/timestamp/JWT/hash) they may bust Anthropic's prompt cache. Warns once per
+  // distinct signature; never mutates the prompt.
+  warnIfVolatile(body.system)
 
   const messages = (body.messages ?? []) as unknown[]
   // Measure FULL request (messages + tools + system) before ANY compression

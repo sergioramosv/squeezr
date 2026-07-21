@@ -1,5 +1,12 @@
 # Changelog
 All notable changes to Squeezr will be documented here.
+## [1.89.0] - 2026-07-21
+### Added — CacheAligner (detector): avisa cuándo el system prompt del cliente rompe tu prompt-cache (punto 7 del plan)
+- **Contexto**: Anthropic cachea el prefijo a 0.1x solo si llega byte-idéntico entre requests. Si el system prompt del CLIENTE lleva contenido volátil dentro de la región cacheada (un UUID de sesión, un timestamp vivo, un hash de build, un JWT), el prefijo cambia cada request y el cache no acierta — re-facturando todo el contexto a precio full. Es justo el fallo que en su día quemó un plan de 5h. Squeezr ya monitoriza el hit-health %; esto señala la CAUSA.
+- **Nuevo módulo `cacheAligner.ts`** (solo DETECTOR, nunca muta — mutar la zona caliente del cache es en sí un cache-buster): `detectVolatile` escanea por forma (JWT → UUID → timestamp ISO → hash hex de 40/64), enmascarando lo ya detectado para no contar un JWT como hash. `analyzeSystemPrompt` agrega sobre string o array de bloques text. `warnIfVolatile` avisa **una sola vez por firma distinta** (sin spam por request).
+- **Integración** (`server.ts`): tras parsear el request se llama a `warnIfVolatile(body.system)`; si detecta volatilidad, loguea una vez sugiriendo mover esos tokens tras el breakpoint `cache_control`.
+- Tests: **13 nuevos** (`cacheAligner.test.ts`) — detección de UUID/timestamp/JWT/hash, no doble-conteo JWT↔hash, limpio → nada, análisis de string y array, throttle de aviso por firma. Suite **477/477 verde**.
+
 ## [1.88.0] - 2026-07-21
 ### Added — TextCrusher: compresión extractiva de prosa/logs sin IA (punto 6 del plan headroom→squeezr)
 - **Contexto**: el dedup exacto del pipeline base solo pilla líneas byte-idénticas. Gran parte del spam de logs NO es idéntico: es la misma línea con otro número/timestamp/hex (`processed record 1 in 2ms`, `…record 2 in 4ms`…). Se porta el TextCrusher de headroom (su alternativa rápida sin modelo).
