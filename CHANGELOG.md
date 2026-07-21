@@ -1,5 +1,12 @@
 # Changelog
 All notable changes to Squeezr will be documented here.
+## [1.91.0] - 2026-07-21
+### Added — scorer de relevancia BM25 (`relevance.ts`) — prioridad 1 del audit headroom v2
+- **Contexto**: la re-auditoría de headroom (foco "¿lo hace MEJOR?, ¿lo copiamos?") reveló que la diferencia de fondo es que **headroom decide qué conservar por RELEVANCIA a la tarea; Squeezr conservaba a ciegas** (head/tail, recencia, líneas de error). Su `BM25Scorer` es una primitiva compartida que alimenta SmartCrusher (qué filas), TextCrusher (qué frases) y CodeCompressor (qué funciones). Copiarla sube la calidad de 3 compresores con una sola pieza.
+- **Nuevo módulo `relevance.ts`** (TS puro, sin dependencias, determinista → cache-safe): `tokenize`, `bm25Scores(query, docs)` (BM25 Okapi estándar — saturación de TF `k1`, normalización por longitud `b`, idf suavizado siempre positivo; un doc sin solape con la query puntúa exactamente 0) y `rankByRelevance` (índices ordenados por relevancia desc, estable).
+- **Estado**: primitiva base. El cableado en TextCrusher/JSON-crush/código llega en versiones siguientes (requiere hacer llegar "la tarea actual" —el último mensaje del usuario— al pipeline determinista).
+- Tests: **12 nuevos** (`relevance.test.ts`) — tokenización, doc que casa > que no casa, peso idf del término raro, query vacía → ceros, no-match → 0, normalización por longitud, determinismo, `rankByRelevance` como permutación estable. Suite **504/504 verde**.
+
 ## [1.90.0] - 2026-07-21
 ### Added — `squeezr doctor`: diagnóstico que reconcilia proxy/versión/routing/bypass (punto 8, ÚLTIMO del plan headroom→squeezr)
 - **Contexto**: el fallo de Squeezr es SILENCIOSO — si el proxy muere, el env-var deriva o el código en marcha está stale, sigues trabajando pero dejas de ahorrar (o peor, sales directo). Se porta `headroom doctor`.
