@@ -26,8 +26,9 @@ const MIN_ITEMS = 5
 const MIN_OBJECT_FRACTION = 0.8   // ≥80% of elements must be plain objects
 const MIN_SAVINGS_RATIO = 0.15    // only crush if it shaves ≥15% of the chars
 
-// Recognises the table header this module emits. Group 1 = the expand id.
-export const TABLE_MARKER_RE = /^\[squeezr:table ([0-9a-f]{6,}(?:~\d+)?) —/
+// Recognises the table header this module emits (anywhere in the text, since the table
+// may be embedded in a larger tool result). Group 1 = the expand id.
+export const TABLE_MARKER_RE = /\[squeezr:table ([0-9a-f]{6,}(?:~\d+)?) —/
 
 type Row = Record<string, unknown>
 

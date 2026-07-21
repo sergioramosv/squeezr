@@ -1,5 +1,14 @@
 # Changelog
 All notable changes to Squeezr will be documented here.
+## [1.93.0] - 2026-07-21
+### Added — router de contenido: crush de arrays JSON EMBEBIDOS (prioridad 2 del audit headroom v2)
+- **Contexto**: hasta 1.84 el crush de JSON solo disparaba si TODO el tool result era un array. Mucha data estructurada llega envuelta (una línea de estado de `gh api`, un envoltorio de una tool MCP, un `echo` + JSON en bash). Se porta la idea del `ContentRouter` de headroom.
+- **Nuevo módulo `contentRouter.ts`**: `findObjectArraySpans` localiza arrays de objetos (`[ {…`) **en cualquier posición** del texto por escaneo de corchetes balanceado (consciente de strings/escapes); `crushEmbeddedJson` comprime cada uno **in situ** dejando el texto alrededor verbatim. Determinista → cache-safe; cada tramo comprimido es auto-recuperable (su marcador lleva `squeezr_expand`).
+- **Red de seguridad**: los candidatos se validan con `JSON.parse` dentro de `crushJsonArrays` — un falso positivo (un `[{…}]` en prosa que no es JSON) simplemente no comprime y se deja intacto.
+- **Cambio menor**: `TABLE_MARKER_RE` (jsonCrush) deja de anclar en `^` para reconocer el marcador también embebido a mitad de texto.
+- **Hook**: `preprocessForTool` pasa a usar `crushEmbeddedJson` en vez de `crushJsonArrays` (cubre el caso whole-text de antes + el embebido).
+- Tests: **11 nuevos** (`contentRouter.test.ts`) — spans whole-text/embebido/dobles, corchetes dentro de strings, ignora arrays de escalares; crush embebido preserva prosa alrededor, recuperable por expand, paridad whole-text, sin arrays → intacto, array pequeño no-crushable intacto, determinismo. Suite **517/517 verde**.
+
 ## [1.92.0] - 2026-07-21
 ### Added — BM25 cableado en TextCrusher (cache-safe) — completa la prioridad 1 del audit headroom v2
 - **Qué**: la primitiva BM25 (1.91.0) ya se USA. `crushText` acepta un `query` opcional; cuando viene, el presupuesto de líneas se llena por **relevancia BM25 a la tarea** (conserva las líneas que importan para lo que el usuario está haciendo) en vez de por orden de aparición. Las anclas head/tail y las líneas de señal (error/warn/…) se conservan igual; solo cambia QUÉ líneas de bajo valor sobreviven. Las líneas se emiten siempre en orden original.

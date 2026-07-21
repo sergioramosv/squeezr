@@ -28,7 +28,7 @@
  */
 
 import { storeOriginal, storeSegments } from './expand.js'
-import { crushJsonArrays } from './jsonCrush.js'
+import { crushEmbeddedJson } from './contentRouter.js'
 import { crushText } from './textCrusher.js'
 
 // ── Pattern hit tracking (for squeezr discover) ───────────────────────────────
@@ -1177,12 +1177,13 @@ export function preprocessForTool(text: string, toolName: string, pressure = 0, 
     return makeRecoverable(text, compactReadOutput(preprocessRead(text)))
   }
 
-  // JSON array crush (deterministic, cache-safe, reversible). Fires only when the whole
-  // result is an array of homogeneous objects (gh api / curl / MCP record lists / kubectl
-  // -o json…): the repeated per-row keys collapse to a single header. Runs BEFORE the
-  // base pipeline so line-dedup/JSON-minify never touch the structured data. Self-recoverable
-  // (its marker already carries squeezr_expand), so we return it directly.
-  const crushed = crushJsonArrays(text)
+  // JSON array crush (deterministic, cache-safe, reversible). Now via the content router,
+  // so it fires on arrays of homogeneous objects whether they are the WHOLE result or
+  // EMBEDDED inside a larger one (gh api with a header, MCP envelopes, bash echo + json…).
+  // Repeated per-row keys collapse to a single header; each crushed span is self-recoverable
+  // (its marker carries squeezr_expand). Runs BEFORE the base pipeline so line-dedup/JSON-minify
+  // never touch the structured data; returned directly.
+  const crushed = crushEmbeddedJson(text)
   if (crushed.savedChars > 0) { hit('jsonTableCrush'); return crushed.text }
 
   let t = preprocess(text)
