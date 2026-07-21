@@ -498,16 +498,16 @@ code{font-family:'Cascadia Code','SF Mono',Consolas,monospace;font-size:.9em}
             <div style="margin-top:8px;font-size:11px;color:var(--text3);text-align:center">0 here is normal when AI compression is off</div>
           </div>
         </div>
-        <!-- AI Compression -->
+        <!-- Output shaping (output-side token reduction) — pinned in the old AI-Compression slot -->
         <div class="section" style="margin:0">
-          <div class="section-head"><span class="section-title">AI Compression</span><span style="font-size:11px;color:var(--text3)">today · persisted</span></div>
+          <div class="section-head"><span class="section-title">Output</span><span style="font-size:11px;color:var(--text3)" id="out-note">what the model writes back · needs [output] enabled</span></div>
           <div class="section-body">
             <div class="cache-row">
-              <div class="cache-card"><div class="cache-label">Calls</div><div class="cache-val" id="ai-calls">—</div></div>
-              <div class="cache-card"><div class="cache-label">Saved</div><div class="cache-val" id="ai-saved" style="color:var(--brand2)">—</div></div>
-              <div class="cache-card"><div class="cache-label">Spent</div><div class="cache-val" id="ai-spent">—</div></div>
+              <div class="cache-card"><div class="cache-label">Echo (restated)</div><div class="cache-val" id="out-echo">—</div></div>
+              <div class="cache-card"><div class="cache-label">Steered</div><div class="cache-val" id="out-steered">—</div></div>
+              <div class="cache-card"><div class="cache-label">Effort lowered</div><div class="cache-val" id="out-effort">—</div></div>
             </div>
-            <div id="ai-net" style="margin-top:8px;font-size:11px;color:var(--text3);text-align:center">—</div>
+            <div style="margin-top:8px;font-size:11px;color:var(--text3);text-align:center">Echo = % of the model's output that merely restated context it was already given (lower is better).</div>
           </div>
         </div>
       </div>
@@ -522,19 +522,6 @@ code{font-family:'Cascadia Code','SF Mono',Consolas,monospace;font-size:.9em}
             <div class="cache-card"><div class="cache-label">Hit Health</div><div class="cache-val" id="pc-health">—</div></div>
           </div>
           <div id="pc-note" style="margin-top:8px;font-size:11px;color:var(--text3);text-align:center">High read vs creation = cache working. High creation = something is invalidating the prefix.</div>
-        </div>
-      </div>
-
-      <!-- Output shaping (output-side token reduction) -->
-      <div class="section">
-        <div class="section-head"><span class="section-title">Output</span><span style="font-size:11px;color:var(--text3)" id="out-note">what the model writes back · needs [output] enabled</span></div>
-        <div class="section-body">
-          <div class="cache-row">
-            <div class="cache-card"><div class="cache-label">Echo (restated)</div><div class="cache-val" id="out-echo">—</div></div>
-            <div class="cache-card"><div class="cache-label">Steered</div><div class="cache-val" id="out-steered">—</div></div>
-            <div class="cache-card"><div class="cache-label">Effort lowered</div><div class="cache-val" id="out-effort">—</div></div>
-          </div>
-          <div style="margin-top:8px;font-size:11px;color:var(--text3);text-align:center">Echo = % of the model's output that merely restated context it was already given (lower is better).</div>
         </div>
       </div>
 

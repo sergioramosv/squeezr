@@ -1,5 +1,11 @@
 # Changelog
 All notable changes to Squeezr will be documented here.
+## [1.99.1] - 2026-07-21
+### Changed — dashboard: quitada la card "AI Compression" del Overview, la card "Output" ocupa su sitio
+- La card de AI Compression del Overview ("today · persisted": Calls/Saved/Spent, "N local Zest call(s) · 0 tokens saved (free)") aportaba ruido — Zest sigue en ~0 net y `ai_compression` está OFF por defecto. Se retira del Overview.
+- La card **"Output"** (Echo restated / Steered / Effort lowered), antes suelta bajo Prompt Cache, se **fija en ese slot**.
+- Se mantienen intactas la sección de AI Compression del apartado "selected period" y el toggle experimental en Settings (no eran lo que molestaba). El render de la card retirada queda inerte (getElementById protegido).
+
 ## [1.99.0] - 2026-07-21
 ### Fixed — el tráfico en BYPASS ya no ensucia las stats (processed / saved / cost / requests)
 - **Síntoma** (reportado): tras un día en bypass, el dashboard mostraba "Requests 1.1k", "36.6k tokens saved of 475.7M processed" y "Cost: Without $7048 / With $7048 / Saved $0.55" — números enormes y ratio ~0 "nada más empezar".
