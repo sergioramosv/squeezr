@@ -1,5 +1,12 @@
 # Changelog
 All notable changes to Squeezr will be documented here.
+## [1.95.0] - 2026-07-21
+### Added — near-dup por shingles en TextCrusher (prioridad 5 del audit headroom v2)
+- **Contexto**: TextCrusher colapsaba líneas idénticas tras enmascarar números/timestamps, pero los **duplicados REFORMULADOS** (misma idea, otras palabras) se escapaban — punto débil que señaló el audit. Se porta el near-dup por shingles de headroom.
+- **Nuevo** (`textCrusher.ts`): `wordShingles` (bigramas, con fallback a set de palabras en líneas cortas) + `jaccard`. En el llenado de presupuesto, una línea candidata se descarta si su Jaccard con una ya conservada es ≥ **0.6** — captura una reformulación de 1 palabra en una línea de log típica, dejando intactas las líneas genuinamente distintas (Jaccard ~0). Se **siembra** con las líneas ya conservadas (anclas + señal) para que un candidato que solo reformula un ancla también caiga. Determinista → cache-safe.
+- **Nota de umbral**: 0.6 con bigramas, no el 0.85 sentence-level de headroom, porque las líneas de log son cortas (0.85 no colapsaría casi nada).
+- Tests: **5 nuevos** en `textCrusher.test.ts` — colapsa variantes reformuladas en el medio, NO colapsa líneas distintas; `wordShingles`/`jaccard` (reformuladas comparten más que no relacionadas, idénticas=1). Suite **529/529 verde**.
+
 ## [1.94.0] - 2026-07-21
 ### Added — SimHash + row-drop en arrays JSON grandes (prioridad 3 del audit headroom v2)
 - **Contexto**: hasta ahora el crush de JSON era lossless (todas las filas). Para arrays MUY grandes de filas casi-idénticas (listas de pods, logs estructurados, recursos), eso deja mucho por ahorrar. Se porta la ruta lossy del SmartCrusher de headroom, **query-independiente y determinista → cache-safe también para Claude Code** (a diferencia de la relevancia BM25).

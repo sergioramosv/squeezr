@@ -44,6 +44,31 @@ function isSignal(line: string): boolean {
   return SIGNAL_RE.test(line)
 }
 
+// ── Shingle-based near-duplicate detection (catches REWORDED dups) ────────────
+
+// Bigram shingles (k=2) + a 0.6 Jaccard threshold: catches a 1-word rewording in a
+// typical log line while leaving genuinely different lines (Jaccard ~0) untouched.
+// (Sentence-level 0.85 like headroom is too strict for short log lines.)
+const SHINGLE_K = 2
+const NEAR_DUP_JACCARD = 0.6
+
+/** Word 3-gram shingles of a line (falls back to the word set for short lines). */
+export function wordShingles(line: string, k = SHINGLE_K): Set<string> {
+  const words = (line.toLowerCase().match(/[a-z0-9_]+/g) ?? [])
+  const set = new Set<string>()
+  if (words.length < k) { for (const w of words) set.add(w); return set }
+  for (let i = 0; i + k <= words.length; i++) set.add(words.slice(i, i + k).join(' '))
+  return set
+}
+
+export function jaccard(a: Set<string>, b: Set<string>): number {
+  if (a.size === 0 && b.size === 0) return 1
+  if (a.size === 0 || b.size === 0) return 0
+  let inter = 0
+  for (const x of a) if (b.has(x)) inter++
+  return inter / (a.size + b.size - inter)
+}
+
 import { bm25Scores } from './relevance.js'
 
 export interface CrushResult {
@@ -107,9 +132,19 @@ export function crushText(text: string, opts: Partial<CrushTextOpts> = {}): Crus
       .sort((a, b) => (b.score - a.score) || (a.k - b.k))
       .map(x => x.idx)
   }
+  // Keep candidates, but skip any that is a REWORDED near-duplicate (shingle Jaccard
+  // ≥ threshold) of a line already kept in this fill pass — catches dups that survived
+  // the exact normalized-key check because their wording differs.
+  // Seed with the shingles of lines already kept (anchors + signal) so a candidate that
+  // merely rewords an anchor/signal line is also dropped.
+  const keptShingles: Array<Set<string>> = []
+  for (let i = 0; i < n; i++) if (keep[i]) keptShingles.push(wordShingles(lines[i]))
   for (const i of ordered) {
     if (budget <= 0) break
+    const sh = wordShingles(lines[i])
+    if (keptShingles.some(s => jaccard(sh, s) >= NEAR_DUP_JACCARD)) continue
     tryKeep(i, normalizeLineKey(lines[i]))
+    keptShingles.push(sh)
   }
 
   // Reconstruct in original order, summarizing runs of dropped lines with one marker.
