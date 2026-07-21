@@ -33,4 +33,17 @@ describe('Stats output metrics', () => {
     for (let i = 0; i < 200; i++) s.recordEcho(0.3)
     expect(Math.abs(s.summary().output.avg_echo_pct - 30)).toBeLessThan(10)
   })
+
+  it('recordBypassed counts separately and never touches processed/saved totals', () => {
+    const s = new Stats()
+    const before = s.summary()
+    s.recordBypassed()
+    s.recordBypassed()
+    const after = s.summary()
+    expect(after.bypassed_requests).toBe(before.bypassed_requests + 2)
+    // bypassed traffic must NOT inflate processed or saved
+    expect(after.total_original_chars).toBe(before.total_original_chars)
+    expect(after.total_saved_chars).toBe(before.total_saved_chars)
+    expect(after.requests).toBe(before.requests)
+  })
 })

@@ -113,6 +113,38 @@ Codex / Gemini / Cursor tan bien tratados como Anthropic (el MITM ya está hecho
 paridad de pipeline y stats por proveedor). Convierte Squeezr de "add-on de Claude Code" a
 "plataforma de compresión". Foso medio; sobre todo amplía alcance.
 
+### B.4 — Caché/RAG de consultas frecuentes (opt-in, medido)
+
+**Idea (Sergio).** Cachear consultas frecuentes por sesión/proyecto (tipo RAG) para que, en
+vez de releer código o rebuscar en internet, se consulte primero esa caché y se reutilice la
+respuesta si es relevante. Manu: buena idea, pero **hay que testear y comparar con y sin (A/B)**.
+
+**Encaje honesto.** Es una capacidad **B-tier adicional**, NO la que "gana" el número mayor
+(eso lo hace el pilar A). Es aditiva y opt-in, así que por sí sola sería MINOR; entra en 2.0
+como extra de valor, no como espina dorsal. Framear siempre como opt-in y **medido**, nunca
+como default.
+
+**Decisiones v1** (Karajan researcher + architect, 2026-07-21):
+
+- **Mecanismo:** Fase 0 = *spike* para investigar si el proxy puede suprimir un `tool_use`
+  NATIVO (Read/WebSearch) y responderlo local (santo grial: evita el re-read). Fallback:
+  tool inyectado voluntario `squeezr_cache_query` estilo `expand.ts`.
+- **Alcance:** dos capas — proyecto (base) + sesión (fresca encima).
+- **Matching v1:** solo **md5-exacto** (cero falsos positivos). BM25/SimHash quedan para v2+
+  detrás de flag con presupuesto de error medido.
+- **A/B (Manu):** replay **offline** sobre el corpus de `requestCapture` extendiendo `bench.ts`
+  (brazo control sin caché vs brazo caché). Un brazo de control en vivo está prohibido por la
+  regla de oro (re-facturaría con el OAuth del usuario).
+
+**Riesgo nº1: staleness.** Servir un Read de un archivo ya editado o un WebSearch obsoleto =
+respuesta mal en silencio. Invalidación estricta (mtime+size para Reads, TTL para web) y
+**miss ruidoso**, nunca silent fallback. Toda sustitución gateada por `hasCacheMarkers` (para
+no romper la prompt-cache) y recuperable vía `squeezr_expand`.
+
+**Reutiliza** todo lo existente sin dependencias nuevas: `cache.ts`, `sessionCache`, `expand.ts`,
+`relevance.ts` (BM25, v2), `jsonCrush.ts` (SimHash, v2), `requestCapture` (redacción), `bench.ts`,
+`stats.ts`. Plan detallado y por fases en **[`QUERY_CACHE_PLAN.md`](../QUERY_CACHE_PLAN.md)**.
+
 ---
 
 ## Mejoras adicionales apuntadas para 2.0
@@ -128,6 +160,9 @@ paridad de pipeline y stats por proveedor). Convierte Squeezr de "add-on de Clau
 
 **Squeezr 2.0 = los 8 puntos (paridad) + A (config limpia con migración + defaults que ahorran
 solos) + B.1 (Zest clasificador determinista).**
+
+La **caché/RAG (B.4)** viaja como **extra opt-in y medido**, no como lo que justifica el major
+(eso sigue siendo el pilar A). Se lanza cuando su A/B offline demuestre ahorro real.
 
 Posicionamiento que lo cierra y que headroom no puede reclamar con la misma fuerza:
 

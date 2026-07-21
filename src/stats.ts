@@ -109,6 +109,27 @@ export class Stats {
     if (effortLowered) this.outputEffortLowered++
   }
 
+  // Requests that passed through while BYPASSED. Tracked separately and NEVER added to
+  // processed/saved/cost totals — bypass means Squeezr did nothing, so counting that
+  // traffic as "processed, 0 saved" would drag the ratio to ~0 and inflate cost (the
+  // "$7048 processed / $0.55 saved after a bypass day" confusion). Throttled persist to
+  // avoid disk thrash under heavy bypass traffic.
+  private bypassedRequests = Stats.persistedNum('bypassed_requests')
+  recordBypassed(): void {
+    this.bypassedRequests++
+    if (this.bypassedRequests % 25 === 0) {
+      try {
+        const dir = join(homedir(), '.squeezr')
+        if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
+        const existing = Stats.loadGlobal()
+        existing.bypassed_requests = this.bypassedRequests
+        const tmp = STATS_FILE + '.tmp'
+        writeFileSync(tmp, JSON.stringify(existing))
+        renameSync(tmp, STATS_FILE)
+      } catch { /* ignore */ }
+    }
+  }
+
   record(originalChars: number, compressedChars: number, savings: Savings, latency?: LatencyInfo, client?: string, model?: string): void {
     this.requests++
     this.totalOriginalChars += originalChars
@@ -253,6 +274,7 @@ for (const entry of savings.byTool) {
       current_project: this.currentProject,
       last_original_chars: this.lastOriginalChars,
       last_compressed_chars: this.lastCompressedChars,
+      bypassed_requests: this.bypassedRequests,
       // Savings breakdown for honest dashboard reporting
 breakdown: {
         tool_results_det: this.totalDetSaved,

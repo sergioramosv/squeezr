@@ -430,7 +430,7 @@ code{font-family:'Cascadia Code','SF Mono',Consolas,monospace;font-size:.9em}
         <div class="hero-card">
           <div class="hc-label">Requests</div>
           <div class="hc-val" id="h-reqs">—</div>
-          <div class="hc-sub"><span id="h-comp">—</span> AI-compressed · det. always on</div>
+          <div class="hc-sub"><span id="h-comp">—</span> AI-compressed · det. always on<span id="h-bypassed"></span></div>
         </div>
       </div>
 
@@ -1035,6 +1035,9 @@ function render(d) {
   document.getElementById('h-cost').textContent  = fmtUsd(tCost);
   document.getElementById('h-reqs').textContent  = fmt(tReqs);
   document.getElementById('h-comp').textContent  = fmt(tComps);
+  var byp = (d.bypassed_requests != null) ? d.bypassed_requests : 0;
+  var bypEl = document.getElementById('h-bypassed');
+  if (bypEl) bypEl.textContent = byp > 0 ? ' · ' + fmt(byp) + ' bypassed (not counted)' : '';
 var perEl = document.getElementById('overview-period');
   if (perEl && today.date) perEl.textContent = 'today · ' + today.date;
   // (No quality banner in the Overview — only genuine quality issues, high expand

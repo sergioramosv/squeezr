@@ -336,10 +336,12 @@ app.post('/v1/messages', async (c) => {
             savings,
         });
     }
-    // Bypass mode: skip all compression, still record request stats
+    // Bypass mode: skip all compression. Do NOT record processed/saved/cost stats — Squeezr
+    // did nothing to this traffic, and counting it (as it did before) inflated "processed"
+    // and dragged the savings ratio / cost to ~0 after a day spent bypassed. Track it in a
+    // separate bypassed-only counter instead.
     if (isBypassed()) {
-        stats.recordWithProject(project, originalRequestChars, originalRequestChars, emptySavings(), undefined, clientId, modelId);
-        recordRequest(project, 0, 0, [], originalRequestChars);
+        stats.recordBypassed();
         storeKey('anthropic', apiKey);
         const fwdHeaders = forwardHeaders(c.req.raw.headers);
         if (body.stream) {

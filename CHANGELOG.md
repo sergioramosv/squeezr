@@ -1,5 +1,14 @@
 # Changelog
 All notable changes to Squeezr will be documented here.
+## [1.99.0] - 2026-07-21
+### Fixed — el tráfico en BYPASS ya no ensucia las stats (processed / saved / cost / requests)
+- **Síntoma** (reportado): tras un día en bypass, el dashboard mostraba "Requests 1.1k", "36.6k tokens saved of 475.7M processed" y "Cost: Without $7048 / With $7048 / Saved $0.55" — números enormes y ratio ~0 "nada más empezar".
+- **Causa**: en bypass, el proxy registraba cada request con `recordWithProject(project, original, original, …)` → sumaba TODO el contexto a "procesado" con 0 ahorrado. Como Claude Code reenvía el contexto completo cada turno, 1076 requests de hoy en bypass = 475.7M tokens "procesados" y casi 0 ahorrado → ratio y coste sin sentido. No era corrupción; era tráfico de bypass contaminando las métricas.
+- **Fix** (`server.ts` + `stats.ts`): en bypass ya NO se registra processed/saved/cost/requests. Se cuenta en un contador aparte `bypassed_requests` (persistido, escritura throttled cada 25 para no machacar disco). `summary()` expone `bypassed_requests`.
+- **Dashboard**: la tarjeta "Requests" muestra `· N bypassed (not counted)` cuando aplica, dejando claro que ese tráfico no entra en los totales.
+- **Nota**: esto arregla el FUTURO. Para limpiar el histórico ya contaminado en `~/.squeezr/stats.json`: `squeezr gain --reset`.
+- Tests: **1 nuevo** (`statsOutput.test.ts`) — `recordBypassed` cuenta aparte y no toca original/saved/requests. Suite **546/546 verde**.
+
 ## [1.98.0] - 2026-07-21
 ### Added — tarjeta "Output" en el dashboard: el eco de salida ahora se contabiliza y se muestra
 - **Contexto**: el eco de salida (1.96) solo se logueaba → invisible en el dashboard, y el output-shaper no contaba nada. Este era el único hueco real de observabilidad tras el audit v2 (el resto —jsonCrush, row-drop, TextCrusher— ya sumaba a la línea "Deterministic" del breakdown).
@@ -8,6 +17,8 @@ All notable changes to Squeezr will be documented here.
 - **Dashboard** (`dashboard.ts`): nueva sección **"Output"** en Overview con 3 tarjetas — **Echo (restated)** (% medio de salida que repite contexto; verde ≤15%, ámbar ≤35%, rojo por encima), **Steered** (turnos con verbosity steering), **Effort lowered** (turnos mecánicos con thinking bajado). Llega vía `...session` → `d.output`.
 - Tests: **3 nuevos** (`statsOutput.test.ts`) — recordEcho/recordShaping/summary sin tocar disco. Suite **545/545 verde**.
 - **Nota**: solo se llena con `[output].enabled` (o `SQUEEZR_OUTPUT_SHAPER=1`). Lo NO hecho (por invasivo/cosmético): desglosar "JSON tables"/"Text crush" del bucket "Deterministic" (ya cuentan en el total; visibles por conteo en `squeezr discover`).
+### Docs
+- **V2_ROADMAP**: añadido **B.4 — Caché/RAG de consultas frecuentes** (opt-in, medido) como capacidad B-tier adicional; framear como extra que NO justifica el major (eso sigue siendo el pilar A). Recoge las decisiones v1 (spike de supresión de `tool_use` nativo, alcance proyecto+sesión, matching md5-exacto, A/B offline sobre corpus de `requestCapture`). Plan por fases en el nuevo `QUERY_CACHE_PLAN.md` (investigación de Karajan researcher+architect).
 
 ## [1.97.0] - 2026-07-21
 ### Added — check de "flujo de savings" en `squeezr doctor` (prioridad 6 del audit headroom v2) — cierra el plan de copias
