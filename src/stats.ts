@@ -90,6 +90,25 @@ export class Stats {
   // Partial expands = squeezr_expand("<id>~i") (recover one segment) vs whole-block.
   private expandPartial = Stats.persistedNum('expand_partial')
 
+  // Output-side metrics (output shaper + echo). Persisted via the main persist() snapshot
+  // (no per-call disk write). echoSum is the running sum of echo ratios (0..1); avg = sum/samples.
+  private outputEchoSamples = Stats.persistedNum('output_echo_samples')
+  private outputEchoSum = Stats.persistedNum('output_echo_sum')
+  private outputSteered = Stats.persistedNum('output_steered')
+  private outputEffortLowered = Stats.persistedNum('output_effort_lowered')
+
+  /** Record one measured assistant response's echo ratio (0..1). */
+  recordEcho(echo: number): void {
+    this.outputEchoSamples++
+    this.outputEchoSum += echo
+  }
+
+  /** Record one shaped request: whether verbosity steering was applied / effort was lowered. */
+  recordShaping(steered: boolean, effortLowered: boolean): void {
+    if (steered) this.outputSteered++
+    if (effortLowered) this.outputEffortLowered++
+  }
+
   record(originalChars: number, compressedChars: number, savings: Savings, latency?: LatencyInfo, client?: string, model?: string): void {
     this.requests++
     this.totalOriginalChars += originalChars
@@ -253,6 +272,16 @@ breakdown: {
         deterministic: this.latencyDet.summary(),
         ai: this.latencyAi.summary(),
       },
+      // Output-side metrics (output shaper). avg_echo_pct = mean % of assistant output
+      // that merely restated existing context (lower is better; steering targets it).
+      output: {
+        echo_samples: this.outputEchoSamples,
+        avg_echo_pct: this.outputEchoSamples > 0
+          ? Math.round((this.outputEchoSum / this.outputEchoSamples) * 1000) / 10
+          : 0,
+        steered: this.outputSteered,
+        effort_lowered: this.outputEffortLowered,
+      },
       // Expand rate — key quality metric (high = compression too aggressive)
       expand: {
         calls: this.expandCalls,
@@ -339,6 +368,10 @@ existing.ai_compression_calls = (existing.ai_compression_calls ?? 0) + savings.c
       existing.expand_hits = this.expandHits
       existing.expand_misses = this.expandMisses
       existing.expand_partial = this.expandPartial
+      existing.output_echo_samples = this.outputEchoSamples
+      existing.output_echo_sum = this.outputEchoSum
+      existing.output_steered = this.outputSteered
+      existing.output_effort_lowered = this.outputEffortLowered
       // Local AI calls (Zest/Ollama) — persisted separately, not added to cost counters
       if (savings.localAiCalls != null && savings.localAiCalls > 0) {
         existing.local_ai_calls = (existing.local_ai_calls ?? 0) + savings.localAiCalls

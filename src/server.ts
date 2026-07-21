@@ -542,6 +542,7 @@ body.messages = compressedMsgs
       effortRouting: config.outputEffortRouting,
       mechanicalThinkingFloor: config.outputMechanicalThinkingFloor,
     })
+    stats.recordShaping(shaped.steered, shaped.effortLowered)
     if (shaped.effortLowered || shaped.steered) {
       console.log(`[squeezr/output-shaper] turn=${shaped.turn} steered=${shaped.steered} effort-lowered=${shaped.effortLowered}`)
     }
@@ -599,6 +600,7 @@ body.messages = compressedMsgs
         const outText = extractAssistantTextFromSse(sseBuf)
         if (outText.length > 40) {
           const echo = echoRatio(outText, contextTextForEcho(body.messages as unknown[]))
+          stats.recordEcho(echo)
           console.log(`[squeezr/output] echo=${Math.round(echo * 100)}% of assistant output restated existing context (${outText.length} chars)`)
         }
       }
@@ -622,6 +624,7 @@ body.messages = compressedMsgs
     const outText = extractAssistantTextFromContent(respBody.content)
     if (outText.length > 40) {
       const echo = echoRatio(outText, contextTextForEcho(body.messages as unknown[]))
+      stats.recordEcho(echo)
       console.log(`[squeezr/output] echo=${Math.round(echo * 100)}% of assistant output restated existing context (${outText.length} chars)`)
     }
   }

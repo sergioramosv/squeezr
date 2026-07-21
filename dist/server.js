@@ -494,6 +494,7 @@ app.post('/v1/messages', async (c) => {
             effortRouting: config.outputEffortRouting,
             mechanicalThinkingFloor: config.outputMechanicalThinkingFloor,
         });
+        stats.recordShaping(shaped.steered, shaped.effortLowered);
         if (shaped.effortLowered || shaped.steered) {
             console.log(`[squeezr/output-shaper] turn=${shaped.turn} steered=${shaped.steered} effort-lowered=${shaped.effortLowered}`);
         }
@@ -549,6 +550,7 @@ app.post('/v1/messages', async (c) => {
                 const outText = extractAssistantTextFromSse(sseBuf);
                 if (outText.length > 40) {
                     const echo = echoRatio(outText, contextTextForEcho(body.messages));
+                    stats.recordEcho(echo);
                     console.log(`[squeezr/output] echo=${Math.round(echo * 100)}% of assistant output restated existing context (${outText.length} chars)`);
                 }
             }
@@ -570,6 +572,7 @@ app.post('/v1/messages', async (c) => {
         const outText = extractAssistantTextFromContent(respBody.content);
         if (outText.length > 40) {
             const echo = echoRatio(outText, contextTextForEcho(body.messages));
+            stats.recordEcho(echo);
             console.log(`[squeezr/output] echo=${Math.round(echo * 100)}% of assistant output restated existing context (${outText.length} chars)`);
         }
     }

@@ -1,5 +1,14 @@
 # Changelog
 All notable changes to Squeezr will be documented here.
+## [1.98.0] - 2026-07-21
+### Added — tarjeta "Output" en el dashboard: el eco de salida ahora se contabiliza y se muestra
+- **Contexto**: el eco de salida (1.96) solo se logueaba → invisible en el dashboard, y el output-shaper no contaba nada. Este era el único hueco real de observabilidad tras el audit v2 (el resto —jsonCrush, row-drop, TextCrusher— ya sumaba a la línea "Deterministic" del breakdown).
+- **Stats** (`stats.ts`): nuevos contadores persistidos `output_echo_samples`/`output_echo_sum`/`output_steered`/`output_effort_lowered`, con `recordEcho(ratio)` y `recordShaping(steered, effortLowered)` (actualizan en memoria; se persisten en el snapshot del `persist()` principal, sin escritura por llamada). `summary()` expone `output: { echo_samples, avg_echo_pct, steered, effort_lowered }`.
+- **Server** (`server.ts`): el eco medido (streaming + no-streaming) y el resultado del shaper se registran en stats en vez de solo loguearse.
+- **Dashboard** (`dashboard.ts`): nueva sección **"Output"** en Overview con 3 tarjetas — **Echo (restated)** (% medio de salida que repite contexto; verde ≤15%, ámbar ≤35%, rojo por encima), **Steered** (turnos con verbosity steering), **Effort lowered** (turnos mecánicos con thinking bajado). Llega vía `...session` → `d.output`.
+- Tests: **3 nuevos** (`statsOutput.test.ts`) — recordEcho/recordShaping/summary sin tocar disco. Suite **545/545 verde**.
+- **Nota**: solo se llena con `[output].enabled` (o `SQUEEZR_OUTPUT_SHAPER=1`). Lo NO hecho (por invasivo/cosmético): desglosar "JSON tables"/"Text crush" del bucket "Deterministic" (ya cuentan en el total; visibles por conteo en `squeezr discover`).
+
 ## [1.97.0] - 2026-07-21
 ### Added — check de "flujo de savings" en `squeezr doctor` (prioridad 6 del audit headroom v2) — cierra el plan de copias
 - **Nuevo check `checkSavings`** (`doctor.ts`): caza el caso silencioso "el proxy ve tráfico pero no ahorra nada". skip si el proxy está caído o sin tráfico; **warn** si hay requests pero ~0% ahorrado (bypass on / build stale / contenido incompresible); pass si el ahorro fluye. Se alimenta de `health.compression.{requests,savings_pct}` y entra en el exit-code 0/1/2.

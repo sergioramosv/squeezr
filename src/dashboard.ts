@@ -525,6 +525,19 @@ code{font-family:'Cascadia Code','SF Mono',Consolas,monospace;font-size:.9em}
         </div>
       </div>
 
+      <!-- Output shaping (output-side token reduction) -->
+      <div class="section">
+        <div class="section-head"><span class="section-title">Output</span><span style="font-size:11px;color:var(--text3)" id="out-note">what the model writes back · needs [output] enabled</span></div>
+        <div class="section-body">
+          <div class="cache-row">
+            <div class="cache-card"><div class="cache-label">Echo (restated)</div><div class="cache-val" id="out-echo">—</div></div>
+            <div class="cache-card"><div class="cache-label">Steered</div><div class="cache-val" id="out-steered">—</div></div>
+            <div class="cache-card"><div class="cache-label">Effort lowered</div><div class="cache-val" id="out-effort">—</div></div>
+          </div>
+          <div style="margin-top:8px;font-size:11px;color:var(--text3);text-align:center">Echo = % of the model's output that merely restated context it was already given (lower is better).</div>
+        </div>
+      </div>
+
       <!-- Spend: theoretical vs real -->
       <div class="section">
         <div class="section-head"><span class="section-title">Cost Comparison</span><span style="font-size:11px;color:var(--text3)" id="cost-note">per-model pricing</span></div>
@@ -1118,6 +1131,22 @@ var eff = (today.efficiency_pct != null) ? today.efficiency_pct : null;
       }
     }
   }
+  // Output shaping card (all-time; only meaningful when [output] enabled)
+  var out = d.output || {};
+  var setOut = function(id, v){ var e = document.getElementById(id); if(e) e.textContent = v; };
+  var echoEl = document.getElementById('out-echo');
+  if (echoEl) {
+    if (out.echo_samples > 0) {
+      echoEl.textContent = out.avg_echo_pct + '%';
+      // lower echo is better: green under 15%, amber 15-35%, red above
+      echoEl.style.color = out.avg_echo_pct <= 15 ? 'var(--brand2)' : out.avg_echo_pct <= 35 ? '#fbbf24' : 'var(--red, #e5484d)';
+    } else {
+      echoEl.textContent = '—';
+    }
+  }
+  setOut('out-steered', out.steered > 0 ? fmt(out.steered) : '—');
+  setOut('out-effort', out.effort_lowered > 0 ? fmt(out.effort_lowered) : '—');
+
   // Cost Comparison is OVERVIEW = TODAY: use today's tokens (not all-time), so the
   // sub-lines match the today money. (modelCosts already comes from today's models.)
   var cmpIn     = today.original_tokens || 0;
