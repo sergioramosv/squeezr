@@ -48,11 +48,32 @@ Coupled pairs that MUST migrate together: `compress_conversation` ⟷ `compress_
 `server.ts` `persistBackendToToml()` (→ `[compression]`), POST `/squeezr/ports` `updateKey()` (→ `[proxy]`), and dashboard toggles write via **regex on hardcoded table/key names**. After migration these would append orphan keys or recreate the OLD tables → silent un-migration. Replace with a single structured writer that targets the new namespaces and round-trips safely. A read→write→read test must guard it.
 
 ## Phases
-- **P1** — Define v2 `TomlConfig` types + parse both schemas (v1 back-compat shim) in `config.ts`; effective Config unchanged. Tests: env-override + deepMerge precedence + v1/v2 parse.
-- **P2** — `migrateSchemaV1toV2()` + `schema_version` gate + backup + loud validation. Tests: 1:1-lossless (old toml → migrated → identical effective Config), comment-preservation, idempotency.
-- **P3** — Rewrite the toml writers (server.ts + dashboard) to the new namespaces + round-trip test.
-- **P4** — Rewrite the bundled `squeezr.toml` template into the 4 namespaces (comments = docs); apply A.2 default flips.
-- **P5** — Project-local `./.squeezr.toml` handling (see decision B); README + CHANGELOG; version → 2.0.0.
+- **P1** ✅ (1.99.3) — v2 `TomlConfig` types + dual parse (v1 back-compat) + exposed constants. 9 tests.
+- **P2** ✅ (1.99.4) — `migrateSchemaV1toV2()` + gate + backup + loud validation (not wired to boot). 7 tests.
+- **P3** ✅ (1.99.5) — structured toml writers targeting v2 namespaces (kills the un-migration risk). 4 tests.
+- **P4 + P5** → the **2.0.0** release (they are coupled — see below).
+
+### Why P4 and P5 must ship together as 2.0.0
+Making the bundled toml v2 while a user is still on v1 would let the bundled
+`[input]` value override the user's `[compression]` override (different tables,
+resolver reads `inp ?? c` → bundled wins). Cross-schema precedence bug.
+
+**Fix (cleaner):** the bundled `squeezr.toml` becomes **pure documentation** — every
+option shown commented-out with its default, **no active values** — and the safe
+A.2 defaults move into the **code** (`config.ts`). Then nothing in the bundled file
+can override a user override, and code defaults supply the safe values.
+
+2.0.0 = one atomic release:
+1. Flip code defaults to safe A.2 values: `tool_desc_compress` default `false`→`true`
+   (with `tool_desc_expand=true`). Keep OFF: `ai_compression`, `output.enabled`,
+   `compress_tool_inputs`. (This is THE observable behaviour change → MAJOR.)
+2. Rewrite bundled `squeezr.toml` as fully-commented v2 docs, no active keys.
+3. Wire `migrateUserConfigFile()` at startup (index.ts, production-only, explicit —
+   never on config import, so tests never migrate the dev's real ~/.squeezr).
+   Ordering is safe: migration is effect-preserving, so config built before/after
+   it is identical; the write just tidies the file to v2 for next boot.
+4. Project-local `./.squeezr.toml` old-schema detection + loud warn (decision B).
+5. README + CHANGELOG; version → 2.0.0; `npm install -g .`.
 
 ## Decisions (Sergio, 2026-07-21)
 - **A. Newly-exposed constants → EXPOSE NOW.** Add `[ai]` rate-limit + min-chars and `[safety]` circuit-breaker/guard/max-deflate keys, defaulting to today's hardcoded values. Their modules (`aiRateLimit`, `circuitBreaker`, `compressionGuard`, `compressibilityProbe`) read from `config` instead of local constants.
