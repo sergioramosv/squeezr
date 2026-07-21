@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { crushJsonArrays, TABLE_MARKER_RE } from '../jsonCrush.js'
+import { crushJsonArrays, TABLE_MARKER_RE, simhash32, hammingDistance } from '../jsonCrush.js'
 import { retrieveOriginal } from '../expand.js'
 
 function makeRows(n: number) {
@@ -115,6 +115,55 @@ describe('crushJsonArrays', () => {
     expect(a).toBe(b)
   })
 
+  // ── Lossy row-drop (SimHash near-dup collapse) for large arrays ──────────────
+
+  function manyRows(n: number): unknown[] {
+    return Array.from({ length: n }, (_, i) => ({
+      id: i,
+      name: `svc-${i}`,
+      status: i % 2 === 0 ? 'running' : 'stopped',
+      region: 'us-east-1',
+    }))
+  }
+
+  it('drops near-duplicate rows in a large array but keeps the original recoverable', () => {
+    const rows = manyRows(120)
+    const input = JSON.stringify(rows)
+    const { text, savedChars } = crushJsonArrays(input)
+    expect(savedChars).toBeGreaterThan(0)
+    // the inline table shows far fewer than 120 rows
+    const bodyLines = text.split('\n').filter(l => l.includes('\t'))
+    expect(bodyLines.length).toBeLessThan(120)
+    // an omitted-rows note is present
+    expect(/of 120 rows|rows omitted|near-duplicate/i.test(text)).toBe(true)
+    // ALL 120 rows still recoverable via expand
+    const m = text.match(TABLE_MARKER_RE)
+    expect(JSON.parse(retrieveOriginal(m![1])!).length).toBe(120)
+  })
+
+  it('ALWAYS keeps an anomalous/error row inline even amid near-duplicates', () => {
+    const rows = manyRows(120) as Array<Record<string, unknown>>
+    rows[63] = { id: 63, name: 'svc-63', status: 'CrashLoopBackOff', region: 'us-east-1', error: 'OOMKilled' }
+    const input = JSON.stringify(rows)
+    const { text } = crushJsonArrays(input)
+    expect(text.includes('CrashLoopBackOff')).toBe(true)
+    expect(text.includes('OOMKilled')).toBe(true)
+  })
+
+  it('keeps ALL rows for arrays below the lossy threshold (no row-drop)', () => {
+    const input = JSON.stringify(manyRows(30))
+    const { text } = crushJsonArrays(input)
+    expect(/rows omitted|near-duplicate/i.test(text)).toBe(false)
+    // lines after the marker (0) and header (1) are the data rows
+    const dataRows = text.split('\n').slice(2)
+    expect(dataRows.length).toBe(30)
+  })
+
+  it('row-drop is deterministic', () => {
+    const input = JSON.stringify(manyRows(150))
+    expect(crushJsonArrays(input).text).toBe(crushJsonArrays(input).text)
+  })
+
   it('crushes a pretty-printed (indented) JSON array too', () => {
     const input = JSON.stringify(
       Array.from({ length: 8 }, (_, i) => ({ id: i, name: `x${i}`, status: 'ok', region: 'us' })),
@@ -124,5 +173,21 @@ describe('crushJsonArrays', () => {
     const { text, savedChars } = crushJsonArrays(input)
     expect(savedChars).toBeGreaterThan(0)
     expect(TABLE_MARKER_RE.test(text)).toBe(true)
+  })
+})
+
+describe('simhash32 / hammingDistance', () => {
+  it('identical text → identical fingerprint (distance 0)', () => {
+    expect(hammingDistance(simhash32('the quick brown fox'), simhash32('the quick brown fox'))).toBe(0)
+  })
+  it('near-identical rows are closer than unrelated ones (the property that matters)', () => {
+    // Realistic row strings (many shared tokens) — SimHash's signal is strongest here.
+    const base = simhash32('id 1 name svc-1 status running region us-east-1 node ip-10-0-1-5')
+    const near = simhash32('id 2 name svc-2 status running region us-east-1 node ip-10-0-1-5')
+    const far = simhash32('completely unrelated payload about quarterly revenue and marketing spend')
+    expect(hammingDistance(base, near)).toBeLessThan(hammingDistance(base, far))
+  })
+  it('is deterministic', () => {
+    expect(simhash32('same input here')).toBe(simhash32('same input here'))
   })
 })

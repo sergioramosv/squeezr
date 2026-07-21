@@ -25,6 +25,9 @@ import { storeOriginal } from './expand.js'
 const MIN_ITEMS = 5
 const MIN_OBJECT_FRACTION = 0.8   // ≥80% of elements must be plain objects
 const MIN_SAVINGS_RATIO = 0.15    // only crush if it shaves ≥15% of the chars
+const LOSSY_ROW_THRESHOLD = 50    // above this many rows, drop near-duplicates (SimHash)
+const HAMMING_NEAR_DUP = 3        // rows within this 32-bit Hamming distance are "the same"
+const ROW_SIGNAL_RE = /\b(error|err|fail|failed|failure|exception|fatal|panic|denied|refused|timeout|critical|crash|oom|unhealthy|degraded)\b/i
 
 // Recognises the table header this module emits (anywhere in the text, since the table
 // may be embedded in a larger tool result). Group 1 = the expand id.
@@ -34,6 +37,58 @@ type Row = Record<string, unknown>
 
 function isPlainObject(v: unknown): v is Row {
   return typeof v === 'object' && v !== null && !Array.isArray(v)
+}
+
+// ── SimHash near-duplicate detection (deterministic, dependency-free) ─────────
+
+/** FNV-1a 32-bit hash of a token. */
+function fnv1a32(s: string): number {
+  let h = 0x811c9dc5
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i)
+    h = Math.imul(h, 0x01000193)
+  }
+  return h >>> 0
+}
+
+/** 32-bit SimHash fingerprint of a text (bit-voting over its word tokens). Two texts
+ *  that share most tokens get fingerprints a small Hamming distance apart. */
+export function simhash32(text: string): number {
+  const tokens = text.toLowerCase().match(/[a-z0-9_]+/g) ?? []
+  if (tokens.length === 0) return 0
+  const bits = new Array(32).fill(0)
+  for (const t of tokens) {
+    const h = fnv1a32(t)
+    for (let b = 0; b < 32; b++) bits[b] += ((h >>> b) & 1) ? 1 : -1
+  }
+  let f = 0
+  for (let b = 0; b < 32; b++) if (bits[b] > 0) f |= (1 << b)
+  return f >>> 0
+}
+
+export function hammingDistance(a: number, b: number): number {
+  let x = (a ^ b) >>> 0
+  let c = 0
+  while (x) { c += x & 1; x >>>= 1 }
+  return c
+}
+
+/**
+ * Given the per-row rendered strings, return the indices to KEEP: one representative per
+ * SimHash cluster (near-duplicates dropped), plus every row that carries an error/anomaly
+ * signal (always kept). Order preserved. Deterministic.
+ */
+function selectRepresentativeRows(rowStrings: string[]): number[] {
+  const reps: number[] = []          // simhash fingerprints of chosen representatives
+  const kept: number[] = []
+  for (let i = 0; i < rowStrings.length; i++) {
+    if (ROW_SIGNAL_RE.test(rowStrings[i])) { kept.push(i); continue } // anomaly → always keep
+    const sig = simhash32(rowStrings[i])
+    if (reps.some(r => hammingDistance(r, sig) <= HAMMING_NEAR_DUP)) continue // near-dup → drop
+    reps.push(sig)
+    kept.push(i)
+  }
+  return kept
 }
 
 /** Union of keys across rows, in first-seen order (deterministic). */
@@ -89,26 +144,33 @@ export function crushJsonArrays(text: string): { text: string; savedChars: numbe
   if (cols.length === 0) return { text, savedChars: 0 }
 
   const header = cols.join(CELL_DELIM)
-  const bodyLines: string[] = []
-  for (const row of rows) {
-    if (isPlainObject(row)) {
-      bodyLines.push(cols.map(c => cell(row[c], c in row)).join(CELL_DELIM))
-    } else {
-      // Non-object element inside a mostly-object array: keep it verbatim as JSON on
-      // its own line so nothing is lost (recoverable in full via expand anyway).
-      bodyLines.push(JSON.stringify(row))
+  const rowLines: string[] = rows.map(row =>
+    isPlainObject(row)
+      ? cols.map(c => cell(row[c], c in row)).join(CELL_DELIM)
+      // Non-object element inside a mostly-object array: keep it verbatim as JSON so
+      // nothing is lost (recoverable in full via expand anyway).
+      : JSON.stringify(row),
+  )
+
+  // Lossy row-drop for LARGE arrays: collapse near-duplicate rows (SimHash), always
+  // keeping anomaly/error rows. Deterministic → cache-safe. The full original is in the
+  // expand store, so dropped rows are recoverable. Small arrays keep every row.
+  let bodyLines = rowLines
+  let omitted = 0
+  if (rows.length > LOSSY_ROW_THRESHOLD) {
+    const kept = selectRepresentativeRows(rowLines)
+    if (kept.length < rowLines.length) {
+      bodyLines = kept.map(i => rowLines[i])
+      omitted = rowLines.length - kept.length
     }
   }
 
-  // Build the (id-less) body first to measure real savings before we pay for an id.
-  const provisional = `${header}\n${bodyLines.join('\n')}`
-  const saved = text.length - provisional.length
-  if (saved <= 0 || saved / text.length < MIN_SAVINGS_RATIO) return { text, savedChars: 0 }
-
   const id = storeOriginal(text)
-  const marker = `[squeezr:table ${id} — ${rows.length} rows × ${cols.length} cols; squeezr_expand("${id}") for original JSON]`
+  const marker = omitted > 0
+    ? `[squeezr:table ${id} — showing ${bodyLines.length} of ${rows.length} rows × ${cols.length} cols; ${omitted} near-duplicate rows omitted; squeezr_expand("${id}") for original JSON]`
+    : `[squeezr:table ${id} — ${rows.length} rows × ${cols.length} cols; squeezr_expand("${id}") for original JSON]`
   const out = `${marker}\n${header}\n${bodyLines.join('\n')}`
   const savedChars = text.length - out.length
-  if (savedChars <= 0) return { text, savedChars: 0 }
+  if (savedChars <= 0 || savedChars / text.length < MIN_SAVINGS_RATIO) return { text, savedChars: 0 }
   return { text: out, savedChars }
 }

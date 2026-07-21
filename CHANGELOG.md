@@ -1,5 +1,13 @@
 # Changelog
 All notable changes to Squeezr will be documented here.
+## [1.94.0] - 2026-07-21
+### Added — SimHash + row-drop en arrays JSON grandes (prioridad 3 del audit headroom v2)
+- **Contexto**: hasta ahora el crush de JSON era lossless (todas las filas). Para arrays MUY grandes de filas casi-idénticas (listas de pods, logs estructurados, recursos), eso deja mucho por ahorrar. Se porta la ruta lossy del SmartCrusher de headroom, **query-independiente y determinista → cache-safe también para Claude Code** (a diferencia de la relevancia BM25).
+- **SimHash** (`jsonCrush.ts`, sin dependencias): `simhash32` (huella de 32 bits por bit-voting sobre los tokens de la fila, hash FNV-1a) + `hammingDistance`. Filas dentro de distancia Hamming ≤3 se consideran "la misma".
+- **Row-drop** (`selectRepresentativeRows`): por encima de 50 filas, conserva **un representante por clúster SimHash** (tira las casi-duplicadas) y **SIEMPRE conserva las filas con señal de anomalía/error** (error/fail/exception/crash/oom/unhealthy…). Orden preservado.
+- **Reversible**: el original completo sigue en el expand store; el marcador indica "showing K of N rows; M near-duplicate rows omitted; squeezr_expand(id) for original JSON". Arrays por debajo del umbral conservan todas las filas (comportamiento anterior intacto).
+- Tests: **8 nuevos** en `jsonCrush.test.ts` — drop de casi-duplicadas con original recuperable (120→pocas), fila anómala SIEMPRE inline, ≤umbral conserva todas, determinismo; + `simhash32`/`hammingDistance` (idénticos→0, near<far, determinista). Suite **524/524 verde**.
+
 ## [1.93.0] - 2026-07-21
 ### Added — router de contenido: crush de arrays JSON EMBEBIDOS (prioridad 2 del audit headroom v2)
 - **Contexto**: hasta 1.84 el crush de JSON solo disparaba si TODO el tool result era un array. Mucha data estructurada llega envuelta (una línea de estado de `gh api`, un envoltorio de una tool MCP, un `echo` + JSON en bash). Se porta la idea del `ContentRouter` de headroom.
