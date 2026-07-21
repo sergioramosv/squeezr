@@ -149,6 +149,28 @@ no romper la prompt-cache) y recuperable vía `squeezr_expand`.
 
 ## Mejoras adicionales apuntadas para 2.0
 
+- **Auto-reporte de fallos → issue en el repo (desde el MCP)** — cuando Squeezr provoca un
+  fallo (excepción no capturada, circuit-breaker que se dispara, respuesta corrupta detectada,
+  pipeline que rompe una request), crear **automáticamente una issue** en el repositorio de
+  Squeezr con todo el contexto útil: versión, plataforma, cliente (Claude Code/Codex/…), stack
+  trace, la etapa del pipeline que falló, y un repro mínimo anonimizado. Así conocemos los
+  fallos aunque el usuario no los reporte.
+  - **Dónde vive:** el servidor MCP de Squeezr expone la acción (o un hook interno del proxy la
+    dispara); el MCP ya tiene el canal para hablar con el exterior.
+  - **Privacidad (BLOQUEANTE):** una issue de GitHub es **pública**. Jamás volcar prompts,
+    código, rutas absolutas, tokens ni cabeceras de auth → **reutilizar la redacción de
+    `requestCapture`** y enviar solo metadatos + stack + repro sintético. Debe ser **opt-in**
+    (o al menos claramente divulgado y desactivable), nunca telemetría silenciosa.
+  - **Anti-spam:** agrupar por hash de stack/fingerprint del error → si ya existe una issue
+    abierta con ese fingerprint, comentar/incrementar contador en vez de crear duplicados.
+    Rate-limit local para no inundar el repo.
+  - **Auth:** no se puede embeber el token del mantenedor en el paquete npm. Opciones a decidir:
+    (a) endpoint colector propio de Squeezr que crea la issue server-side, (b) token del propio
+    usuario, o (c) intake público sin auth con validación. La (a) es la más limpia y la que evita
+    exponer credenciales.
+  - Encaja con el **pilar C de credibilidad** (ahorro medido + suite de accuracy + arnés de
+    regresión): un lazo de feedback de fallos reales cierra el círculo de calidad.
+
 - **Compresor de código con tree-sitter (AST real)** — upgrade del punto 5. Hoy (1.87.0) la
   extracción de estructura es "AST-lite" por heurísticas/regex (ts/py/go/rs/java/c/cpp), sin
   dependencias, que es lo correcto para vistas de lectura recuperables vía expand. Para 2.0,
