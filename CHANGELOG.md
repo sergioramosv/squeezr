@@ -1,5 +1,17 @@
 # Changelog
 All notable changes to Squeezr will be documented here.
+## [1.90.0] - 2026-07-21
+### Added — `squeezr doctor`: diagnóstico que reconcilia proxy/versión/routing/bypass (punto 8, ÚLTIMO del plan headroom→squeezr)
+- **Contexto**: el fallo de Squeezr es SILENCIOSO — si el proxy muere, el env-var deriva o el código en marcha está stale, sigues trabajando pero dejas de ahorrar (o peor, sales directo). Se porta `headroom doctor`.
+- **Nuevo módulo `doctor.ts`** (lógica de checks pura + orquestador IO): chequea **Proxy** (health alcanzable), **Version** (proxy en marcha vs instalado → detecta código stale), **Routing** (`ANTHROPIC_BASE_URL` apunta al loopback del puerto), **Bypass** (compresión activa/desactivada). Cada check es pass/warn/fail/skip y el **exit code** es 0 (todo ok) / 1 (warnings) / 2 (fallo), para componer en scripts.
+- **Nuevo comando `squeezr doctor`**; sondea `/squeezr/health`. Añadido a `--help`.
+- **Validado en real**: destapó que el proxy en marcha era v1.82.0 (stale) y con bypass ON → exit 1. Exactamente el estado silencioso que debe cazar.
+- Tests: **15 nuevos** (`doctor.test.ts`) — cada check (proxy/version/env/bypass) en sus estados, `computeExitCode` 0/1/2, formato. Suite **492/492 verde**.
+
+### Hito — plan headroom→squeezr COMPLETO (8/8 puntos, v1.83.0 → v1.90.0)
+- 1 recorte de salida · 2 SmartCrusher JSON · 3 `learn` · 4 `bench` · 5 código AST-lite (java/c/cpp) · 6 TextCrusher · 7 CacheAligner detector · 8 `doctor`.
+- Para Claude Code (nuestra liga) esto nos pone **por delante de headroom**. La **2.0.0** propiamente dicha queda pendiente de los pilares A (limpieza breaking de config + defaults que ahorran solos) y B (Zest clasificador determinista) — ver `docs/V2_ROADMAP.md`. tree-sitter (AST real) es la mejora fuerte del punto 5 para 2.0.
+
 ## [1.89.0] - 2026-07-21
 ### Added — CacheAligner (detector): avisa cuándo el system prompt del cliente rompe tu prompt-cache (punto 7 del plan)
 - **Contexto**: Anthropic cachea el prefijo a 0.1x solo si llega byte-idéntico entre requests. Si el system prompt del CLIENTE lleva contenido volátil dentro de la región cacheada (un UUID de sesión, un timestamp vivo, un hash de build, un JWT), el prefijo cambia cada request y el cache no acierta — re-facturando todo el contexto a precio full. Es justo el fallo que en su día quemó un plan de 5h. Squeezr ya monitoriza el hit-health %; esto señala la CAUSA.

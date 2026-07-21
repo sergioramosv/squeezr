@@ -254,6 +254,7 @@ Usage:
   squeezr learn --apply    Write the learned rules to ./CLAUDE.local.md
   squeezr bench            Run the compression + fact-recall benchmark
   squeezr status           Check if proxy is running
+  squeezr doctor           Diagnose proxy/version/routing/bypass (exit 0/1/2)
   squeezr config           Print config file path and current settings
   squeezr rc [args...]     Launch 'claude --rc' (Remote Control) direct to api.anthropic.com
                            (proxy bypassed for that session — Claude Code requires it)
@@ -2564,6 +2565,15 @@ switch (command) {
 case 'zest':
     await installZest()
     break
+
+  case 'doctor': {
+    const { runDoctor } = await import(pathToFileURL(path.join(ROOT, 'dist', 'doctor.js')).href)
+    const res = await runDoctor()
+    console.log(res.report)
+    if (command !== 'update') await showUpdateBanner()
+    process.exit(res.exitCode)
+    break
+  }
 
   case 'bench': {
     const { runBench, formatBench } = await import(pathToFileURL(path.join(ROOT, 'dist', 'bench.js')).href)
