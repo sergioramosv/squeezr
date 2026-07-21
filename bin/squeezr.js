@@ -252,6 +252,7 @@ Usage:
   squeezr discover         Show pattern coverage report (proxy must be running)
   squeezr learn            Mine Claude Code sessions for token-wasting loops
   squeezr learn --apply    Write the learned rules to ./CLAUDE.local.md
+  squeezr bench            Run the compression + fact-recall benchmark
   squeezr status           Check if proxy is running
   squeezr config           Print config file path and current settings
   squeezr rc [args...]     Launch 'claude --rc' (Remote Control) direct to api.anthropic.com
@@ -2563,6 +2564,12 @@ switch (command) {
 case 'zest':
     await installZest()
     break
+
+  case 'bench': {
+    const { runBench, formatBench } = await import(pathToFileURL(path.join(ROOT, 'dist', 'bench.js')).href)
+    console.log(formatBench(runBench()))
+    break
+  }
 
   case 'learn': {
     const apply = args.includes('--apply')

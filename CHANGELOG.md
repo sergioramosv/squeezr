@@ -1,5 +1,17 @@
 # Changelog
 All notable changes to Squeezr will be documented here.
+## [1.86.0] - 2026-07-21
+### Added — `squeezr bench`: arnés de compresión + recall de hechos (punto 4 del plan headroom→squeezr; cierra el core de la 2.0)
+- **Contexto**: headroom prueba "misma respuesta, menos tokens" haciendo que un LLM responda sobre lo comprimido — necesita API key y cuesta dinero, no cabe en CI. Se porta la idea con un proxy **determinista y sin coste** de la accuracy: **recall de hechos**.
+- **Nuevo módulo `bench.ts`**: por cada fixture se declaran los HECHOS CRÍTICOS que necesitaría una respuesta (código de error, fichero, valor, cuenta). Se comprime con el pipeline real (`preprocessForTool`) y se mide:
+  - **compressionPct** — chars eliminados / originales.
+  - **inlineRecall** — fracción de hechos críticos presentes VERBATIM en la salida comprimida (respondible SIN expand). La recuperabilidad es 100% por diseño (todo bloque comprimido guarda su original en el expand store), así que la métrica honesta es cuánto sobrevive inline.
+- **Fixtures** representativos: array JSON homogéneo (pods k8s con una fila anómala), build-log con error tsc entre ruido, grep-dump con un fatal entre matches.
+- **Nuevo comando `squeezr bench`** (tabla formateada). Añadido a `--help`.
+- **Resultado real**: AVG 56.6% compresión · 67% recall inline · 100% recuperable. El arnés destapó honestamente que la compactación de grep tira inline la última línea crítica (recuperable vía expand pero no inline) — exactamente el fallo que un arnés debe revelar.
+- Tests: **8 nuevos** (`bench.test.ts`) — `factRecall`, integridad de fixtures (los hechos existen en el original), forma del runner, compresión real >10% en algún fixture, JSON crushable con recall 100% inline, medias honestas. Suite **446/446 verde**.
+- **Nota 2.0**: con esto los 4 puntos core del plan (salida, JSON, learn, benchmarks) están hechos. La 2.0.0 propiamente dicha sigue pendiente de los pilares A (limpieza breaking de config + defaults que ahorran solos) y B (Zest clasificador determinista) — ver `docs/V2_ROADMAP.md`.
+
 ## [1.85.0] - 2026-07-21
 ### Added — `squeezr learn`: minería de loops en sesiones de Claude Code (punto 3 del plan headroom→squeezr)
 - **Contexto**: se porta `headroom learn`. La señal más valiosa y barata (sin LLM) son los LOOPS que desperdician tokens en las sesiones reales.
