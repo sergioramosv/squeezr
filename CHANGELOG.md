@@ -1,5 +1,11 @@
 # Changelog
 All notable changes to Squeezr will be documented here.
+## [1.99.4] - 2026-07-21
+### Added — migración de esquema v1→v2 (pilar A, P2 — no cableada a boot aún)
+- **`schemaMigration.ts`**: `migrateTomlV1toV2()` mapea cada key explícita del `[compression]` plano a su namespace v2 (`[input]`/`[ai]`/`[safety]`), conservando `[proxy]`/`[cache]`/`[adaptive]`/`[local]`/`[output]`. `renderV2Toml()` emite un toml fresco organizado por namespaces con comentarios (los valores del usuario; la doc por-opción completa vive en el bundled, P4).
+- **`migrateUserConfigFile()`**: migración in-place idempotente — salta si `schema_version >= 2`, hace backup a `.v1.bak`, y **valida antes de escribir**: si el toml renderizado no reproduce el Config efectivo EXACTO, aborta ruidosamente y deja el archivo intacto (sin silent fallback). `migrationPreservesConfig()` compara snapshots de Config de ambos esquemas (1:1 lossless).
+- **No auto-ejecuta en boot todavía**: solo debe correr cuando los writers (P3) y el bundled toml (P4) estén en v2, es decir en el release 2.0 (P5). Hasta entonces es una función auto-contenida y testeada.
+- Tests: **7 nuevos** (`schemaMigration.test.ts`) — ruteo por namespace, 1:1 lossless, round-trip del render, migración in-place + backup, idempotencia, no-file, y archivo parcialmente migrado. Suite **573/573 verde**, typecheck limpio.
 ## [1.99.3] - 2026-07-21
 ### Added — v2 config schema foundation (pilar A, P1 — retrocompatible)
 - **Namespaces nuevos en `config.ts`**: `[input]` (todo lo que comprime lo que ENTRA), `[ai]` (backend, master switch, min-chars, rate-limit), `[safety]` (bypass, circuit-breaker, guards). El parse es **dual**: resuelve v2 → v1 `[compression]` → default, así que **cualquier `squeezr.toml` viejo sigue funcionando sin tocar nada**. Marcador `schema_version` para la migración (P2).
