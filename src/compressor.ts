@@ -408,7 +408,7 @@ async function runCompression(
       // QUALITY GUARDRAIL: reject results that don't save enough or that dropped a
       // critical token (path/URL/error code) or too many key tokens. A rejected
       // block is left in its deterministic-only form (never cached, never used).
-      let guard = validateCompression(item.text, compressed)
+      let guard = validateCompression(item.text, compressed, { minRatio: config.guardMinRatio, softTolerance: config.guardSoftTolerance })
       // RETRY-WITH-CORRECTION: instead of just rejecting a result that dropped
       // critical tokens, give the model a second shot telling it EXACTLY which
       // tokens it must keep verbatim. Turns many rejects into accepts → more real
@@ -417,7 +417,7 @@ async function runCompression(
         const must = guard.lostHard.slice(0, 25).join(', ')
         const correction = `CRITICAL: your previous output OMITTED these tokens, which MUST appear verbatim in the result: ${must}. Redo the compression of the SAME input keeping every one of them, plus all other paths/URLs/error codes/identifiers.`
         const retry = await circuitBreaker.call(() => compressFn(preprocessed, correction), callTimeout)
-        const retryGuard = validateCompression(item.text, retry)
+        const retryGuard = validateCompression(item.text, retry, { minRatio: config.guardMinRatio, softTolerance: config.guardSoftTolerance })
         if (retryGuard.accept) { compressed = retry; guard = retryGuard; compressionGuardCounters.retriedOk++ }
       }
       if (!guard.accept) {
@@ -1007,7 +1007,7 @@ const candidates = allResults.slice(0, Math.max(0, allResults.length - effective
     if (looksStructured(c.text)) { structuredSkipped++; return false }
     // Dense/incompressible blocks would be rejected by the guard anyway (saving
     // < min-ratio) — skip the wasted AI call and keep the deterministic form.
-    if (looksIncompressible(c.text)) { incompressibleSkipped++; return false }
+    if (looksIncompressible(c.text, config.maxDeflate)) { incompressibleSkipped++; return false }
     return true
   })
   if (structuredSkipped > 0) {

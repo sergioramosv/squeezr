@@ -1,5 +1,13 @@
 # Changelog
 All notable changes to Squeezr will be documented here.
+## [1.99.3] - 2026-07-21
+### Added — v2 config schema foundation (pilar A, P1 — retrocompatible)
+- **Namespaces nuevos en `config.ts`**: `[input]` (todo lo que comprime lo que ENTRA), `[ai]` (backend, master switch, min-chars, rate-limit), `[safety]` (bypass, circuit-breaker, guards). El parse es **dual**: resuelve v2 → v1 `[compression]` → default, así que **cualquier `squeezr.toml` viejo sigue funcionando sin tocar nada**. Marcador `schema_version` para la migración (P2).
+- **Constantes antes hardcodeadas ahora configurables** (decisión "exponer ahora"): `[ai]` `min_chars`(1500)/`rate_limit_window_ms`(300000)/`rate_limit_max_calls`(20) y `[safety]` `circuit_breaker_*`(3/60000/5000)/`guard_min_ratio`(0.15)/`guard_soft_tolerance`(0.10)/`max_deflate`(0.55). Cableados `aiRateLimit`, `circuitBreaker`, `compressionGuard` (call site) y la probe de compresibilidad (call site) a leer de `config`; defaults idénticos a los valores previos.
+- **Seam de test**: `new Config(tomlOverride?)` inyecta config parseada sin tocar disco; `TomlConfig` exportado.
+- Tests: **9 nuevos** (`configSchemaV2.test.ts`) — v1 back-compat, v2 gana sobre v1, defaults, listas, equivalencia `[safety].disabled`↔`[compression].disabled`, constantes expuestas, gate de `compress_system_prompt`. Suite **566/566 verde**, typecheck limpio.
+- **Nota**: descubierto un quirk preexistente (no tocado en P1): el flag `disabled` de toml solo se activa vía env `SQUEEZR_DISABLED=1/true`, no desde toml. Preservado tal cual; el bypass real vive en `bypass.json`.
+- Parte del `PILLAR_A_CONFIG_PLAN.md`. Siguiente: P2 (migración automática v1→v2 con backup + validación ruidosa).
 ## [1.99.2] - 2026-07-21
 ### Security — endurecimiento del proxy (audit exhaustivo: 3 highs + 2 mediums)
 - **Bind loopback** (`index.ts`): el proxy principal escuchaba en todas las interfaces → exponía las API keys y los endpoints de control en la LAN. Ahora bind explícito a `127.0.0.1`, igual que el resto de listeners. Test de regresión (`serverBinding.test.ts`).

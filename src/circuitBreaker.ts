@@ -29,11 +29,15 @@ export interface CircuitSnapshot {
   config: CircuitBreakerConfig
 }
 
-const DEFAULT_CONFIG: CircuitBreakerConfig = {
-  failureThreshold: 3,
-  resetTimeoutMs: 60_000,
-  callTimeoutMs: 5_000,
-}
+import { config } from './config.js'
+
+// Defaults now come from [safety] (circuit_breaker_*); the fallbacks here match
+// the historical hardcoded values in case config is unavailable.
+const defaultConfig = (): CircuitBreakerConfig => ({
+  failureThreshold: config.circuitBreakerFailures ?? 3,
+  resetTimeoutMs: config.circuitBreakerResetMs ?? 60_000,
+  callTimeoutMs: config.circuitBreakerTimeoutMs ?? 5_000,
+})
 
 export class CircuitBreaker {
   private state: CircuitState = 'closed'
@@ -44,7 +48,7 @@ export class CircuitBreaker {
   private config: CircuitBreakerConfig
 
   constructor(config?: Partial<CircuitBreakerConfig>) {
-    this.config = { ...DEFAULT_CONFIG, ...config }
+    this.config = { ...defaultConfig(), ...config }
   }
 
   /** Returns current state, transitioning open→half-open if cooldown elapsed. */

@@ -10,8 +10,9 @@
  * Window is process-global (not per-conversation): the user's quota is global.
  */
 
-const WINDOW_MS = 5 * 60 * 1000   // 5 minutes — matches Claude Code's 5h window cadence
-const MAX_CALLS_PER_WINDOW = 20   // generous for normal use, hard ceiling against bursts
+// Window + ceiling are now configurable ([ai].rate_limit_window_ms / _max_calls);
+// defaults preserve the original 5-minute / 20-call safety net.
+import { config } from './config.js'
 
 const callTimestamps: number[] = []
 
@@ -19,10 +20,10 @@ const callTimestamps: number[] = []
 export function tryConsumeAiCall(): boolean {
   const now = Date.now()
   // Drop timestamps outside the window
-  while (callTimestamps.length > 0 && now - callTimestamps[0] > WINDOW_MS) {
+  while (callTimestamps.length > 0 && now - callTimestamps[0] > config.aiRateLimitWindowMs) {
     callTimestamps.shift()
   }
-  if (callTimestamps.length >= MAX_CALLS_PER_WINDOW) return false
+  if (callTimestamps.length >= config.aiRateLimitMaxCalls) return false
   callTimestamps.push(now)
   return true
 }
@@ -30,10 +31,10 @@ export function tryConsumeAiCall(): boolean {
 /** How many calls remain in the current window (for logging / dashboard). */
 export function aiCallsRemaining(): number {
   const now = Date.now()
-  while (callTimestamps.length > 0 && now - callTimestamps[0] > WINDOW_MS) {
+  while (callTimestamps.length > 0 && now - callTimestamps[0] > config.aiRateLimitWindowMs) {
     callTimestamps.shift()
   }
-  return Math.max(0, MAX_CALLS_PER_WINDOW - callTimestamps.length)
+  return Math.max(0, config.aiRateLimitMaxCalls - callTimestamps.length)
 }
 
-export const _config = { WINDOW_MS, MAX_CALLS_PER_WINDOW }
+export const _config = { get WINDOW_MS() { return config.aiRateLimitWindowMs }, get MAX_CALLS_PER_WINDOW() { return config.aiRateLimitMaxCalls } }

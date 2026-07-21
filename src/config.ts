@@ -12,8 +12,61 @@ const __dirname = dirname(fileURLToPath(import.meta.url))
 export const USER_CONFIG_DIR = join(homedir(), '.squeezr')
 export const USER_CONFIG_PATH = join(USER_CONFIG_DIR, 'squeezr.toml')
 
-interface TomlConfig {
+export interface TomlConfig {
+  // schema_version marks a file already migrated to the v2 namespaces. Absent or
+  // 1 → still on the flat [compression] schema (v1); 2 → new namespaces.
+  schema_version?: number
   proxy?: { port?: number; mitm_port?: number }
+
+  // ── v2 namespaces (schema_version = 2) ──────────────────────────────────────
+  // Everything that compresses what ENTERS the model.
+  input?: {
+    threshold?: number
+    keep_recent?: number
+    compress_conversation?: boolean
+    compress_tool_inputs?: boolean
+    keep_recent_assistant?: number
+    assistant_threshold?: number
+    stale_turns?: boolean
+    stale_turn_threshold?: number
+    stale_keep_recent?: number
+    tool_desc_compress?: boolean
+    tool_desc_first_para?: boolean
+    tool_desc_safe_only?: boolean
+    tool_desc_expand?: boolean
+    tool_desc_max_chars?: number
+    mcp_block_servers?: string[]
+    mcp_allow_servers?: string[]
+    skip_tools?: string[]
+    only_tools?: string[]
+    capture_requests?: boolean
+    capture_limit?: number
+  }
+  // AI backend + everything billable/behavioural behind the master switch.
+  ai?: {
+    ai_compression?: boolean
+    backend?: string
+    compress_system_prompt?: boolean
+    compress_assistant_ai?: boolean
+    assistant_ai_min_chars?: number
+    ai_skip_tools?: string[]
+    anthropic_native_compact?: boolean
+    min_chars?: number              // DEFAULT_AI_MIN_CHARS (1500)
+    rate_limit_window_ms?: number   // aiRateLimit window (300000)
+    rate_limit_max_calls?: number   // aiRateLimit max calls/window (20)
+  }
+  // Bypass, circuit-breaker and the compression guards (previously hardcoded).
+  safety?: {
+    disabled?: boolean
+    circuit_breaker_failures?: number     // circuitBreaker failureThreshold (3)
+    circuit_breaker_reset_ms?: number     // circuitBreaker resetTimeoutMs (60000)
+    circuit_breaker_timeout_ms?: number   // circuitBreaker callTimeoutMs (5000)
+    guard_min_ratio?: number              // compressionGuard minRatio (0.15)
+    guard_soft_tolerance?: number         // compressionGuard softTolerance (0.10)
+    max_deflate?: number                  // compressibilityProbe max deflate (0.55)
+  }
+
+  // ── v1 schema (flat [compression]) — kept for back-compat + migration ───────
   compression?: {
     threshold?: number
     keep_recent?: number
@@ -180,67 +233,96 @@ readonly toolDescCompress: boolean
   readonly outputLevel: 1 | 2 | 3 | 4
   readonly outputEffortRouting: boolean
   readonly outputMechanicalThinkingFloor: number
+  // Newly-exposed [ai]/[safety] knobs (were hardcoded in their modules).
+  readonly aiMinChars: number
+  readonly aiRateLimitWindowMs: number
+  readonly aiRateLimitMaxCalls: number
+  readonly circuitBreakerFailures: number
+  readonly circuitBreakerResetMs: number
+  readonly circuitBreakerTimeoutMs: number
+  readonly guardMinRatio: number
+  readonly guardSoftTolerance: number
+  readonly maxDeflate: number
 
-  constructor() {
-    const t = loadToml()
+  // `tomlOverride` injects a parsed config directly (tests / migration dry-runs),
+  // bypassing disk. Production always calls new Config() and reads the merged toml.
+  constructor(tomlOverride?: TomlConfig) {
+    const t = tomlOverride ?? loadToml()
     const p = t.proxy ?? {}
-    const c = t.compression ?? {}
+    const c = t.compression ?? {}       // v1 flat schema (back-compat)
+    const inp = t.input ?? {}           // v2 [input]
+    const aiT = t.ai ?? {}              // v2 [ai]
+    const saf = t.safety ?? {}          // v2 [safety]
     const ca = t.cache ?? {}
     const ad = t.adaptive ?? {}
     const lo = t.local ?? {}
     const ou = t.output ?? {}
+    // Resolution order for every migrated flag: v2 namespace → v1 [compression] →
+    // hardcoded default. A v1-only file keeps working unchanged; a v2 file wins.
 
     this.port = parseInt(env('SQUEEZR_PORT', String(p.port ?? 8080)))
     this.mitmPort = parseInt(env('SQUEEZR_MITM_PORT', String(p.mitm_port ?? this.port + 1)))
-    this.threshold = parseInt(env('SQUEEZR_THRESHOLD', String(c.threshold ?? 800)))
-    this.keepRecent = parseInt(env('SQUEEZR_KEEP_RECENT', String(c.keep_recent ?? 3)))
-    this.disabled = env('SQUEEZR_DISABLED', String(c.disabled ?? false)) === '1' || env('SQUEEZR_DISABLED', '') === 'true'
+    this.threshold = parseInt(env('SQUEEZR_THRESHOLD', String(inp.threshold ?? c.threshold ?? 800)))
+    this.keepRecent = parseInt(env('SQUEEZR_KEEP_RECENT', String(inp.keep_recent ?? c.keep_recent ?? 3)))
+    const disabledDefault = saf.disabled ?? c.disabled ?? false
+    this.disabled = env('SQUEEZR_DISABLED', String(disabledDefault)) === '1' || env('SQUEEZR_DISABLED', '') === 'true'
     // AI compression master switch — DEFAULT FALSE. When the user authenticates
     // with a Claude Code OAuth token (subscription), every Haiku compression call
     // bills against their OWN 5h plan quota — it can burn the plan faster than it
-    // saves. Opt-in only: set compression.ai_compression = true to enable.
-    this.aiCompression = c.ai_compression ?? false
+    // saves. Opt-in only: set [ai] ai_compression = true to enable.
+    this.aiCompression = aiT.ai_compression ?? c.ai_compression ?? false
     // compress_system_prompt also makes a Haiku call — gate it behind aiCompression too.
-    this.compressSystemPrompt = (c.compress_system_prompt ?? true) && this.aiCompression
-    this.compressConversation = c.compress_conversation ?? true  // safe by default — only deterministic on assistant msgs
+    this.compressSystemPrompt = (aiT.compress_system_prompt ?? c.compress_system_prompt ?? true) && this.aiCompression
+    this.compressConversation = inp.compress_conversation ?? c.compress_conversation ?? true  // safe — deterministic on assistant msgs
     // Lossy-clean OLD tool_use INPUTS (Write.content, Edit.old/new_string, Bash.command).
     // DEFAULT FALSE: these are model-authored code that round-trips to disk verbatim
     // (Write) or must byte-match disk (Edit old_string). Running dedup/whitespace/JSON
     // minify over them folded repeated lines into "... [repeated N more times]", dropped
     // braces and JSX `>`, and .trim()'d file bodies — corruption that reached disk when
     // the model later re-edited from its now-mangled view of its own past writes.
-    this.compressToolInputs = c.compress_tool_inputs ?? false
-    this.captureRequests = c.capture_requests ?? false
-    this.captureLimit = c.capture_limit ?? 20
-    this.staleTurns = c.stale_turns ?? true
-    this.staleTurnThreshold = c.stale_turn_threshold ?? 40
-    this.staleTurnKeepRecent = c.stale_keep_recent ?? 15
-this.toolDescCompress = c.tool_desc_compress ?? false
-    this.toolDescFirstPara = c.tool_desc_first_para ?? true
-    this.toolDescSafeOnly = c.tool_desc_safe_only ?? true
-    this.toolDescExpand = c.tool_desc_expand ?? true
-    this.toolDescMaxChars = c.tool_desc_max_chars ?? 0
-    this.mcpBlockServers = new Set(c.mcp_block_servers ?? [])
-    this.mcpAllowServers = new Set(c.mcp_allow_servers ?? [])
-    this.keepRecentAssistant = c.keep_recent_assistant ?? 3
-    this.assistantThreshold = c.assistant_threshold ?? 300
+    this.compressToolInputs = inp.compress_tool_inputs ?? c.compress_tool_inputs ?? false
+    this.captureRequests = inp.capture_requests ?? c.capture_requests ?? false
+    this.captureLimit = inp.capture_limit ?? c.capture_limit ?? 20
+    this.staleTurns = inp.stale_turns ?? c.stale_turns ?? true
+    this.staleTurnThreshold = inp.stale_turn_threshold ?? c.stale_turn_threshold ?? 40
+    this.staleTurnKeepRecent = inp.stale_keep_recent ?? c.stale_keep_recent ?? 15
+    this.toolDescCompress = inp.tool_desc_compress ?? c.tool_desc_compress ?? false
+    this.toolDescFirstPara = inp.tool_desc_first_para ?? c.tool_desc_first_para ?? true
+    this.toolDescSafeOnly = inp.tool_desc_safe_only ?? c.tool_desc_safe_only ?? true
+    this.toolDescExpand = inp.tool_desc_expand ?? c.tool_desc_expand ?? true
+    this.toolDescMaxChars = inp.tool_desc_max_chars ?? c.tool_desc_max_chars ?? 0
+    this.mcpBlockServers = new Set(inp.mcp_block_servers ?? c.mcp_block_servers ?? [])
+    this.mcpAllowServers = new Set(inp.mcp_allow_servers ?? c.mcp_allow_servers ?? [])
+    this.keepRecentAssistant = inp.keep_recent_assistant ?? c.keep_recent_assistant ?? 3
+    this.assistantThreshold = inp.assistant_threshold ?? c.assistant_threshold ?? 300
     // AI-compress long OLD assistant turns (Fase B2). Default OFF — it touches model
     // prose, so it's opt-in; protected by the guardrail + retry + governor. Min size
     // high (2000) so only substantial turns are touched.
-    this.compressAssistantAi = c.compress_assistant_ai ?? false
-    this.assistantAiMinChars = c.assistant_ai_min_chars ?? 2000
-    this.anthropicNativeCompact = c.anthropic_native_compact ?? false  // opt-in beta
+    this.compressAssistantAi = aiT.compress_assistant_ai ?? c.compress_assistant_ai ?? false
+    this.assistantAiMinChars = aiT.assistant_ai_min_chars ?? c.assistant_ai_min_chars ?? 2000
+    this.anthropicNativeCompact = aiT.anthropic_native_compact ?? c.anthropic_native_compact ?? false  // opt-in beta
     const validBackends = new Set<CompressionBackend>(['auto', 'local', 'haiku', 'gpt-mini', 'gemini-flash'])
     // Default to the FREE local backend (Zest), never a paid cloud one. With AI
     // compression off by default this is belt-and-suspenders: even if a user enables
     // AI, updating to this version can never silently start billing Haiku/GPT/Gemini.
     // Cloud backends are opt-in only (explicit backend = "haiku" | "gpt-mini" | …).
-    const backendRaw = (c.backend ?? 'local') as CompressionBackend
+    const backendRaw = (aiT.backend ?? c.backend ?? 'local') as CompressionBackend
     this.compressionBackend = validBackends.has(backendRaw) ? backendRaw : 'local'
     this.dryRun = env('SQUEEZR_DRY_RUN', '') === '1'
-    this.skipTools = new Set((c.skip_tools ?? []).map(t => t.toLowerCase()))
-    this.onlyTools = new Set((c.only_tools ?? []).map(t => t.toLowerCase()))
-    this.aiSkipTools = new Set((c.ai_skip_tools ?? ['read']).map(t => t.toLowerCase()))
+    this.skipTools = new Set((inp.skip_tools ?? c.skip_tools ?? []).map(t => t.toLowerCase()))
+    this.onlyTools = new Set((inp.only_tools ?? c.only_tools ?? []).map(t => t.toLowerCase()))
+    this.aiSkipTools = new Set((aiT.ai_skip_tools ?? c.ai_skip_tools ?? ['read']).map(t => t.toLowerCase()))
+    // Newly-exposed [ai]/[safety] knobs — default to the values previously hardcoded
+    // in aiRateLimit / circuitBreaker / compressionGuard / compressibilityProbe.
+    this.aiMinChars = aiT.min_chars ?? 1500
+    this.aiRateLimitWindowMs = aiT.rate_limit_window_ms ?? 300_000
+    this.aiRateLimitMaxCalls = aiT.rate_limit_max_calls ?? 20
+    this.circuitBreakerFailures = saf.circuit_breaker_failures ?? 3
+    this.circuitBreakerResetMs = saf.circuit_breaker_reset_ms ?? 60_000
+    this.circuitBreakerTimeoutMs = saf.circuit_breaker_timeout_ms ?? 5_000
+    this.guardMinRatio = saf.guard_min_ratio ?? 0.15
+    this.guardSoftTolerance = saf.guard_soft_tolerance ?? 0.10
+    this.maxDeflate = parseFloat(env('SQUEEZR_MAX_DEFLATE', String(saf.max_deflate ?? 0.55)))
     this.cacheEnabled = ca.enabled ?? true
     this.cacheMaxEntries = ca.max_entries ?? 1000
     this.adaptiveEnabled = ad.enabled ?? true
