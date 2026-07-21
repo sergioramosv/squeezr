@@ -4,6 +4,7 @@ import { homedir, platform } from 'node:os'
 import { Hono, type Context } from 'hono'
 import { stream, streamSSE } from 'hono/streaming'
 import { config, applyMode, runtimeOverrides, anthropicNativeCompactEnabled, effectiveBackend, USER_CONFIG_DIR, USER_CONFIG_PATH, type CompressionBackend } from './config.js'
+import { setUserConfigValue, setUserConfigValues } from './tomlWriter.js'
 import { Stats } from './stats.js'
 import type { LatencyInfo } from './stats.js'
 import { DASHBOARD_HTML, LOGO_SVG } from './dashboard.js'
@@ -1177,21 +1178,10 @@ app.post('/squeezr/ports', async (c) => {
   try {
     // Always write to ~/.squeezr/squeezr.toml — the bundled package toml gets
     // wiped on every `npm install -g`, which used to silently reset user
-    // ports back to 8080 + autoscan after every update.
-    const tomlPath = USER_CONFIG_PATH
-    mkdirSync(USER_CONFIG_DIR, { recursive: true })
-    let content = existsSync(tomlPath) ? readFileSync(tomlPath, 'utf-8') : '[proxy]\n'
-
-    // Update or insert [proxy] port and mitm_port
-    const updateKey = (src: string, key: string, val: number): string => {
-      const re = new RegExp(`^(\\s*${key}\\s*=\\s*)\\d+`, 'm')
-      return re.test(src) ? src.replace(re, `$1${val}`) : src.replace(/(\[proxy\][^\[]*)/s, `$1${key} = ${val}\n`)
-    }
-    if (!content.includes('[proxy]')) content = '[proxy]\n' + content
-    content = updateKey(content, 'port', newPort)
-    content = updateKey(content, 'mitm_port', newMitm)
-    writeFileSync(tomlPath, content, 'utf-8')
-    return c.json({ ok: true, port: newPort, mitm_port: newMitm, toml: tomlPath })
+    // ports back to 8080 + autoscan after every update. Structured write targets
+    // [proxy] by construction (never resurrects a v1 table post-migration).
+    setUserConfigValues('proxy', { port: newPort, mitm_port: newMitm })
+    return c.json({ ok: true, port: newPort, mitm_port: newMitm, toml: USER_CONFIG_PATH })
   } catch (err: any) {
     return c.text('Failed to write squeezr.toml: ' + err.message, 500)
   }
@@ -1471,22 +1461,12 @@ ${text}`
   }
 })
 
-// Write `backend = "..."` into the [compression] table of ~/.squeezr/squeezr.toml,
-// preserving the rest of the file. Inserts the [compression] table if missing.
+// Persist the compression backend to the [ai] table of ~/.squeezr/squeezr.toml
+// (v2 schema — backend moved out of the flat [compression]). Structured write so
+// it targets [ai] by construction and never resurrects the old [compression] table.
 function persistBackendToToml(backend: CompressionBackend): void {
   try {
-    const tomlPath = USER_CONFIG_PATH
-    mkdirSync(USER_CONFIG_DIR, { recursive: true })
-    let content = existsSync(tomlPath) ? readFileSync(tomlPath, 'utf-8') : '[compression]\n'
-    if (!/\[compression\]/.test(content)) content = '[compression]\n' + content
-    const re = /^(\s*backend\s*=\s*)["'][^"']*["']/m
-    if (re.test(content)) {
-      content = content.replace(re, `$1"${backend}"`)
-    } else {
-      // Insert right after the [compression] header line.
-      content = content.replace(/(\[compression\][^\n]*\n)/, `$1backend = "${backend}"\n`)
-    }
-    writeFileSync(tomlPath, content, 'utf-8')
+    setUserConfigValue('ai', 'backend', backend)
     console.log(`[squeezr] backend persisted to squeezr.toml: ${backend}`)
   } catch (e) {
     console.log(`[squeezr] failed to persist backend to toml: ${(e as Error).message}`)

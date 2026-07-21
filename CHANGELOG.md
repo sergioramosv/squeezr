@@ -1,5 +1,10 @@
 # Changelog
 All notable changes to Squeezr will be documented here.
+## [1.99.5] - 2026-07-21
+### Changed — writers de TOML estructurados (pilar A, P3 — cierra el riesgo nº1 de la migración)
+- **`tomlWriter.ts`**: `setUserConfigValue()`/`setUserConfigValues()` — parse → set `[table].key` → serialize (smol-toml). Reemplazan los writers regex que hardcodeaban `[proxy]`/`[compression]` y que, tras migrar, recreaban las tablas viejas y **des-migraban en silencio** en cada guardado del dashboard.
+- **`server.ts`**: `POST /squeezr/ports` escribe `[proxy]` y `persistBackendToToml()` ahora escribe `backend` en **`[ai]`** (namespace v2), por construcción — nunca resucita `[compression]`.
+- Tests: **4 nuevos** (`tomlWriter.test.ts`) — crea archivo/tabla, actualiza sin pisar otras tablas, backend va a `[ai]` sin resucitar `[compression]`, round-trip. Suite **577/577 verde**, typecheck limpio.
 ## [1.99.4] - 2026-07-21
 ### Added — migración de esquema v1→v2 (pilar A, P2 — no cableada a boot aún)
 - **`schemaMigration.ts`**: `migrateTomlV1toV2()` mapea cada key explícita del `[compression]` plano a su namespace v2 (`[input]`/`[ai]`/`[safety]`), conservando `[proxy]`/`[cache]`/`[adaptive]`/`[local]`/`[output]`. `renderV2Toml()` emite un toml fresco organizado por namespaces con comentarios (los valores del usuario; la doc por-opción completa vive en el bundled, P4).
