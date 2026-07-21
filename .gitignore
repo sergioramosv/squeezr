@@ -11,3 +11,7 @@ dist/
 recipes/
 *.jsonl
 mega.log
+
+# Karajan tooling artifacts
+.kj/
+.kj-ready.json

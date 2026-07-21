@@ -20,7 +20,13 @@ export interface CheckResult {
   detail: string
 }
 
-type Health = { identity?: string; version?: string; bypassed?: boolean; port?: number } | null
+type Health = {
+  identity?: string
+  version?: string
+  bypassed?: boolean
+  port?: number
+  compression?: { requests?: number; savings_pct?: number }
+} | null
 
 // ── Pure check logic ─────────────────────────────────────────────────────────
 
@@ -52,6 +58,15 @@ export function checkBypass(bypassed: boolean | undefined): CheckResult {
   if (bypassed === undefined) return { name: 'Bypass', status: 'skip', detail: 'proxy not running' }
   if (bypassed) return { name: 'Bypass', status: 'warn', detail: 'bypass is ON — compression is disabled (squeezr bypass --off to resume)' }
   return { name: 'Bypass', status: 'pass', detail: 'compression active' }
+}
+
+export function checkSavings(requests: number | undefined, savingsPct: number | undefined): CheckResult {
+  if (requests === undefined) return { name: 'Savings', status: 'skip', detail: 'proxy not running' }
+  if (requests === 0) return { name: 'Savings', status: 'skip', detail: 'no traffic yet' }
+  if (!savingsPct || savingsPct <= 0) {
+    return { name: 'Savings', status: 'warn', detail: `${requests} requests seen but ~0% saved — bypass on? stale build? all content incompressible?` }
+  }
+  return { name: 'Savings', status: 'pass', detail: `~${Math.round(savingsPct)}% saved over ${requests} requests` }
 }
 
 export function computeExitCode(checks: CheckResult[]): number {
@@ -106,6 +121,7 @@ export async function runDoctor(): Promise<{ checks: CheckResult[]; exitCode: nu
     checkVersion(installedVersion(), runningVersion),
     checkEnv(process.env.ANTHROPIC_BASE_URL, health?.port ?? port),
     checkBypass(health?.bypassed),
+    checkSavings(health?.compression?.requests, health?.compression?.savings_pct),
   ]
   const exitCode = computeExitCode(checks)
   return { checks, exitCode, report: formatDoctor(checks, exitCode) }

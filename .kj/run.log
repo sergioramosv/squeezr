@@ -1,4 +1,0 @@
---- Karajan run started at 2026-07-21T13:33:05.362Z ---
-13:33:05.362 [kj_audit] started — dimensions=security,codeQuality,performance,architecture,testing
-13:33:05.366 [audit] agent launched, waiting for response...
-13:33:35.367 [agent:heartbeat] [audit] [audit] Agent claude active — 0 lines, 30s elapsed (agent=claude, lines=0, elapsed=30s, silence=30s)

@@ -1,5 +1,15 @@
 # Changelog
 All notable changes to Squeezr will be documented here.
+## [1.97.0] - 2026-07-21
+### Added — check de "flujo de savings" en `squeezr doctor` (prioridad 6 del audit headroom v2) — cierra el plan de copias
+- **Nuevo check `checkSavings`** (`doctor.ts`): caza el caso silencioso "el proxy ve tráfico pero no ahorra nada". skip si el proxy está caído o sin tráfico; **warn** si hay requests pero ~0% ahorrado (bypass on / build stale / contenido incompresible); pass si el ahorro fluye. Se alimenta de `health.compression.{requests,savings_pct}` y entra en el exit-code 0/1/2.
+- Tests: **4 nuevos** en `doctor.test.ts`. Suite **542/542 verde**.
+### Changed
+- `.gitignore`: ignora artefactos de tooling Karajan (`.kj/`, `.kj-ready.json`) y se destrackean.
+### Hito — audit headroom v2 COMPLETO (prioridades 1-6, v1.91.0 → v1.97.0)
+- 1 BM25 relevance (primitiva + cableado en TextCrusher, cache-safe) · 2 router de contenido embebido · 3 SimHash + row-drop · 4 eco de salida · 5 near-dup por shingles · 6 check de savings en doctor.
+- Copiado de headroom lo que hacía MEJOR, respetando SIEMPRE la cache-safety (relevancia solo fuera del prefijo cacheado; row-drop/near-dup deterministas). Pendientes explícitos: holdout A/B medido (needs stats por brazo), ranking de importancia en código y tree-sitter (2.0, pilar del `V2_ROADMAP.md`), y el modelo Zest-clasificador (pilar B, proyecto aparte).
+
 ## [1.96.0] - 2026-07-21
 ### Added — medición de ECO de salida (prioridad 4 del audit headroom v2, tier sin contrafactual)
 - **Contexto**: headroom mide el ahorro de salida en 3 tiers. El más honesto (holdout A/B) necesita grupo de control → se deja para después. Este es el tier que NO necesita contrafactual: el **ratio de eco** — cuánto de lo que el modelo escribe simplemente **repite contexto que ya tenía**. Eco alto = tokens de salida desperdiciados = justo lo que ataca el verbosity steering (1.83).

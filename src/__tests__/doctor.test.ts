@@ -4,6 +4,7 @@ import {
   checkVersion,
   checkEnv,
   checkBypass,
+  checkSavings,
   computeExitCode,
   formatDoctor,
 } from '../doctor.js'
@@ -55,6 +56,23 @@ describe('checkBypass', () => {
   })
   it('skips when unknown', () => {
     expect(checkBypass(undefined).status).toBe('skip')
+  })
+})
+
+describe('checkSavings', () => {
+  it('skips when the proxy is down (requests unknown)', () => {
+    expect(checkSavings(undefined, undefined).status).toBe('skip')
+  })
+  it('skips when there is no traffic yet', () => {
+    expect(checkSavings(0, 0).status).toBe('skip')
+  })
+  it('warns when traffic is flowing but nothing is being saved', () => {
+    expect(checkSavings(120, 0).status).toBe('warn')
+  })
+  it('passes when savings are flowing', () => {
+    const r = checkSavings(120, 34)
+    expect(r.status).toBe('pass')
+    expect(r.detail.includes('34')).toBe(true)
   })
 })
 
