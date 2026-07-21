@@ -1,5 +1,15 @@
 # Changelog
 All notable changes to Squeezr will be documented here.
+## [1.99.2] - 2026-07-21
+### Security — endurecimiento del proxy (audit exhaustivo: 3 highs + 2 mediums)
+- **Bind loopback** (`index.ts`): el proxy principal escuchaba en todas las interfaces → exponía las API keys y los endpoints de control en la LAN. Ahora bind explícito a `127.0.0.1`, igual que el resto de listeners. Test de regresión (`serverBinding.test.ts`).
+- **Guard CSRF/CORS en endpoints de control** (`server.ts`): los `/squeezr/*` mutables (stop/restart/config/bypass/…) estaban sin auth tras CORS wildcard `*` → vector CSRF/DoS desde una web abierta en el navegador del usuario. Ahora se rechaza (403) toda mutación cross-origin a `/squeezr/*`, y el CORS de control refleja **solo** orígenes loopback (los `/v1`/`/v1beta` del proxy siguen permisivos para Cursor). 8 tests (`controlEndpointGuard.test.ts`).
+- **Gemini API key fuera de la URL** (`compressor.ts`, `systemPrompt.ts`): la key viajaba en el query string `?key=` → se filtra a logs/proxies/trazas. Movida al header `x-goog-api-key`. Test reforzado.
+- **Permisos de la CA key en Windows** (`codexMitm.ts`): `0o600` es no-op en Windows → la clave privada del MITM quedaba legible por otras cuentas. Nuevo `secureKeyFile()`: ACL con `icacls` (solo el usuario actual) en Windows, `chmod 0o600` en POSIX, y **aviso ruidoso** si no puede asegurarla (nunca silent fallback). Test (`secureKeyFile.test.ts`).
+- **Bonus** (`codexMitm.ts`): el codex MITM también escuchaba en todas las interfaces (mismo bug de clase que el bind del proxy, no visto por el audit) → bind loopback.
+- Suite **557/557 verde**, typecheck limpio. Pendiente del audit: partir los god files (`server.ts`/`dashboard.ts`/`compressor.ts`) — refactor grande, va como pieza propia de la 2.0.
+### Docs
+- **V2_ROADMAP**: añadido **Auto-reporte de fallos → issue en el repo** (desde el MCP) a "Mejoras adicionales": ante un fallo provocado por Squeezr, crear issue automática con contexto (versión/plataforma/cliente/stack/etapa/repro anonimizado) para conocer fallos no reportados. Bloqueantes: privacidad (issue pública → redacción `requestCapture`, opt-in), anti-spam por fingerprint de stack, y auth (colector propio server-side vs token de usuario). Complementa el B.4 (caché/RAG) ya recogido en [1.98.0] y su `QUERY_CACHE_PLAN.md`.
 ## [1.99.1] - 2026-07-21
 ### Changed — dashboard: quitada la card "AI Compression" del Overview, la card "Output" ocupa su sitio
 - La card de AI Compression del Overview ("today · persisted": Calls/Saved/Spent, "N local Zest call(s) · 0 tokens saved (free)") aportaba ruido — Zest sigue en ~0 net y `ai_compression` está OFF por defecto. Se retira del Overview.

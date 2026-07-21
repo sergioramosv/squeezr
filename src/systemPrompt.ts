@@ -89,10 +89,11 @@ export async function compressSystemPrompt(
       })
       compressed = resp.choices[0].message.content ?? prompt
     } else if (backend === 'gemini-flash') {
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-8b:generateContent?key=${apiKey}`
+      // Key in the x-goog-api-key header, never in the URL query (URLs leak to logs).
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-8b:generateContent`
       const resp = await fetch(url, {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        headers: { 'content-type': 'application/json', 'x-goog-api-key': apiKey },
         body: JSON.stringify({ contents: [{ role: 'user', parts: [{ text: input }] }] }),
       })
       const data = (await resp.json()) as { candidates: Array<{ content: { parts: Array<{ text: string }> } }> }

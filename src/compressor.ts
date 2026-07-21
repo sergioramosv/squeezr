@@ -237,10 +237,12 @@ async function compressWithGptMini(text: string, apiKey: string, extra?: string)
 }
 
 async function compressWithGeminiFlash(text: string, apiKey: string, extra?: string): Promise<string> {
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_FLASH_MODEL}:generateContent?key=${apiKey}`
+  // Pass the key in the x-goog-api-key header, never in the URL query string:
+  // URLs leak into logs, proxies and error traces where a secret must not appear.
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_FLASH_MODEL}:generateContent`
   const resp = await fetch(url, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type': 'application/json', 'x-goog-api-key': apiKey },
     body: JSON.stringify({
       contents: [{ role: 'user', parts: [{ text: `${promptWith(extra)}\n\n---\n${text.slice(0, OLLAMA_SAFE_INPUT)}` }] }],
     }),

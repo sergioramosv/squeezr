@@ -58,7 +58,10 @@ const httpServer = createAdaptorServer({ fetch: app.fetch })
 // Persist caches every 60s so a crash doesn't lose more than a minute of work
 setInterval(() => { persistSessionCache(); persistExpandStore(); persistHistory() }, 60_000).unref()
 
-httpServer.listen(PORT, () => {
+// Bind to loopback only: the proxy holds the user's API keys and exposes
+// state-changing control endpoints, so it must never be reachable from the LAN.
+// Matches the desktop proxy / MITM listeners, which already bind 127.0.0.1.
+httpServer.listen(PORT, '127.0.0.1', () => {
   console.log(`Squeezr v${VERSION} listening on http://localhost:${PORT}`)
   console.log(`Mode: ${config.dryRun ? 'dry-run' : 'active'}`)
   if (config.disabled) console.log('WARNING: compression is disabled')

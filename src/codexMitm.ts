@@ -4,7 +4,8 @@ import http from 'node:http'
 import https from 'node:https'
 import fs from 'node:fs'
 import crypto from 'node:crypto'
-import { homedir } from 'node:os'
+import { execFileSync } from 'node:child_process'
+import { homedir, userInfo } from 'node:os'
 import { join } from 'node:path'
 import forge from 'node-forge'
 import { config } from './config.js'
@@ -18,6 +19,28 @@ export const BUNDLE_PATH = join(CA_DIR, 'bundle.crt')
 export const MITM_PORT   = config.mitmPort
 
 // ── CA generation ─────────────────────────────────────────────────────────────
+
+// POSIX permission bits (0o600) are ignored on Windows, so the CA private key
+// would be left readable by other accounts. Lock it down per-OS: an ACL that
+// grants only the current user on Windows, chmod 0o600 on POSIX. A private key
+// we cannot secure is a real risk, so failure is surfaced loudly, never silent.
+export function secureKeyFile(path: string): void {
+  if (process.platform === 'win32') {
+    const user = process.env.USERNAME || userInfo().username
+    try {
+      // /inheritance:r drops inherited ACEs; /grant:r sets the current user as
+      // the only principal with Full control.
+      execFileSync('icacls', [path, '/inheritance:r', '/grant:r', `${user}:F`], { stdio: 'ignore' })
+    } catch (err) {
+      console.warn(
+        `[squeezr/mitm] WARNING: could not restrict permissions on ${path} — ` +
+        `${(err as Error).message}. Secure this private key manually.`,
+      )
+    }
+    return
+  }
+  fs.chmodSync(path, 0o600)
+}
 
 function ensureCA() {
   const certsExist = fs.existsSync(CA_KEY_PATH) && fs.existsSync(CA_CERT_PATH)
@@ -40,6 +63,7 @@ function ensureCA() {
     ])
     cert.sign(keys.privateKey, forge.md.sha256.create())
     fs.writeFileSync(CA_KEY_PATH, forge.pki.privateKeyToPem(keys.privateKey), { mode: 0o600 })
+    secureKeyFile(CA_KEY_PATH)
     fs.writeFileSync(CA_CERT_PATH, forge.pki.certificateToPem(cert), { mode: 0o644 })
     console.log(`[squeezr/mitm] CA generated → ${CA_CERT_PATH}`)
   }
@@ -433,7 +457,9 @@ export function startMitmProxy() {
   mitmServer.on('error', (err: NodeJS.ErrnoException) => {
     if (err.code !== 'EADDRINUSE') console.error('[squeezr/mitm] error:', err.message)
   })
-  mitmServer.listen(MITM_PORT, () => {
+  // Loopback only: the MITM proxy terminates TLS for the user's traffic and must
+  // never be reachable from the LAN (matches the other listeners).
+  mitmServer.listen(MITM_PORT, '127.0.0.1', () => {
     console.log(`[squeezr/mitm] HTTPS proxy on http://localhost:${MITM_PORT}`)
   })
 }

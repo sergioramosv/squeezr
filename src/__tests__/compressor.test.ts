@@ -343,10 +343,11 @@ describe('compressGeminiContents', () => {
       expect.stringContaining('generativelanguage.googleapis.com'),
       expect.any(Object),
     )
-    expect(mockFetch).toHaveBeenCalledWith(
-      expect.stringContaining('my-google-key'),
-      expect.any(Object),
-    )
+    // Security: the key travels in the x-goog-api-key header, never in the URL.
+    const [calledUrl, calledOpts] = mockFetch.mock.calls.at(-1) as [string, RequestInit]
+    expect(calledUrl).not.toContain('my-google-key')
+    expect(calledUrl).not.toContain('key=')
+    expect((calledOpts.headers as Record<string, string>)['x-goog-api-key']).toBe('my-google-key')
   })
 
   it('returns dry-run without modifications', async () => {

@@ -222,20 +222,48 @@ async function proxyStream(upstream, body, headers, params) {
     });
 }
 export const app = new Hono();
-// ── CORS middleware (required for Cursor IDE and browser-based tools) ─────────
-// Cursor's Electron renderer sends OPTIONS preflight before every POST.
-// Without this the request is blocked and Cursor shows a network error.
+// ── CORS + CSRF guard middleware ─────────────────────────────────────────────
+// Cursor's Electron renderer sends OPTIONS preflight before every POST, so the
+// proxy endpoints (/v1, /v1beta) stay permissive for browser-based IDE tooling.
+// The control endpoints (/squeezr/*) are different: they change state and the
+// process holds the user's API keys, so they must NOT be reachable cross-origin.
+// Combined with the loopback bind, this kills the CSRF/DoS vector where a page
+// open in the user's browser POSTs to http://localhost:<port>/squeezr/control/*.
+// Only browser origins on loopback may touch the control endpoints.
+const LOOPBACK_ORIGIN = /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/i;
+const isLoopbackOrigin = (origin) => origin !== undefined && LOOPBACK_ORIGIN.test(origin);
 app.use('*', async (c, next) => {
+    const origin = c.req.header('origin');
+    const isControl = c.req.path.startsWith('/squeezr/');
+    const isMutation = !['GET', 'HEAD', 'OPTIONS'].includes(c.req.method);
+    // CSRF guard: a state-changing request to a control endpoint that carries a
+    // non-loopback browser Origin is a cross-site attack — reject it. Requests
+    // without an Origin (curl, MCP, native clients over loopback) are allowed;
+    // the loopback bind already limits those to processes on this machine.
+    if (isControl && isMutation && origin !== undefined && !isLoopbackOrigin(origin)) {
+        return c.json({ error: 'forbidden: cross-origin control request rejected' }, 403);
+    }
+    // CORS: control endpoints reflect ONLY loopback origins (never wildcard, so a
+    // malicious page cannot read control/state responses). Proxy endpoints keep
+    // the permissive wildcard that Cursor and other browser tools need.
+    const allowOrigin = isControl ? (isLoopbackOrigin(origin) ? origin : '') : '*';
     if (c.req.method === 'OPTIONS') {
-        return c.body(null, 204, {
-            'Access-Control-Allow-Origin': '*',
+        const headers = {
             'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, PATCH, OPTIONS',
             'Access-Control-Allow-Headers': '*',
             'Access-Control-Max-Age': '86400',
-        });
+        };
+        if (allowOrigin)
+            headers['Access-Control-Allow-Origin'] = allowOrigin;
+        if (isControl)
+            headers['Vary'] = 'Origin';
+        return c.body(null, 204, headers);
     }
     await next();
-    c.res.headers.set('Access-Control-Allow-Origin', '*');
+    if (allowOrigin)
+        c.res.headers.set('Access-Control-Allow-Origin', allowOrigin);
+    if (isControl)
+        c.res.headers.set('Vary', 'Origin');
     c.res.headers.set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
     c.res.headers.set('Access-Control-Allow-Headers', '*');
 });
