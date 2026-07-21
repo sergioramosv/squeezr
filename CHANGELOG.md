@@ -11,7 +11,7 @@ All notable changes to Squeezr will be documented here.
 ### Nota — `claude --rc` (Remote Control) es incompatible con el proxy por env-var (fuera del control de Squeezr)
 - **Síntoma** (reportado): con Squeezr activo, `claude --rc` da error y "tiene que salir directamente por api.anthropic.com".
 - **Causa** (confirmada leyendo el binario de Claude Code 2.1.216): guard explícito `"Remote Control is only available when using Claude via api.anthropic.com."`. Squeezr en modo terminal exporta `ANTHROPIC_BASE_URL=http://localhost:8080`, que **no es** api.anthropic.com → Remote Control se niega. No es un bug de Squeezr: es una restricción de Claude Code. (El canal en sí es `wss://bridge.claudeusercontent.com`, host aparte que iría directo igualmente.)
-- **Workarounds**: (a) lanzar `claude --rc` **sin** `ANTHROPIC_BASE_URL` (Remote Control funciona, sin compresión en esa sesión); o (b) usar interceptación transparente vía hosts+MITM (como Claude Desktop) para que Claude vea `https://api.anthropic.com` real y el guard pase. Pendiente decidir/implementar.
+- **Solución (elegida: A)** — nuevo comando **`squeezr rc [args...]`**: lanza `claude --rc` quitando `ANTHROPIC_BASE_URL` y `NODE_EXTRA_CA_CERTS` **solo del proceso hijo**, así Claude sale directo a `api.anthropic.com` y el guard pasa. La config global no se toca: el resto de sesiones siguen comprimiendo. Contrapartida asumida: esa sesión remota no se comprime (son cortas/interactivas). Se descartó (B) interceptación MITM transparente por dos riesgos fuera de nuestro control: posible cert-pinning en los endpoints de Remote Control y el buffering del proxy sobre los `session_ingress` en streaming.
 
 ## [1.81.2] - 2026-06-17
 ### Fixed — dashboard Savings: las hero cards no cambiaban al navegar entre días

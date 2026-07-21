@@ -252,6 +252,8 @@ Usage:
   squeezr discover         Show pattern coverage report (proxy must be running)
   squeezr status           Check if proxy is running
   squeezr config           Print config file path and current settings
+  squeezr rc [args...]     Launch 'claude --rc' (Remote Control) direct to api.anthropic.com
+                           (proxy bypassed for that session — Claude Code requires it)
   squeezr mcp install      Register Squeezr MCP server in Claude Code, Cursor, Windsurf & Cline
   squeezr mcp uninstall    Remove Squeezr MCP registration
   squeezr ports            Change HTTP and MITM proxy ports
@@ -282,6 +284,47 @@ function runNode(script, extraArgs = []) {
     cwd: ROOT,
   })
   child.on('exit', code => process.exit(code ?? 0))
+}
+
+// Launch Claude Code with Remote Control, bypassing the Squeezr proxy for THIS
+// session only. Claude Code refuses Remote Control unless it talks DIRECTLY to
+// api.anthropic.com — the binary guard is literally "Remote Control is only
+// available when using Claude via api.anthropic.com." Squeezr's terminal setup
+// exports ANTHROPIC_BASE_URL=http://localhost:<port>, which is not that host, so
+// `claude --rc` errors out. We strip that var (and the MITM CA) from the CHILD
+// env only. Global config is untouched: every other `claude` session still routes
+// through Squeezr and compresses normally. Trade-off: this remote session is not
+// compressed — remote sessions are short/interactive, so that's the right call.
+function claudeRc(extraArgs) {
+  const env = { ...process.env }
+  delete env.ANTHROPIC_BASE_URL
+  delete env.anthropic_base_url
+  delete env.NODE_EXTRA_CA_CERTS   // Squeezr's MITM CA — irrelevant talking direct
+
+  // Ensure --rc / --remote-control is present exactly once, then pass the rest through.
+  const rest = extraArgs.filter(a => a !== 'rc' && a !== 'remote-control')
+  const hasRc = rest.some(a => a === '--rc' || a === '--remote-control')
+  const claudeArgs = hasRc ? rest : ['--rc', ...rest]
+
+  console.log('Launching Claude Code with Remote Control — direct to api.anthropic.com')
+  console.log('(Squeezr proxy bypassed for THIS session only; global config untouched).\n')
+
+  // Never resolves — the child owns the terminal (stdio inherited) and we exit the
+  // wrapper with the child's code. Awaiting this blocks the trailing update banner
+  // from printing over Claude's interactive UI.
+  return new Promise(() => {
+    const child = spawn('claude', claudeArgs, {
+      stdio: 'inherit',
+      env,
+      shell: process.platform === 'win32',  // resolve claude.exe via PATH on Windows
+    })
+    child.on('exit', code => process.exit(code ?? 0))
+    child.on('error', err => {
+      console.error(`\nFailed to launch claude: ${err.message}`)
+      console.error('Is Claude Code installed and on your PATH? Try running `claude --version`.')
+      process.exit(1)
+    })
+  })
 }
 
 async function startDaemon() {
@@ -2502,6 +2545,11 @@ switch (command) {
   }
   case 'config':
     showConfig()
+    break
+
+  case 'rc':
+  case 'remote-control':
+    await claudeRc(args.slice(1))
     break
 
   case 'mcp': {
