@@ -1,5 +1,16 @@
 # Changelog
 All notable changes to Squeezr will be documented here.
+## [1.84.0] - 2026-07-21
+### Added — SmartCrusher para arrays JSON (punto 2 del plan headroom→squeezr)
+- **Contexto**: muchísimo tool output es un ARRAY DE OBJETOS HOMOGÉNEOS (`gh api`, `curl` a REST, tools MCP que devuelven listas de registros, `kubectl get -o json`…). Minificar ese JSON quita espacios pero deja CADA clave repetida en CADA fila (`"id":`, `"name":`, `"status":`… ×N). El coste dominante es el esquema repetido. Se porta la idea del SmartCrusher de headroom, ruta **determinista**.
+- **Nuevo módulo `jsonCrush.ts`** (`crushJsonArrays`): reescribe el array a una **tabla compacta** — nombres de columna UNA vez en cabecera + una fila de valores por elemento. Ninguna clave se repite. Propiedades:
+  - **Determinista** → mismo input, mismo output byte a byte → **cache-safe**.
+  - **Reversible** → el JSON original completo se guarda en el expand store; el marcador lleva `squeezr_expand("<id>")` para recuperar el JSON exacto.
+  - **Sin pérdida de representación** → todos los valores siguen en el cuerpo de la tabla; no se tira ninguna fila (el row-dropping lossy del SmartCrusher se deja fuera a propósito).
+- **Conservador por diseño**: solo dispara cuando TODO el resultado (trimmed) es un array que empieza por `[`, con ≥5 elementos, ≥80% objetos planos, y la tabla ahorra ≥15% de chars. Cualquier otra cosa se devuelve intacta. Objetos anidados → JSON compacto inline; claves ausentes → celda vacía; elementos no-objeto → JSON verbatim en su línea.
+- **Hook** en `deterministic.ts` → `preprocessForTool`: corre para tools no-Read (Read sigue verbatim para no romper `Edit`), ANTES del pipeline base (dedup/minify) para no tocar los datos estructurados. Al ser auto-recuperable, se devuelve directo. Cuenta como patrón `jsonTableCrush` en `squeezr discover`.
+- Tests: **13 nuevos** (`jsonCrush.test.ts`) — crush de array uniforme, recuperación del JSON original por id, cabecera única (clave no repetida), no-crush de arrays pequeños/escalares/objeto suelto/ahorro insuficiente, heterogéneos con claves ausentes, anidados inline, determinismo, JSON pretty-printed. Suite **420/420 verde**.
+
 ## [1.83.0] - 2026-07-21
 ### Added — recorte de tokens de SALIDA (output shaper) — nuevo eje de ahorro (punto 1 del plan headroom→squeezr)
 - **Contexto**: hasta ahora Squeezr solo comprimía lo que ENTRA al modelo (tool results, system prompt, tool descs). Los tokens de SALIDA cuestan ~5× los de entrada en Opus y nunca se tocaban. Tras auditar headroom (que sí lo hace), se porta la idea a Squeezr, en TS puro y **cache-safe**.

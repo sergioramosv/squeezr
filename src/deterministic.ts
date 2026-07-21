@@ -28,6 +28,7 @@
  */
 
 import { storeOriginal, storeSegments } from './expand.js'
+import { crushJsonArrays } from './jsonCrush.js'
 
 // ── Pattern hit tracking (for squeezr discover) ───────────────────────────────
 
@@ -1154,6 +1155,14 @@ export function preprocessForTool(text: string, toolName: string, pressure = 0):
   if (tool === 'read') {
     return makeRecoverable(text, compactReadOutput(preprocessRead(text)))
   }
+
+  // JSON array crush (deterministic, cache-safe, reversible). Fires only when the whole
+  // result is an array of homogeneous objects (gh api / curl / MCP record lists / kubectl
+  // -o json…): the repeated per-row keys collapse to a single header. Runs BEFORE the
+  // base pipeline so line-dedup/JSON-minify never touch the structured data. Self-recoverable
+  // (its marker already carries squeezr_expand), so we return it directly.
+  const crushed = crushJsonArrays(text)
+  if (crushed.savedChars > 0) { hit('jsonTableCrush'); return crushed.text }
 
   let t = preprocess(text)
 
