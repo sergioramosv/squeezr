@@ -115,6 +115,15 @@ paridad de pipeline y stats por proveedor). Convierte Squeezr de "add-on de Clau
 
 ---
 
+## Mejoras adicionales apuntadas para 2.0
+
+- **Compresor de código con tree-sitter (AST real)** — upgrade del punto 5. Hoy (1.87.0) la
+  extracción de estructura es "AST-lite" por heurísticas/regex (ts/py/go/rs/java/c/cpp), sin
+  dependencias, que es lo correcto para vistas de lectura recuperables vía expand. Para 2.0,
+  `web-tree-sitter` + gramáticas daría salida **siempre reparseable** y ranking de funciones
+  por importancia. Se dejó fuera de la 1.x a propósito porque añade MB de WASM y erosiona la
+  ventaja "un comando, un runtime"; entra en 2.0 como mejora fuerte, no como sustituto.
+
 ## Veredicto
 
 **Squeezr 2.0 = los 8 puntos (paridad) + A (config limpia con migración + defaults que ahorran

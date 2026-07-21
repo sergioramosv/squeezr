@@ -969,12 +969,19 @@ function looksLikeLockfile(text: string): boolean {
 }
 
 // Detect source language from first 30 lines of content
-function detectCodeLanguage(text: string): 'ts' | 'py' | 'go' | 'rs' | null {
+// Languages the structure extractor understands. tree-sitter (real AST, guaranteed
+// re-parse) is the planned 2.0 upgrade — see docs/V2_ROADMAP.md pillar B. This is the
+// deterministic, zero-dependency "AST-lite" path: heuristic structural-line detection.
+export type CodeLang = 'ts' | 'py' | 'go' | 'rs' | 'java' | 'c' | 'cpp'
+
+export function detectCodeLanguage(text: string): CodeLang | null {
   const sample = text.split('\n').slice(0, 30).join('\n')
   if (/^import .+ from ['"]|^export (function|class|const|type|interface|default)\b|: (string|number|boolean|void|unknown)\b/.test(sample)) return 'ts'
   if (/^from \S+ import |^def \w+\(|^class \w+[:(]/.test(sample)) return 'py'
-  if (/^package \w+|^func \w+\(|^\s*import \(/.test(sample)) return 'go'
+  if (/^package \w+\n|^func \w+\(|^\s*import \(/.test(sample)) return 'go'
   if (/^use (std|crate|self)::|^(pub\s+)?fn \w+\(|^impl\s+/.test(sample)) return 'rs'
+  if (/^package [\w.]+;|^import [\w.]+;|^(public|private|protected|abstract|final|sealed)\s+(class|interface|enum|record)\s+\w+|public\s+static\s+void\s+main/.test(sample)) return 'java'
+  if (/#include\s*[<"]/.test(sample)) return /\b(std::|template\s*<|namespace\s|::\w|class\s+\w+)/.test(sample) ? 'cpp' : 'c'
   return null
 }
 
@@ -984,13 +991,16 @@ const STRUCT_CHECKS: Record<string, (t: string) => boolean> = {
   py: (t) => /^(import |from .+ import|def |class |@\w)/.test(t),
   go: (t) => /^(import|func |type |var |const |package )\b/.test(t),
   rs: (t) => /^(use |pub |fn |struct |enum |impl |trait |mod |const |static )\b/.test(t),
+  java: (t) => /^(package |import |@\w|(public |private |protected |abstract |final |sealed |static )*\s*(class|interface|enum|record) )/.test(t),
+  c: (t) => /^(#include|#define|typedef |struct |enum |union |static |extern |const |void |int |char |long |double |float |unsigned |[A-Za-z_]\w*\s+\**[A-Za-z_]\w*\s*\()/.test(t),
+  cpp: (t) => /^(#include|#define|using |namespace |template|class |struct |enum |union |typedef |public:|private:|protected:|void |int |auto |[A-Za-z_][\w:<>]*\s+\**[A-Za-z_]\w*\s*\()/.test(t),
 }
 
 // An INDENTED member/method that opens a block — so we can segment per method,
 // not just per top-level symbol. Conservative: must open a block ('{' for brace
 // langs, ':' decl for python) and must NOT be a control statement (if/for/…), so
 // plain calls never match.
-function isMemberOpen(line: string, lang: 'ts' | 'py' | 'go' | 'rs'): boolean {
+function isMemberOpen(line: string, lang: CodeLang): boolean {
   if (!/^\s+\S/.test(line)) return false  // must be indented (nested in a class/impl)
   const t = line.trim()
   if (lang === 'py') return /^(async\s+)?def\s+\w+/.test(t)
@@ -1004,7 +1014,7 @@ function isMemberOpen(line: string, lang: 'ts' | 'py' | 'go' | 'rs'): boolean {
 // Extract structure (imports + signatures) and make each member's BODY recoverable
 // on its own via squeezr_expand("<id>~i") — so the model can pull back ONE function
 // instead of re-fetching the whole file. Segments are contiguous slices (safe).
-function extractCodeStructure(text: string, lang: 'ts' | 'py' | 'go' | 'rs'): string {
+export function extractCodeStructure(text: string, lang: CodeLang): string {
   const lines = text.split('\n')
   const check = STRUCT_CHECKS[lang]
   // Anchors = lines we KEEP (top-level structural + indented member openings).

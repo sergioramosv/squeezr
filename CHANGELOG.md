@@ -1,5 +1,12 @@
 # Changelog
 All notable changes to Squeezr will be documented here.
+## [1.87.0] - 2026-07-21
+### Added — compresor de código "AST-lite" ampliado a java/c/cpp (punto 5 del plan, Opción 1)
+- **Contexto**: cuando un tool result vuelca un fichero de código grande, Squeezr manda la ESTRUCTURA (imports, firmas, clases) y elide los cuerpos, con el original recuperable vía `squeezr_expand` (incluido expand por segmento de UNA función). Hasta ahora solo ts/py/go/rs.
+- **Decisión (con el usuario)**: hacerlo SIN dependencias (heurísticas/regex) en vez de tree-sitter. Motivo: la compresión de código actúa sobre vistas de lectura 100% recuperables, así que la garantía estrella de tree-sitter ("salida que siempre reparsea") apenas aporta aquí, mientras que su coste (MB de WASM + build) erosionaría la ventaja de Squeezr de "un comando, un runtime". tree-sitter queda apuntado como **mejora fuerte para la 2.0** (`docs/V2_ROADMAP.md`).
+- **Cambios** (`deterministic.ts`): nuevo tipo `CodeLang` (`ts|py|go|rs|java|c|cpp`); `detectCodeLanguage` detecta ahora Java (package/import/clase/`public static void main`), C++ (`#include` + marcadores `std::`/`template<`/`namespace`/`class`) y C (`#include` sin marcadores C++); `STRUCT_CHECKS` con tablas para java/c/cpp; `isMemberOpen` y `extractCodeStructure` generalizados al nuevo tipo (los lenguajes de llaves comparten la ruta de bloque, py sigue siendo el caso especial). `detectCodeLanguage` y `extractCodeStructure` ahora exportados para test directo.
+- Tests: **8 nuevos** (`codeStructure.test.ts`) — detección de los 7 lenguajes + null en prosa; extracción en Java (firmas conservadas, cuerpos elididos, más pequeño, recuperable por id) y C++ (firmas de clase+método). Suite **454/454 verde**.
+
 ## [1.86.0] - 2026-07-21
 ### Added — `squeezr bench`: arnés de compresión + recall de hechos (punto 4 del plan headroom→squeezr; cierra el core de la 2.0)
 - **Contexto**: headroom prueba "misma respuesta, menos tokens" haciendo que un LLM responda sobre lo comprimido — necesita API key y cuesta dinero, no cabe en CI. Se porta la idea con un proxy **determinista y sin coste** de la accuracy: **recall de hechos**.
