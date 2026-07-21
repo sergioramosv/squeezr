@@ -1,5 +1,12 @@
 # Changelog
 All notable changes to Squeezr will be documented here.
+## [1.92.0] - 2026-07-21
+### Added — BM25 cableado en TextCrusher (cache-safe) — completa la prioridad 1 del audit headroom v2
+- **Qué**: la primitiva BM25 (1.91.0) ya se USA. `crushText` acepta un `query` opcional; cuando viene, el presupuesto de líneas se llena por **relevancia BM25 a la tarea** (conserva las líneas que importan para lo que el usuario está haciendo) en vez de por orden de aparición. Las anclas head/tail y las líneas de señal (error/warn/…) se conservan igual; solo cambia QUÉ líneas de bajo valor sobreviven. Las líneas se emiten siempre en orden original.
+- **Seguridad de cache (clave)**: BM25 depende del query → cambia entre turnos. Aplicarlo al **prefijo cacheado** rompería el prompt-cache cada turno (el incidente 2026-06-04). Por eso el compresor solo pasa el query **cuando NO hay cache markers** (clientes sin caching); para Claude Code (siempre con markers) `query=''` deja la pasada determinista **byte-idéntica** entre requests. Extender relevancia al prefijo cacheado con seguridad requiere **congelar cada bloque por content-hash** — anotado como follow-up (encaja con la session cache existente).
+- **Plumbing**: `preprocessForTool(text, tool, pressure, query)` → `applyBashPatterns(…, query)` → `truncateLongOutput(…, query)` → `crushText({…, query})`. El compresor Anthropic calcula el query con `lastUserText(messages)` (último texto tecleado por el usuario, cap 2000).
+- Tests: **2 nuevos** en `textCrusher.test.ts` (con query conserva la línea relevante que una pasada ciega tiraría; determinista con query fijo). Suite **506/506 verde**.
+
 ## [1.91.0] - 2026-07-21
 ### Added — scorer de relevancia BM25 (`relevance.ts`) — prioridad 1 del audit headroom v2
 - **Contexto**: la re-auditoría de headroom (foco "¿lo hace MEJOR?, ¿lo copiamos?") reveló que la diferencia de fondo es que **headroom decide qué conservar por RELEVANCIA a la tarea; Squeezr conservaba a ciegas** (head/tail, recencia, líneas de error). Su `BM25Scorer` es una primitiva compartida que alimenta SmartCrusher (qué filas), TextCrusher (qué frases) y CodeCompressor (qué funciones). Copiarla sube la calidad de 3 compresores con una sola pieza.

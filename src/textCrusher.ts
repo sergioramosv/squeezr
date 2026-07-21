@@ -21,9 +21,10 @@ export interface CrushTextOpts {
   maxLines: number   // target ceiling for kept content lines
   headKeep: number   // always keep the first N lines
   tailKeep: number   // always keep the last N lines
+  query: string      // if non-empty, fill the budget by BM25 relevance to this task
 }
 
-const DEFAULTS: CrushTextOpts = { maxLines: 60, headKeep: 5, tailKeep: 5 }
+const DEFAULTS: CrushTextOpts = { maxLines: 60, headKeep: 5, tailKeep: 5, query: '' }
 
 const SIGNAL_RE = /\b(error|err|warn|warning|fail|failed|failure|exception|fatal|panic|traceback|denied|refused|timeout|timed out|cannot|unable|missing|undefined|null pointer|segfault|assert)\b/i
 
@@ -42,6 +43,8 @@ export function normalizeLineKey(line: string): string {
 function isSignal(line: string): boolean {
   return SIGNAL_RE.test(line)
 }
+
+import { bm25Scores } from './relevance.js'
 
 export interface CrushResult {
   text: string
@@ -80,14 +83,33 @@ export function crushText(text: string, opts: Partial<CrushTextOpts> = {}): Crus
     if (anchor || isSignal(lines[i])) tryKeep(i, key)
   }
 
-  // Fill remaining budget with the FIRST occurrence of each not-yet-seen normalized key,
-  // in original order → near-duplicates collapse to their first representative.
-  for (let i = 0; i < n && budget > 0; i++) {
+  // Candidate lines for the remaining budget: first occurrence of each not-yet-seen
+  // normalized key (so near-duplicates collapse to their first representative).
+  const candidates: number[] = []
+  const candSeen = new Set(seenKeys)
+  for (let i = 0; i < n; i++) {
     if (keep[i]) continue
     const key = normalizeLineKey(lines[i])
-    if (key === '' ) continue
-    if (seenKeys.has(key)) continue
-    tryKeep(i, key)
+    if (key === '' || candSeen.has(key)) continue
+    candSeen.add(key)
+    candidates.push(i)
+  }
+
+  // Order candidates: by BM25 relevance to the task when a query is given (keep the
+  // lines that matter for what the user is doing), else by original order. Relevance
+  // is only ever driven from OUTSIDE the cached prefix (see compressor), so this stays
+  // cache-safe. Kept lines are still emitted in original order below.
+  let ordered = candidates
+  if (o.query.trim() !== '' && candidates.length > 0) {
+    const scores = bm25Scores(o.query, candidates.map(i => lines[i]))
+    ordered = candidates
+      .map((idx, k) => ({ idx, score: scores[k], k }))
+      .sort((a, b) => (b.score - a.score) || (a.k - b.k))
+      .map(x => x.idx)
+  }
+  for (const i of ordered) {
+    if (budget <= 0) break
+    tryKeep(i, normalizeLineKey(lines[i]))
   }
 
   // Reconstruct in original order, summarizing runs of dropped lines with one marker.

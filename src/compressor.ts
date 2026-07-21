@@ -694,6 +694,23 @@ function buildAnthropicToolIdMap(messages: AnthropicMessage[]): { nameMap: Map<s
   return { nameMap, skipIds }
 }
 
+// Most recent user-typed text across the conversation (skips tool-result-only turns),
+// used as the relevance query for deterministic crushing. Capped so it stays cheap.
+function lastUserText(messages: AnthropicMessage[]): string {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i] as { role?: string; content?: unknown }
+    if (m.role !== 'user') continue
+    if (typeof m.content === 'string') return m.content.slice(0, 2000)
+    if (Array.isArray(m.content)) {
+      const texts = (m.content as Array<{ type?: string; text?: string }>)
+        .filter(b => b && b.type === 'text' && typeof b.text === 'string')
+        .map(b => b.text as string)
+      if (texts.length > 0) return texts.join(' ').slice(0, 2000)
+    }
+  }
+  return ''
+}
+
 export async function compressAnthropicMessages(
   messages: AnthropicMessage[],
   apiKey: string,
@@ -825,11 +842,18 @@ const cacheBarrier = cacheBarrierEarly  // reuse value computed above
   // changes every turn = cache miss = the 2026-06-04 over-bill). One cache miss
   // happens the first time the level changes; stable forever after.
   const DET_PRESSURE = 0
+  // BM25 relevance in the deterministic pass is QUERY-dependent → it changes when the
+  // user's task changes. That is ONLY cache-safe where the output is not part of a
+  // byte-stable cached prefix. So we feed a query ONLY when there are NO cache markers
+  // (non-caching clients); for cache-marker clients (Claude Code) query = '' keeps the
+  // pass byte-identical between requests. (Relevance for the cached path needs per-block
+  // content-hash freezing — a follow-up.)
+  const detQuery = hasCacheMarkers ? '' : lastUserText(messages)
   const detT0 = Date.now()
   let detSaved = 0
   for (const { index, subIndex, text, tool } of allResults) {
     if (dedupedSet.has(`${index}:${subIndex}`)) continue  // already replaced by dedup
-    const det = preprocessForTool(text, tool, DET_PRESSURE)
+    const det = preprocessForTool(text, tool, DET_PRESSURE, detQuery)
     if (det !== text) {
       ;(msgs[index].content as Array<{ content?: unknown }>)[subIndex].content = det
       detSaved += text.length - det.length

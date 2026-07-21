@@ -841,13 +841,13 @@ function extractGenericErrors(text: string): string {
 // (collapse near-duplicate spam, keep head/tail + high-signal lines) over blind
 // tail-keep — deterministic and cache-safe. Falls back to tail-keep if the crusher
 // can't beat it (e.g. all lines unique and low-signal).
-function truncateLongOutput(text: string, pressure = 0): string {
+function truncateLongOutput(text: string, pressure = 0, query = ''): string {
   const threshold = pressure >= 0.9 ? 50 : 80
   const keepLines = pressure >= 0.9 ? 30 : 50
   const lines = text.split('\n')
   if (lines.length <= threshold) return text
 
-  const crushed = crushText(text, { maxLines: keepLines, headKeep: 5, tailKeep: 8 })
+  const crushed = crushText(text, { maxLines: keepLines, headKeep: 5, tailKeep: 8, query })
   if (crushed.dropped > 0 && crushed.text.length < text.length) {
     hit('textCrush')
     return crushed.text
@@ -875,7 +875,7 @@ function compactFileListing(text: string): string {
   return `${lines.length} files total:\n${summary}`
 }
 
-function applyBashPatterns(text: string, pressure = 0): string {
+function applyBashPatterns(text: string, pressure = 0, query = ''): string {
   if (looksLikeGitDiff(text))       { hit('gitDiff');      return compactGitDiff(text, pressure) }
   if (looksLikeGitLog(text))        { hit('gitLog');       return compactGitLog(text, pressure) }
   if (looksLikeGitStatus(text))     { hit('gitStatus');    return compactGitStatus(text) }
@@ -908,7 +908,7 @@ function applyBashPatterns(text: string, pressure = 0): string {
   // Generic error extractor: auto-applies rtk err logic when errors are dense
   const errExtracted = extractGenericErrors(text)
   if (errExtracted !== text)        { hit('errorExtracted'); return errExtracted }
-  hit('truncated'); return truncateLongOutput(text, pressure)
+  hit('truncated'); return truncateLongOutput(text, pressure, query)
 }
 
 // ── Grep tool ─────────────────────────────────────────────────────────────────
@@ -1165,7 +1165,7 @@ function makeRecoverable(original: string, compacted: string): string {
   return `${compacted}\n[squeezr_expand("${id}") — full untruncated output]`
 }
 
-export function preprocessForTool(text: string, toolName: string, pressure = 0): string {
+export function preprocessForTool(text: string, toolName: string, pressure = 0, query = ''): string {
   const tool = toolName.toLowerCase()
 
   // NEVER compress the result of an expand call. The whole point of squeezr_expand
@@ -1188,7 +1188,7 @@ export function preprocessForTool(text: string, toolName: string, pressure = 0):
   let t = preprocess(text)
 
   if (tool === 'bash') {
-    t = applyBashPatterns(t, pressure)
+    t = applyBashPatterns(t, pressure, query)
   } else if (tool === 'grep') {
     const before = t
     t = compactGrepOutput(t, pressure)

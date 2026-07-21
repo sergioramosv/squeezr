@@ -75,4 +75,24 @@ describe('crushText', () => {
     const res = crushText(repetitiveLog(300))
     expect(/\[\d+ lines omitted/.test(res.text)).toBe(true)
   })
+
+  it('with a query, keeps task-relevant lines that a blind pass would drop', () => {
+    // 120 noise lines + one line mentioning the task keyword, positioned in the middle
+    // (not an anchor) so only relevance can save it.
+    const lines: string[] = []
+    for (let i = 0; i < 60; i++) lines.push(`background chore ${i} finished`)
+    lines.push('updated the authentication middleware token refresh logic')
+    for (let i = 0; i < 60; i++) lines.push(`background chore ${i + 60} finished`)
+    const input = lines.join('\n')
+
+    const withQuery = crushText(input, { maxLines: 20, headKeep: 3, tailKeep: 3, query: 'authentication middleware token' })
+    expect(withQuery.text.includes('authentication middleware token refresh')).toBe(true)
+  })
+
+  it('stays deterministic for a fixed query', () => {
+    const input = repetitiveLog(300)
+    const a = crushText(input, { query: 'record ms' }).text
+    const b = crushText(input, { query: 'record ms' }).text
+    expect(a).toBe(b)
+  })
 })
