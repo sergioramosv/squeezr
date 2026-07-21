@@ -67,6 +67,11 @@ function looksCodeLine(raw: string): boolean {
   if (!t) return false
   if (/[<>{}();=]/.test(t)) return true              // markup / code punctuation
   if (/^[}\])>]+[,;]?$/.test(t) || /^[[({<]+$/.test(t)) return true  // pure brackets
+  // Bare object/property key on its own line — `body:`, `"data":`, `items:` — whose
+  // value sits on following lines. No code punctuation, so the checks above miss it,
+  // yet folding repeated keys shatters the surrounding structure. A key has no spaces
+  // (rules out log prose like `ERROR: connection refused`).
+  if (/^["']?[\w$.-]+["']?:$/.test(t)) return true
   return false
 }
 

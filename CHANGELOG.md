@@ -1,5 +1,18 @@
 # Changelog
 All notable changes to Squeezr will be documented here.
+## [1.82.0] - 2026-07-21
+### Fixed — Squeezr corrompía código en DISCO al comprimir los INPUTS de Write/Edit (crítico)
+- **Problema** (reportado por uso real, verificado leyendo el fichero crudo con PowerShell, no vía tool): al escribir ficheros con Write/Edit acababan en disco marcadores de Squeezr como `body:\n  ... [repeated 4 more times]`, llaves `}` de cierre desaparecidas, `>` de etiquetas JSX comidos y elementos enteros fusionados (`<img …/>` → `src="…"` suelto). Compilaba con ~30 errores. En `bypass ON` desaparecía → huella inequívoca de Squeezr.
+- **Causa raíz** (`compressor.ts` Step 1.7 → `compressToolUseInputDet`): además de comprimir los *resultados* de tools, Squeezr corría el pipeline determinístico (`preprocess`: dedup de líneas, `collapseWhitespace`+`.trim()`, `minifyJson`, strip de timestamps) sobre los **INPUTS** de tools antiguos — `Write.content`, `Edit.old_string`/`new_string`, `Bash.command`. Eso son bytes de código que (a) se escriben a disco **verbatim** y (b) deben **casar byte a byte** con el fichero para que `Edit` aplique. Como Squeezr reescribe el historial, el modelo veía su PROPIO Write pasado ya mutilado y propagaba la corrupción a disco en la siguiente edición.
+- **Arreglo**: la compresión de INPUTS de tools pasa a **DEFAULT OFF** con nueva flag `compression.compress_tool_inputs` (default `false`). El bloat de turnos antiguos se recupera de forma segura con `stale_turns` (colapso de turno entero), no editando los bytes. Los *resultados* de tools se siguen comprimiendo igual que antes.
+- **Defensa en profundidad** (`deterministic.ts` → `looksCodeLine`): `deduplicateLines` nunca pliega ya una clave de objeto suelta (`body:`, `"data":`) — antes no tenían puntuación de código y sí se plegaban. La prosa de log (`ERROR: foo`, con valor tras el `:`) se sigue plegando.
+- Tests: 2 regresiones nuevas en `deterministic.test.ts` (clave `body:` repetida NO se pliega; log con valor SÍ). Suite 381/381 verde.
+
+### Nota — `claude --rc` (Remote Control) es incompatible con el proxy por env-var (fuera del control de Squeezr)
+- **Síntoma** (reportado): con Squeezr activo, `claude --rc` da error y "tiene que salir directamente por api.anthropic.com".
+- **Causa** (confirmada leyendo el binario de Claude Code 2.1.216): guard explícito `"Remote Control is only available when using Claude via api.anthropic.com."`. Squeezr en modo terminal exporta `ANTHROPIC_BASE_URL=http://localhost:8080`, que **no es** api.anthropic.com → Remote Control se niega. No es un bug de Squeezr: es una restricción de Claude Code. (El canal en sí es `wss://bridge.claudeusercontent.com`, host aparte que iría directo igualmente.)
+- **Workarounds**: (a) lanzar `claude --rc` **sin** `ANTHROPIC_BASE_URL` (Remote Control funciona, sin compresión en esa sesión); o (b) usar interceptación transparente vía hosts+MITM (como Claude Desktop) para que Claude vea `https://api.anthropic.com` real y el guard pase. Pendiente decidir/implementar.
+
 ## [1.81.2] - 2026-06-17
 ### Fixed — dashboard Savings: las hero cards no cambiaban al navegar entre días
 - **Problema** (reportado por el uso real): en la página **Savings**, con el periodo en **Day**, al pulsar las flechitas ◀ / ▶ para ver otro día el gráfico y los breakdowns de abajo sí cambiaban, pero las **hero cards de arriba** (tokens saved, cost, sessions, %) seguían mostrando los números de **hoy**.

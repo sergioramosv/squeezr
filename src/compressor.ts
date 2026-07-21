@@ -916,7 +916,17 @@ const cacheBarrier = cacheBarrierEarly  // reuse value computed above
   // Write's content. These are huge and previously unprocessed. Skip the most
   // recent N assistant turns (`keepRecentAssistant`) so the live tool call
   // stays intact.
-  if (config.compressConversation) {
+  //
+  // DEFAULT OFF (compressToolInputs = false). Unlike tool RESULTS, tool INPUTS are
+  // model-authored code that must survive verbatim: Write.content is written to disk
+  // byte-for-byte, and Edit.old_string must byte-match the file for the edit to apply.
+  // The deterministic pipeline (line dedup, whitespace collapse+trim, JSON minify,
+  // timestamp strip) mutates those bytes. Because Squeezr rewrites history, the model
+  // then sees its OWN past Write as "body: ... [repeated 4 more times]" with dropped
+  // braces/`>`, and propagates that corruption to disk on the next edit. Old-turn
+  // bloat is reclaimed safely by stale_turns (whole-turn collapse) instead. Opt back
+  // in with compression.compress_tool_inputs = true only if you accept that risk.
+  if (config.compressConversation && config.compressToolInputs) {
     const toolUses = extractAnthropicAssistantToolUses(msgs, config.keepRecentAssistant)
     let tuSaved = 0
     let tuCount = 0

@@ -11,7 +11,12 @@ disabled = false
 # API key + backend = "gpt-mini" / "gemini-flash" / "local".
 ai_compression = false
 compress_system_prompt = true   # only runs when ai_compression = true (it makes a Haiku call)
-compress_conversation = true    # deterministic clean on old user/assistant messages + tool_use inputs (pure regex, no AI)
+compress_conversation = true    # deterministic clean on OLD user/assistant PROSE (pure regex, no AI)
+# compress_tool_inputs = false   # DEFAULT FALSE. Lossy-clean OLD Write/Edit/Bash tool INPUTS.
+                                 # OFF porque corrompía código en disco (v1.82.0): Write.content se
+                                 # escribe verbatim y Edit.old_string debe casar byte a byte. No lo
+                                 # enciendas salvo que aceptes ese riesgo; el bloat de turnos viejos
+                                 # ya lo recupera stale_turns de forma segura.
 keep_recent_assistant = 3       # leave last N assistant turns untouched
 assistant_threshold = 300       # min chars before applying prose cleanup
 stale_turns = true               # collapse old assistant turns when conversation > threshold (default 40)

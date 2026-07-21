@@ -21,6 +21,7 @@ interface TomlConfig {
     ai_compression?: boolean  // master switch for ALL AI compression calls (Haiku/GPT/Gemini). Default FALSE — opt-in only.
     compress_system_prompt?: boolean
     compress_conversation?: boolean
+    compress_tool_inputs?: boolean  // lossy-clean OLD Write/Edit/Bash tool_use INPUTS. Default FALSE — corrupts code (see 1.82.0).
     keep_recent_assistant?: number
     assistant_threshold?: number
     compress_assistant_ai?: boolean
@@ -133,6 +134,7 @@ export class Config {
   readonly aiCompression: boolean
   readonly compressSystemPrompt: boolean
   readonly compressConversation: boolean
+  readonly compressToolInputs: boolean
   readonly captureRequests: boolean
   readonly captureLimit: number
   readonly staleTurns: boolean
@@ -188,6 +190,13 @@ readonly toolDescCompress: boolean
     // compress_system_prompt also makes a Haiku call — gate it behind aiCompression too.
     this.compressSystemPrompt = (c.compress_system_prompt ?? true) && this.aiCompression
     this.compressConversation = c.compress_conversation ?? true  // safe by default — only deterministic on assistant msgs
+    // Lossy-clean OLD tool_use INPUTS (Write.content, Edit.old/new_string, Bash.command).
+    // DEFAULT FALSE: these are model-authored code that round-trips to disk verbatim
+    // (Write) or must byte-match disk (Edit old_string). Running dedup/whitespace/JSON
+    // minify over them folded repeated lines into "... [repeated N more times]", dropped
+    // braces and JSX `>`, and .trim()'d file bodies — corruption that reached disk when
+    // the model later re-edited from its now-mangled view of its own past writes.
+    this.compressToolInputs = c.compress_tool_inputs ?? false
     this.captureRequests = c.capture_requests ?? false
     this.captureLimit = c.capture_limit ?? 20
     this.staleTurns = c.stale_turns ?? true

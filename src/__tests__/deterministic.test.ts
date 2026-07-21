@@ -124,6 +124,21 @@ describe('preprocess - base pipeline', () => {
     expect(preprocess(input)).toBe('a\nb\na')
   })
 
+  // Regression (1.82.0): repeated bare object keys like `body:` were folded into
+  // "... [repeated N more times]", which corrupted code when it round-tripped to disk.
+  it('never folds repeated bare object keys (body:)', () => {
+    // Mirrors the real incident: identical keys, unique values on the next line.
+    const input = Array.from({ length: 5 }, (_, i) => `    body:\n      "unique text ${i}",`).join('\n')
+    const out = preprocess(input)
+    expect(out).not.toContain('repeated')
+    expect(out.split('\n').filter(l => l.trim() === 'body:')).toHaveLength(5)
+  })
+
+  it('still folds genuine repeated log prose (colon with a value after)', () => {
+    const input = Array(5).fill('ERROR: connection refused').join('\n')
+    expect(preprocess(input)).toContain('repeated 4 more times')
+  })
+
   it('minifies inline JSON blobs > 200 chars', () => {
     const obj = Object.fromEntries(Array.from({ length: 20 }, (_, i) => [`key_${i}`, `value_number_${i}`]))
     const pretty = JSON.stringify(obj, null, 2)
