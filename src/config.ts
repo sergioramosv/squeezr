@@ -58,6 +58,13 @@ interface TomlConfig {
     compression_model?: string
     dummy_keys?: string[]
   }
+  output?: {
+    enabled?: boolean               // master switch for output-side reduction (default false)
+    verbosity_steering?: boolean    // append terse-instruction block to system tail (default true)
+    level?: number                  // verbosity level 1-4 (default 2)
+    effort_routing?: boolean        // lower thinking budget on mechanical turns (default true)
+    mechanical_thinking_floor?: number  // budget_tokens floor on mechanical turns (default 1024)
+  }
 }
 
 function loadTomlFile(path: string): TomlConfig {
@@ -168,6 +175,11 @@ readonly toolDescCompress: boolean
   readonly localUpstreamUrl: string
   readonly localCompressionModel: string
   readonly localDummyKeys: Set<string>
+  readonly outputShaperEnabled: boolean
+  readonly outputVerbositySteering: boolean
+  readonly outputLevel: 1 | 2 | 3 | 4
+  readonly outputEffortRouting: boolean
+  readonly outputMechanicalThinkingFloor: number
 
   constructor() {
     const t = loadToml()
@@ -176,6 +188,7 @@ readonly toolDescCompress: boolean
     const ca = t.cache ?? {}
     const ad = t.adaptive ?? {}
     const lo = t.local ?? {}
+    const ou = t.output ?? {}
 
     this.port = parseInt(env('SQUEEZR_PORT', String(p.port ?? 8080)))
     this.mitmPort = parseInt(env('SQUEEZR_MITM_PORT', String(p.mitm_port ?? this.port + 1)))
@@ -240,6 +253,17 @@ this.toolDescCompress = c.tool_desc_compress ?? false
     this.localCompressionModel = env('SQUEEZR_LOCAL_MODEL', lo.compression_model ?? 'qwen2.5-coder:1.5b')
     const rawDummies = lo.dummy_keys ?? ['ollama', 'lm-studio', 'sk-no-key-required', 'local', 'none', '']
     this.localDummyKeys = new Set(rawDummies.map(k => k.toLowerCase()))
+    // Output-side token reduction. DEFAULT OFF — opt-in, like all levers that
+    // reshape behaviour rather than just clean tool output. Enable via TOML
+    // [output] enabled = true, or env SQUEEZR_OUTPUT_SHAPER=1. Both sub-levers
+    // (verbosity steering, effort routing) default ON once the master is on.
+    this.outputShaperEnabled =
+      env('SQUEEZR_OUTPUT_SHAPER', '') === '1' || env('SQUEEZR_OUTPUT_SHAPER', '') === 'true' || (ou.enabled ?? false)
+    this.outputVerbositySteering = ou.verbosity_steering ?? true
+    const lvl = ou.level ?? 2
+    this.outputLevel = (lvl >= 1 && lvl <= 4 ? lvl : 2) as 1 | 2 | 3 | 4
+    this.outputEffortRouting = ou.effort_routing ?? true
+    this.outputMechanicalThinkingFloor = ou.mechanical_thinking_floor ?? 1024
   }
 
   thresholdForPressure(pressure: number): number {

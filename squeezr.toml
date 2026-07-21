@@ -36,6 +36,15 @@ tool_desc_expand = true          # store full spec in expand store — Claude ll
 # Per-command: add "# squeezr:skip" anywhere in a Bash command to skip that result:
 #   git diff HEAD~3  # squeezr:skip
 
+[output]
+# Output-side token reduction — trims what the model WRITES BACK (output costs
+# ~5x input on Opus). DEFAULT OFF (opt-in). Enable here or with SQUEEZR_OUTPUT_SHAPER=1.
+enabled = false
+verbosity_steering = true        # append a byte-stable "be terse" block to the system tail (cache-safe)
+level = 2                        # 1 (light) .. 4 (caveman). 2 = no ceremony + don't restate context
+effort_routing = true            # on mechanical turns (clean tool_result) lower an EXISTING thinking budget
+mechanical_thinking_floor = 1024 # clamp thinking.budget_tokens down to this on mechanical turns
+
 [cache]
 enabled = true
 max_entries = 1000       # LRU cap for cached compressions

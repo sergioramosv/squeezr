@@ -1,5 +1,16 @@
 # Changelog
 All notable changes to Squeezr will be documented here.
+## [1.83.0] - 2026-07-21
+### Added — recorte de tokens de SALIDA (output shaper) — nuevo eje de ahorro (punto 1 del plan headroom→squeezr)
+- **Contexto**: hasta ahora Squeezr solo comprimía lo que ENTRA al modelo (tool results, system prompt, tool descs). Los tokens de SALIDA cuestan ~5× los de entrada en Opus y nunca se tocaban. Tras auditar headroom (que sí lo hace), se porta la idea a Squeezr, en TS puro y **cache-safe**.
+- **Nuevo módulo `outputShaper.ts`** con dos palancas, ambas reescribiendo el REQUEST (el proxy no genera salida):
+  1. **Verbosity steering**: bloque de instrucciones byte-estable ("sé terso, no repitas contexto, no narres tras un tool call OK") pegado al **TAIL** del system prompt — después del `cache_control`, exactamente el mismo patrón de append ya probado en `injectExpandDirectiveAnthropic`, así que **no toca el prefijo cacheado**. 4 niveles (1 ligero .. 4 caveman), default 2. Idempotente: re-aplicar el mismo nivel da un system byte-idéntico (no apila).
+  2. **Effort routing**: clasificación **estructural** del turno (tipos de bloque + `is_error`, sin regex de contenido). En *continuaciones mecánicas* (el último mensaje es un `tool_result` limpio: un read, un test que pasa) **baja** un `thinking.budget_tokens`/`output_config.effort` que YA venga en el request. En errores o pregunta nueva del usuario → intacto.
+- **Reglas de seguridad** (cada una evita un fallo concreto): nunca INYECTA un lever de effort que el cliente no mandó (modelos sin soporte dan 400); nunca togglea `thinking.type` (400 + rompe el cache tier); solo BAJA un valor existente; el texto de steering es fijo por nivel → append determinista por request.
+- **Config**: nueva sección `[output]` (`enabled` default **false** — opt-in, `verbosity_steering`, `level`, `effort_routing`, `mechanical_thinking_floor`). Atajo por env `SQUEEZR_OUTPUT_SHAPER=1`.
+- **Hook** en `server.ts`: corre el ÚLTIMO del pipeline `/v1/messages`, tras inyectar el expand directive, para que el bloque de steering quede al final de forma determinista.
+- Tests: **26 nuevos** (`outputShaper.test.ts`) — clasificación de turnos, byte-estabilidad e idempotencia del steering, no-mutación del bloque `cache_control`, effort solo se baja (nunca se inyecta/sube), orquestación por tipo de turno. Suite **407/407 verde**.
+
 ## [1.82.0] - 2026-07-21
 ### Fixed — Squeezr corrompía código en DISCO al comprimir los INPUTS de Write/Edit (crítico)
 - **Problema** (reportado por uso real, verificado leyendo el fichero crudo con PowerShell, no vía tool): al escribir ficheros con Write/Edit acababan en disco marcadores de Squeezr como `body:\n  ... [repeated 4 more times]`, llaves `}` de cierre desaparecidas, `>` de etiquetas JSX comidos y elementos enteros fusionados (`<img …/>` → `src="…"` suelto). Compilaba con ~30 errores. En `bypass ON` desaparecía → huella inequívoca de Squeezr.

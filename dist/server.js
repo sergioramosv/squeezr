@@ -13,6 +13,7 @@ import { isAiCompressionEnabled, setAiCompression, toggleAiCompression } from '.
 import { circuitBreaker } from './circuitBreaker.js';
 import { injectExpandToolAnthropic, injectExpandToolOpenAI, injectExpandDirectiveAnthropic, injectExpandDirectiveOpenAI, handleAnthropicExpandCall, handleOpenAIExpandCall, retrieveOriginal, expandStoreSize, EXPAND_TOOL_ANTHROPIC_CHARS, } from './expand.js';
 import { compressSystemPrompt } from './systemPrompt.js';
+import { shapeRequest } from './outputShaper.js';
 import { captureRequest } from './requestCapture.js';
 import { dedupSkillBlocks } from './skillDedup.js';
 import { collapseStaleTurns } from './staleTurns.js';
@@ -455,6 +456,22 @@ app.post('/v1/messages', async (c) => {
     // the highest-weight channel (tool description alone was observed to be ignored).
     // Cache-safe: appends a new trailing block, never mutates cache_control blocks.
     injectExpandDirectiveAnthropic(body);
+    // Output-side token reduction (opt-in). Verbosity steering appends a byte-stable
+    // block to the system tail (same cache-safe append as the expand directive);
+    // effort routing lowers an EXISTING thinking budget on mechanical continuations.
+    // Runs LAST so the trailing steering block is deterministic per request.
+    if (config.outputShaperEnabled) {
+        const shaped = shapeRequest(body, {
+            enabled: true,
+            verbositySteering: config.outputVerbositySteering,
+            level: config.outputLevel,
+            effortRouting: config.outputEffortRouting,
+            mechanicalThinkingFloor: config.outputMechanicalThinkingFloor,
+        });
+        if (shaped.effortLowered || shaped.steered) {
+            console.log(`[squeezr/output-shaper] turn=${shaped.turn} steered=${shaped.steered} effort-lowered=${shaped.effortLowered}`);
+        }
+    }
     // Attach per-feature savings to the savings object for accurate breakdown reporting
     savings.toolDescSavedChars = toolDescSaved;
     savings.mcpFilterSavedChars = mcpFilterSaved;
