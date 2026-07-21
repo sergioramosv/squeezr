@@ -15,6 +15,27 @@ import { injectExpandToolAnthropic, injectExpandToolOpenAI, injectExpandDirectiv
 import { compressSystemPrompt } from './systemPrompt.js';
 import { shapeRequest } from './outputShaper.js';
 import { warnIfVolatile } from './cacheAligner.js';
+import { echoRatio, extractAssistantTextFromSse, extractAssistantTextFromContent } from './outputSavings.js';
+// Concatenated text the model saw (capped), used as the echo-measurement context.
+function contextTextForEcho(messages) {
+    let out = '';
+    for (const m of messages) {
+        const c = m?.content;
+        if (typeof c === 'string')
+            out += c + '\n';
+        else if (Array.isArray(c)) {
+            for (const b of c) {
+                if (typeof b?.text === 'string')
+                    out += b.text + '\n';
+                else if (typeof b?.content === 'string')
+                    out += b.content + '\n';
+            }
+        }
+        if (out.length > 40000)
+            break;
+    }
+    return out;
+}
 import { captureRequest } from './requestCapture.js';
 import { dedupSkillBlocks } from './skillDedup.js';
 import { collapseStaleTurns } from './staleTurns.js';
@@ -508,6 +529,8 @@ app.post('/v1/messages', async (c) => {
             if (!SKIP_RESP_HEADERS.has(k.toLowerCase()))
                 c.header(k, v);
         }
+        const measureEcho = config.outputShaperEnabled;
+        let sseBuf = '';
         return stream(c, async (s) => {
             const reader = upstream.body.getReader();
             const decoder = new TextDecoder();
@@ -517,7 +540,17 @@ app.post('/v1/messages', async (c) => {
                 if (done)
                     break;
                 await s.write(value);
-                sseParser(decoder.decode(value, { stream: true }));
+                const chunk = decoder.decode(value, { stream: true });
+                sseParser(chunk);
+                if (measureEcho)
+                    sseBuf += chunk;
+            }
+            if (measureEcho) {
+                const outText = extractAssistantTextFromSse(sseBuf);
+                if (outText.length > 40) {
+                    const echo = echoRatio(outText, contextTextForEcho(body.messages));
+                    console.log(`[squeezr/output] echo=${Math.round(echo * 100)}% of assistant output restated existing context (${outText.length} chars)`);
+                }
             }
         });
     }
@@ -532,6 +565,13 @@ app.post('/v1/messages', async (c) => {
     if (respBody.usage) {
         const u = respBody.usage;
         addAnthropicUsage(u.input_tokens ?? 0, u.output_tokens ?? 0, u.cache_creation_input_tokens ?? 0, u.cache_read_input_tokens ?? 0);
+    }
+    if (config.outputShaperEnabled) {
+        const outText = extractAssistantTextFromContent(respBody.content);
+        if (outText.length > 40) {
+            const echo = echoRatio(outText, contextTextForEcho(body.messages));
+            console.log(`[squeezr/output] echo=${Math.round(echo * 100)}% of assistant output restated existing context (${outText.length} chars)`);
+        }
     }
     // Handle expand() call if model requested one (track expand rate)
     const expandCall = handleAnthropicExpandCall(respBody);

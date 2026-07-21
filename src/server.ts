@@ -31,6 +31,24 @@ import {
 import { compressSystemPrompt } from './systemPrompt.js'
 import { shapeRequest } from './outputShaper.js'
 import { warnIfVolatile } from './cacheAligner.js'
+import { echoRatio, extractAssistantTextFromSse, extractAssistantTextFromContent } from './outputSavings.js'
+
+// Concatenated text the model saw (capped), used as the echo-measurement context.
+function contextTextForEcho(messages: unknown[]): string {
+  let out = ''
+  for (const m of messages as Array<{ content?: unknown }>) {
+    const c = m?.content
+    if (typeof c === 'string') out += c + '\n'
+    else if (Array.isArray(c)) {
+      for (const b of c as Array<{ text?: string; content?: unknown }>) {
+        if (typeof b?.text === 'string') out += b.text + '\n'
+        else if (typeof b?.content === 'string') out += b.content + '\n'
+      }
+    }
+    if (out.length > 40000) break
+  }
+  return out
+}
 import { captureRequest } from './requestCapture.js'
 import { dedupSkillBlocks } from './skillDedup.js'
 import { collapseStaleTurns } from './staleTurns.js'
@@ -563,6 +581,8 @@ body.messages = compressedMsgs
     for (const [k, v] of upstream.headers.entries()) {
       if (!SKIP_RESP_HEADERS.has(k.toLowerCase())) c.header(k, v)
     }
+    const measureEcho = config.outputShaperEnabled
+    let sseBuf = ''
     return stream(c, async (s) => {
       const reader = upstream.body!.getReader()
       const decoder = new TextDecoder()
@@ -571,7 +591,16 @@ body.messages = compressedMsgs
         const { done, value } = await reader.read()
         if (done) break
         await s.write(value)
-        sseParser(decoder.decode(value, { stream: true }))
+        const chunk = decoder.decode(value, { stream: true })
+        sseParser(chunk)
+        if (measureEcho) sseBuf += chunk
+      }
+      if (measureEcho) {
+        const outText = extractAssistantTextFromSse(sseBuf)
+        if (outText.length > 40) {
+          const echo = echoRatio(outText, contextTextForEcho(body.messages as unknown[]))
+          console.log(`[squeezr/output] echo=${Math.round(echo * 100)}% of assistant output restated existing context (${outText.length} chars)`)
+        }
       }
     })
   }
@@ -588,6 +617,13 @@ body.messages = compressedMsgs
   if (respBody.usage) {
     const u = respBody.usage as { input_tokens?: number; output_tokens?: number; cache_creation_input_tokens?: number; cache_read_input_tokens?: number }
     addAnthropicUsage(u.input_tokens ?? 0, u.output_tokens ?? 0, u.cache_creation_input_tokens ?? 0, u.cache_read_input_tokens ?? 0)
+  }
+  if (config.outputShaperEnabled) {
+    const outText = extractAssistantTextFromContent(respBody.content)
+    if (outText.length > 40) {
+      const echo = echoRatio(outText, contextTextForEcho(body.messages as unknown[]))
+      console.log(`[squeezr/output] echo=${Math.round(echo * 100)}% of assistant output restated existing context (${outText.length} chars)`)
+    }
   }
 
   // Handle expand() call if model requested one (track expand rate)

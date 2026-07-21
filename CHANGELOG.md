@@ -1,5 +1,13 @@
 # Changelog
 All notable changes to Squeezr will be documented here.
+## [1.96.0] - 2026-07-21
+### Added — medición de ECO de salida (prioridad 4 del audit headroom v2, tier sin contrafactual)
+- **Contexto**: headroom mide el ahorro de salida en 3 tiers. El más honesto (holdout A/B) necesita grupo de control → se deja para después. Este es el tier que NO necesita contrafactual: el **ratio de eco** — cuánto de lo que el modelo escribe simplemente **repite contexto que ya tenía**. Eco alto = tokens de salida desperdiciados = justo lo que ataca el verbosity steering (1.83).
+- **Nuevo módulo `outputSavings.ts`** (puro, testeado): `wordNgrams`, `echoRatio(output, context)` (fracción de n-gramas de la salida que ya estaban en el contexto, 0..1), `extractAssistantTextFromSse` (saca el texto del stream Anthropic concatenando `text_delta`, con unescape) y `extractAssistantTextFromContent` (respuesta no-streaming).
+- **Wiring** (`server.ts`, gateado por `[output].enabled`): en `/v1/messages`, tanto streaming (acumula el texto del stream) como no-streaming, calcula el eco contra el contexto que vio el modelo y lo loguea (`[squeezr/output] echo=N%`). **Leer/medir la respuesta NUNCA cambia los bytes reenviados** → cache-safe (el riesgo de cache es de request, no de response).
+- **Pendiente**: el número *medido* por holdout A/B (dejar 10% de conversaciones sin shaping como control) queda como follow-up; requiere plumbing de stats por brazo.
+- Tests: **9 nuevos** (`outputSavings.test.ts`) — n-gramas, eco ~1 al repetir / ~0 novel / 0 vacío / parcial, determinismo, extractor SSE con unescape. Suite **538/538 verde**.
+
 ## [1.95.0] - 2026-07-21
 ### Added — near-dup por shingles en TextCrusher (prioridad 5 del audit headroom v2)
 - **Contexto**: TextCrusher colapsaba líneas idénticas tras enmascarar números/timestamps, pero los **duplicados REFORMULADOS** (misma idea, otras palabras) se escapaban — punto débil que señaló el audit. Se porta el near-dup por shingles de headroom.
