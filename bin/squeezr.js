@@ -5,7 +5,7 @@ import http from 'http'
 import path from 'path'
 import fs from 'fs'
 import os from 'os'
-import { fileURLToPath } from 'url'
+import { fileURLToPath, pathToFileURL } from 'url'
 import { createRequire } from 'module'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -250,6 +250,8 @@ Usage:
   squeezr gain             Show token savings stats
   squeezr gain --reset     Reset saved stats
   squeezr discover         Show pattern coverage report (proxy must be running)
+  squeezr learn            Mine Claude Code sessions for token-wasting loops
+  squeezr learn --apply    Write the learned rules to ./CLAUDE.local.md
   squeezr status           Check if proxy is running
   squeezr config           Print config file path and current settings
   squeezr rc [args...]     Launch 'claude --rc' (Remote Control) direct to api.anthropic.com
@@ -2561,6 +2563,20 @@ switch (command) {
 case 'zest':
     await installZest()
     break
+
+  case 'learn': {
+    const apply = args.includes('--apply')
+    const tIdx = args.indexOf('--target')
+    const targetFile = tIdx >= 0 ? args[tIdx + 1] : undefined
+    const { runLearn } = await import(pathToFileURL(path.join(ROOT, 'dist', 'learn.js')).href)
+    const res = runLearn({ apply, targetFile })
+    console.log(res.report)
+    if (res.loops.length > 0) {
+      if (res.applied) console.log(`\nWrote ${res.loops.length} rule(s) to ${res.targetFile}`)
+      else console.log(`\nDry run. Re-run with --apply to write these rules to ${res.targetFile}.`)
+    }
+    break
+  }
 
   case 'version':
   case '--version':

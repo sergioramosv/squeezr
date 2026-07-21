@@ -1,5 +1,17 @@
 # Changelog
 All notable changes to Squeezr will be documented here.
+## [1.85.0] - 2026-07-21
+### Added — `squeezr learn`: minería de loops en sesiones de Claude Code (punto 3 del plan headroom→squeezr)
+- **Contexto**: se porta `headroom learn`. La señal más valiosa y barata (sin LLM) son los LOOPS que desperdician tokens en las sesiones reales.
+- **Nuevo módulo `learn.ts`** (núcleo puro + orquestador):
+  - **`canonicalSignature`**: firma estable que **quita la paginación** (`| head -N`, `| tail -N`, `-n N`, `LIMIT N`, `OFFSET N`, `--limit/--offset`, `?page=/per_page=`) y colapsa enteros sueltos a `N`, así las variantes de un mismo comando caen en una sola firma.
+  - **`extractToolCalls`**: parsea el JSONL de sesiones de Claude Code (tolerante a líneas corruptas y a `tool_result` en string o array), emparejando `tool_use`↔`tool_result` con su tamaño de salida y flag de error.
+  - **`detectLoops`**: dos tipos — **error loops** (misma firma falla ≥3×; waste = suma de outputs fallidos) y **refetch loops** (misma firma, ≥2 variantes distintas de comando por paginación creciente; waste = suma de los re-fetch redundantes). Los loops con errores se clasifican como error (no refetch). Waste = **cota inferior medida** de bytes reales, no estimada. Ordenados por bytes desperdiciados desc.
+  - **`renderCorrections` + `writeMarkerBlock`**: genera reglas y las escribe a `CLAUDE.local.md` entre marcadores `<!-- squeezr:learn:start/end -->`, **idempotente** (re-aplicar la misma regla da contenido byte-idéntico; un set nuevo reemplaza al viejo, no apila).
+- **Nuevo comando CLI `squeezr learn`** (dry-run) y **`squeezr learn --apply`** (escribe `./CLAUDE.local.md`), con `--target <file>`. Escanea las 20 sesiones más recientes de `~/.claude/projects`. Añadido a `--help`.
+- **Validado en real**: sobre mis sesiones detectó 24 loops y ~44.060 tokens desperdiciados (patrón dominante: re-leer ficheros con ventanas de `offset/limit` crecientes — exactamente lo que el expand segmentado evita).
+- Tests: **18 nuevos** (`learn.test.ts`) — firma canónica, parse JSONL tolerante, detección error/refetch, clasificación, ranking por waste, render de correcciones, idempotencia del escritor de marcadores. Suite **438/438 verde**.
+
 ## [1.84.0] - 2026-07-21
 ### Added — SmartCrusher para arrays JSON (punto 2 del plan headroom→squeezr)
 - **Contexto**: muchísimo tool output es un ARRAY DE OBJETOS HOMOGÉNEOS (`gh api`, `curl` a REST, tools MCP que devuelven listas de registros, `kubectl get -o json`…). Minificar ese JSON quita espacios pero deja CADA clave repetida en CADA fila (`"id":`, `"name":`, `"status":`… ×N). El coste dominante es el esquema repetido. Se porta la idea del SmartCrusher de headroom, ruta **determinista**.
