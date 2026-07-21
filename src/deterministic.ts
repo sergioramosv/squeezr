@@ -29,6 +29,7 @@
 
 import { storeOriginal, storeSegments } from './expand.js'
 import { crushJsonArrays } from './jsonCrush.js'
+import { crushText } from './textCrusher.js'
 
 // ── Pattern hit tracking (for squeezr discover) ───────────────────────────────
 
@@ -836,12 +837,22 @@ function extractGenericErrors(text: string): string {
   return text
 }
 
-// Generic fallback: long unrecognised bash output — keep last N lines
+// Generic fallback: long unrecognised bash output. Prefer EXTRACTIVE crushing
+// (collapse near-duplicate spam, keep head/tail + high-signal lines) over blind
+// tail-keep — deterministic and cache-safe. Falls back to tail-keep if the crusher
+// can't beat it (e.g. all lines unique and low-signal).
 function truncateLongOutput(text: string, pressure = 0): string {
   const threshold = pressure >= 0.9 ? 50 : 80
   const keepLines = pressure >= 0.9 ? 30 : 50
   const lines = text.split('\n')
   if (lines.length <= threshold) return text
+
+  const crushed = crushText(text, { maxLines: keepLines, headKeep: 5, tailKeep: 8 })
+  if (crushed.dropped > 0 && crushed.text.length < text.length) {
+    hit('textCrush')
+    return crushed.text
+  }
+
   const omitted = lines.length - keepLines
   return `... [${omitted} earlier lines omitted]\n` + lines.slice(-keepLines).join('\n')
 }

@@ -1,5 +1,12 @@
 # Changelog
 All notable changes to Squeezr will be documented here.
+## [1.88.0] - 2026-07-21
+### Added — TextCrusher: compresión extractiva de prosa/logs sin IA (punto 6 del plan headroom→squeezr)
+- **Contexto**: el dedup exacto del pipeline base solo pilla líneas byte-idénticas. Gran parte del spam de logs NO es idéntico: es la misma línea con otro número/timestamp/hex (`processed record 1 in 2ms`, `…record 2 in 4ms`…). Se porta el TextCrusher de headroom (su alternativa rápida sin modelo).
+- **Nuevo módulo `textCrusher.ts`** (`crushText`): colapsa **casi-duplicados** normalizando tokens volátiles (timestamps ISO, horas, hex `0x…`, enteros → `#`), mientras: conserva SIEMPRE las líneas de alto valor (error/warn/fail/exception/refused/timeout…), conserva anclas head+tail, mantiene el orden original y es **100% determinista → byte-estable → cache-safe**. Nunca pierde nada de forma irrecuperable (el original queda a un `squeezr_expand`).
+- **Integración** (`deterministic.ts` → `truncateLongOutput`): el fallback genérico de bash largo pasa de tail-ciego a **extractivo** (crush si mejora; si no, cae al tail-keep de antes). Cuenta como patrón `textCrush` en `squeezr discover`.
+- Tests: **10 nuevos** (`textCrusher.test.ts`) — normalización de claves, colapso de casi-duplicados, preservación de señal, anclas head/tail, presupuesto maxLines, orden preservado, determinismo, marcador de omitidas. Suite **464/464 verde**.
+
 ## [1.87.0] - 2026-07-21
 ### Added — compresor de código "AST-lite" ampliado a java/c/cpp (punto 5 del plan, Opción 1)
 - **Contexto**: cuando un tool result vuelca un fichero de código grande, Squeezr manda la ESTRUCTURA (imports, firmas, clases) y elide los cuerpos, con el original recuperable vía `squeezr_expand` (incluido expand por segmento de UNA función). Hasta ahora solo ts/py/go/rs.
