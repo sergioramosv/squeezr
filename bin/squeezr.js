@@ -699,6 +699,68 @@ async function mcpUninstall() {
   else console.log()
 }
 
+// ── shared auto-heal block (setupUnix / setupWSL / configurePorts) ─────────────
+
+// Matches the auto-heal block from its `# squeezr env vars` marker through to
+// its final `unset -f` line, whatever function names that line unsets — so it
+// matches both the current lock-guarded block and any older pre-lock block
+// shape, and a future rename of the functions below doesn't also need a
+// matching regex update.
+const SHELL_BLOCK_REGEX = /# squeezr env vars[\s\S]*?\nunset -f [^\n]*\n?/
+
+// Builds the mkdir-locked "start the proxy if it's not already running" bash
+// snippet shared by setupUnix(), setupWSL(), and configurePorts(). Opening
+// several terminals at once can race: all of them see the proxy down before
+// any has bound the port, and all try to spawn it. Guard with an atomic lock
+// (mkdir is atomic on POSIX filesystems) so only the shell that wins the
+// mkdir spawns the process; a shell that loses the race just skips — no
+// retry, no wait — because the winner is about to make it moot.
+//
+// Pass { nodeExe, distIndex } to spawn the daemon directly (setupUnix/
+// setupWSL, which already have those paths in hand and want to avoid a
+// second CLI invocation); omit them (configurePorts) to shell out to
+// `squeezr start` instead.
+function buildAutoHealBlock(port, { nodeExe, distIndex } = {}) {
+  const spawnLines = nodeExe
+    ? [`nohup ${nodeExe} ${distIndex} >> "${os.homedir()}/.squeezr/squeezr.log" 2>&1 &`, `disown`]
+    : [`squeezr start > /dev/null 2>&1`]
+  return [
+    `_squeezr_start_if_needed() {`,
+    `  _squeezr_alive() {`,
+    `    curl -sf --max-time 2 "http://localhost:${port}/squeezr/health" 2>/dev/null | grep -q '"identity":"squeezr"'`,
+    `  }`,
+    `  _squeezr_alive && return`,
+    `  local lock="$HOME/.squeezr/.start.lock"`,
+    `  if [ -d "$lock" ]; then`,
+    `    local mtime=$(stat -f %m "$lock" 2>/dev/null || stat -c %Y "$lock" 2>/dev/null || echo 0)`,
+    `    local age=$(( $(date +%s) - mtime ))`,
+    `    [ "$age" -gt 10 ] && rmdir "$lock" 2>/dev/null   # stale lock (previous shell crashed)`,
+    `  fi`,
+    `  if mkdir "$lock" 2>/dev/null; then`,
+    `    if _squeezr_alive; then`,
+    `      rmdir "$lock" 2>/dev/null`,
+    `    else`,
+    ...spawnLines.map(l => `      ${l}`),
+    `      # Release the lock once the port is bound (or a bounded number of`,
+    `      # polls pass) in a detached background job, instead of blocking`,
+    `      # this shell's startup on it — a shell that loses the mkdir race`,
+    `      # above still finds a live proxy once this finishes, instead of`,
+    `      # also deciding it needs to spawn one.`,
+    `      ( local i max_polls=10`,
+    `        for i in $(seq 1 $max_polls); do`,
+    `          sleep 0.3`,
+    `          _squeezr_alive && break`,
+    `        done`,
+    `        rmdir "$lock" 2>/dev/null ) &`,
+    `      disown`,
+    `    fi`,
+    `  fi`,
+    `}`,
+    `_squeezr_start_if_needed`,
+    `unset -f _squeezr_start_if_needed _squeezr_alive`,
+  ].join('\n')
+}
+
 // ── squeezr ports ─────────────────────────────────────────────────────────────
 
 async function configurePorts() {
@@ -775,15 +837,16 @@ async function configurePorts() {
       `export ANTHROPIC_BASE_URL=http://localhost:${finalPort}`,
       `export GEMINI_API_BASE_URL=http://localhost:${finalPort}`,
     ].join('\n')
+    const autoHealBlock = [
+      `# squeezr auto-heal (validates identity, not just HTTP 200)`,
+      buildAutoHealBlock(finalPort),
+    ].join('\n')
     for (const p of profiles) {
       try {
         let content = fs.readFileSync(p, 'utf-8')
         if (content.includes('# squeezr env vars')) {
-          // Replace existing block (from marker to the closing fi)
-          content = content.replace(
-            /# squeezr env vars[\s\S]*?(?:fi|unset -f _squeezr_alive)/,
-            `# squeezr env vars\n${envBlock}\n# squeezr auto-heal (validates identity, not just HTTP 200)\n_squeezr_alive() {\n  curl -sf --max-time 2 "http://localhost:${finalPort}/squeezr/health" 2>/dev/null | grep -q '"identity":"squeezr"'\n}\nif ! _squeezr_alive; then squeezr start > /dev/null 2>&1; fi\nunset -f _squeezr_alive`
-          )
+          // Replace existing block (from marker to the final unset)
+          content = content.replace(SHELL_BLOCK_REGEX, `# squeezr env vars\n${envBlock}\n${autoHealBlock}\n`)
           fs.writeFileSync(p, content)
           console.log(`  [ok] Updated ${p}`)
         }
@@ -852,7 +915,7 @@ async function uninstall() {
       try {
         const content = fs.readFileSync(p, 'utf-8')
         if (content.includes('# squeezr env vars')) {
-          const cleaned = content.replace(/\n?# squeezr env vars[\s\S]*?fi\n?/g, '\n')
+          const cleaned = content.replace(new RegExp(String.raw`\n?` + SHELL_BLOCK_REGEX.source, 'g'), '\n')
           fs.writeFileSync(p, cleaned)
           console.log(`  [ok] Cleaned ${p}`)
         }
@@ -1561,14 +1624,7 @@ async function setupUnix() {
     `# (including Claude Code) through the MITM proxy and cause 502 errors.`,
     `# For Codex, set it per-session only: HTTPS_PROXY=http://localhost:${mitmPort} codex`,
     `# squeezr auto-heal: start proxy if not running (validates identity, not just HTTP 200)`,
-    `_squeezr_alive() {`,
-    `  curl -sf --max-time 2 "http://localhost:${port}/squeezr/health" 2>/dev/null | grep -q '"identity":"squeezr"'`,
-    `}`,
-    `if ! _squeezr_alive; then`,
-    `  nohup ${nodeExe} ${distIndex} >> "${os.homedir()}/.squeezr/squeezr.log" 2>&1 &`,
-    `  disown`,
-    `fi`,
-    `unset -f _squeezr_alive`,
+    buildAutoHealBlock(port, { nodeExe, distIndex }),
   ].join('\n')
   const marker = '# squeezr env vars'
 
@@ -1608,10 +1664,7 @@ async function setupUnix() {
     fs.appendFileSync(profile, `\n${shellBlock}\n`)
     console.log(`  [ok] Env vars + auto-heal added to ${profile}`)
   } else {
-    const updatedContent = existing.replace(
-      /# squeezr env vars[\s\S]*?fi\n?/,
-      shellBlock + '\n'
-    )
+    const updatedContent = existing.replace(SHELL_BLOCK_REGEX, shellBlock + '\n')
     fs.writeFileSync(profile, updatedContent)
     console.log(`  [ok] Env vars + auto-heal updated in ${profile}`)
   }
@@ -1797,14 +1850,7 @@ async function setupWSL() {
     `# NOTE: HTTPS_PROXY is intentionally NOT set globally — set per-session for Codex only:`,
     `# HTTPS_PROXY=http://localhost:${mitmPort} codex`,
     `# squeezr auto-heal: start proxy if not running (validates identity, not just HTTP 200)`,
-    `_squeezr_alive() {`,
-    `  curl -sf --max-time 2 "http://localhost:${port}/squeezr/health" 2>/dev/null | grep -q '"identity":"squeezr"'`,
-    `}`,
-    `if ! _squeezr_alive; then`,
-    `  nohup ${nodeExe} ${distIndex} >> "${os.homedir()}/.squeezr/squeezr.log" 2>&1 &`,
-    `  disown`,
-    `fi`,
-    `unset -f _squeezr_alive`,
+    buildAutoHealBlock(port, { nodeExe, distIndex }),
   ].join('\n')
   const marker = '# squeezr env vars'
 
@@ -1842,10 +1888,7 @@ async function setupWSL() {
     fs.appendFileSync(profile, `\n${shellBlock}\n`)
     console.log(`  [ok] Env vars + auto-heal added to ${profile}`)
   } else {
-    const updatedContent = existing.replace(
-      /# squeezr env vars[\s\S]*?fi\n?/,
-      shellBlock + '\n'
-    )
+    const updatedContent = existing.replace(SHELL_BLOCK_REGEX, shellBlock + '\n')
     fs.writeFileSync(profile, updatedContent)
     console.log(`  [ok] Env vars + auto-heal updated in ${profile}`)
   }
