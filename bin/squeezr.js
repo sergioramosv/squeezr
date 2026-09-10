@@ -732,7 +732,12 @@ function buildAutoHealBlock(port, { nodeExe, distIndex } = {}) {
     `  _squeezr_alive && return`,
     `  local lock="$HOME/.squeezr/.start.lock"`,
     `  if [ -d "$lock" ]; then`,
-    `    local mtime=$(stat -f %m "$lock" 2>/dev/null || stat -c %Y "$lock" 2>/dev/null || echo 0)`,
+    // GNU stat's `-f` means "filesystem status", not BSD's "format" — on Linux/WSL it
+    // still fails (so the || fallback runs), but not before dumping a multi-line
+    // filesystem-status block to stdout, which ends up concatenated into $mtime and
+    // breaks the arithmetic below. Try the GNU form (-c, the common case: Linux + WSL)
+    // first so it short-circuits before the BSD form (-f, macOS) is ever attempted.
+    `    local mtime=$(stat -c %Y "$lock" 2>/dev/null || stat -f %m "$lock" 2>/dev/null || echo 0)`,
     `    local age=$(( $(date +%s) - mtime ))`,
     `    [ "$age" -gt 10 ] && rmdir "$lock" 2>/dev/null   # stale lock (previous shell crashed)`,
     `  fi`,

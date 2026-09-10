@@ -1,5 +1,8 @@
 # Changelog
 All notable changes to Squeezr will be documented here.
+## [1.99.6] - 2026-09-10
+### Fixed — auto-heal: locks stale de shells crasheadas no se limpiaban en Linux/WSL
+- **`bin/squeezr.js`** (`buildAutoHealBlock`): tras el lock atómico de #7, el cálculo de antigüedad del lock (`stat -f %m ... || stat -c %Y ...`) fallaba en GNU coreutils — `-f` en GNU es "estado del filesystem", no el `-f FORMAT` de BSD, y aunque el comando termina fallando, antes vuelca un bloque multilínea a stdout que se cuela en `$mtime` y rompe la aritmética (`syntax error in expression`). Efecto real: en Linux/WSL, un lock huérfano de una shell que crasheó no se limpiaba nunca — el auto-heal se quedaba bloqueado hasta borrar `~/.squeezr/.start.lock` a mano. Invertido el orden (`-c` primero, el caso común en Linux/WSL) para que nunca llegue a ejecutarse la variante rota de `-f` salvo en macOS.
 ## [1.99.5] - 2026-07-21
 ### Changed — writers de TOML estructurados (pilar A, P3 — cierra el riesgo nº1 de la migración)
 - **`tomlWriter.ts`**: `setUserConfigValue()`/`setUserConfigValues()` — parse → set `[table].key` → serialize (smol-toml). Reemplazan los writers regex que hardcodeaban `[proxy]`/`[compression]` y que, tras migrar, recreaban las tablas viejas y **des-migraban en silencio** en cada guardado del dashboard.
