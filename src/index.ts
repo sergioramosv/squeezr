@@ -58,15 +58,23 @@ const httpServer = createAdaptorServer({ fetch: app.fetch })
 // Persist caches every 60s so a crash doesn't lose more than a minute of work
 setInterval(() => { persistSessionCache(); persistExpandStore(); persistHistory() }, 60_000).unref()
 
-// Bind to loopback only: the proxy holds the user's API keys and exposes
-// state-changing control endpoints, so it must never be reachable from the LAN.
-// Matches the desktop proxy / MITM listeners, which already bind 127.0.0.1.
-httpServer.listen(PORT, '127.0.0.1', () => {
-  console.log(`Squeezr v${VERSION} listening on http://localhost:${PORT}`)
+// Bind host defaults to loopback only: the proxy holds the user's API keys and
+// exposes state-changing control endpoints, so by default it must never be
+// reachable from the LAN. Configurable via `squeezr ip <address>` (config.host /
+// SQUEEZR_HOST) for users who explicitly opt into a non-loopback bind — warn
+// loudly when they do, since the CORS/CSRF middleware in server.ts relies on the
+// loopback bind to protect non-browser requests to /squeezr/* control endpoints.
+if (config.host !== '127.0.0.1' && config.host !== 'localhost') {
+  console.warn(`\n⚠️  Squeezr is binding to ${config.host}, not loopback-only.`)
+  console.warn('   Anyone who can reach this address can use your API keys and')
+  console.warn('   control endpoints. Only do this on a trusted network.\n')
+}
+httpServer.listen(PORT, config.host, () => {
+  console.log(`Squeezr v${VERSION} listening on http://${config.host}:${PORT}`)
   console.log(`Mode: ${config.dryRun ? 'dry-run' : 'active'}`)
   if (config.disabled) console.log('WARNING: compression is disabled')
   console.log(`Backends: Anthropic → Haiku | OpenAI → GPT-4o-mini | Gemini → Flash-8B | Local → ${config.localCompressionModel}`)
-  console.log(`Dashboard: http://localhost:${PORT}/squeezr/dashboard`)
+  console.log(`Dashboard: http://${config.host}:${PORT}/squeezr/dashboard`)
 
   // Persist runtime info so external tools (shell wrapper, auto-heal) can
   // discover where we actually ended up bound, regardless of squeezr.toml.

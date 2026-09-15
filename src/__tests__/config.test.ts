@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { Config } from '../config.js'
 
 // We test Config methods directly without relying on env vars or toml file
@@ -156,5 +156,31 @@ describe('Config.isLocalKey', () => {
   it('recognizes arbitrary non-sk-/aiza keys as local (custom Ollama proxies)', () => {
     // Keys that are not empty and don't start with sk- or aiza are treated as local
     expect(config.isLocalKey('my-custom-key-123')).toBe(true)
+  })
+})
+
+describe('Config.host', () => {
+  const originalEnv = process.env.SQUEEZR_HOST
+  afterEach(() => {
+    if (originalEnv === undefined) delete process.env.SQUEEZR_HOST
+    else process.env.SQUEEZR_HOST = originalEnv
+  })
+
+  it('defaults to loopback-only (127.0.0.1) with no toml or env override', () => {
+    delete process.env.SQUEEZR_HOST
+    const config = new Config({})
+    expect(config.host).toBe('127.0.0.1')
+  })
+
+  it('honors [proxy].host from toml', () => {
+    delete process.env.SQUEEZR_HOST
+    const config = new Config({ proxy: { host: '0.0.0.0' } })
+    expect(config.host).toBe('0.0.0.0')
+  })
+
+  it('SQUEEZR_HOST env var takes precedence over toml', () => {
+    process.env.SQUEEZR_HOST = '192.168.1.10'
+    const config = new Config({ proxy: { host: '0.0.0.0' } })
+    expect(config.host).toBe('192.168.1.10')
   })
 })

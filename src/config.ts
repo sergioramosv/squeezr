@@ -16,7 +16,7 @@ export interface TomlConfig {
   // schema_version marks a file already migrated to the v2 namespaces. Absent or
   // 1 → still on the flat [compression] schema (v1); 2 → new namespaces.
   schema_version?: number
-  proxy?: { port?: number; mitm_port?: number }
+  proxy?: { port?: number; mitm_port?: number; host?: string }
 
   // ── v2 namespaces (schema_version = 2) ──────────────────────────────────────
   // Everything that compresses what ENTERS the model.
@@ -188,6 +188,7 @@ function env(key: string, fallback: string): string {
 export class Config {
   readonly port: number
   readonly mitmPort: number
+  readonly host: string
   readonly threshold: number
   readonly keepRecent: number
   readonly disabled: boolean
@@ -262,6 +263,11 @@ readonly toolDescCompress: boolean
 
     this.port = parseInt(env('SQUEEZR_PORT', String(p.port ?? 8080)))
     this.mitmPort = parseInt(env('SQUEEZR_MITM_PORT', String(p.mitm_port ?? this.port + 1)))
+    // Bind host for the main proxy + Codex MITM listener. Defaults to loopback-only
+    // (127.0.0.1) for the security reasons documented at the httpServer.listen() call
+    // in index.ts — configurable via `squeezr ip <address>` for users who explicitly
+    // want to reach Squeezr from another machine (e.g. a LAN-shared instance).
+    this.host = env('SQUEEZR_HOST', p.host ?? '127.0.0.1')
     this.threshold = parseInt(env('SQUEEZR_THRESHOLD', String(inp.threshold ?? c.threshold ?? 800)))
     this.keepRecent = parseInt(env('SQUEEZR_KEEP_RECENT', String(inp.keep_recent ?? c.keep_recent ?? 3)))
     const disabledDefault = saf.disabled ?? c.disabled ?? false

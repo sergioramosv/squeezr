@@ -7,6 +7,7 @@ import fs from 'fs'
 import os from 'os'
 import { fileURLToPath, pathToFileURL } from 'url'
 import { createRequire } from 'module'
+import net from 'net'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const require = createRequire(import.meta.url)
@@ -261,6 +262,8 @@ Usage:
   squeezr mcp install      Register Squeezr MCP server in Claude Code, Cursor, Windsurf & Cline
   squeezr mcp uninstall    Remove Squeezr MCP registration
   squeezr ports            Change HTTP and MITM proxy ports
+  squeezr ip               Show the current bind IP (default: 127.0.0.1, loopback-only)
+  squeezr ip <address>     Change the bind IP for all Squeezr ports (e.g. 0.0.0.0)
   squeezr tunnel           Expose proxy via Cloudflare Tunnel for Cursor IDE
   squeezr enable-claude-desktop   Enable hosts-file redirect for Claude Desktop (admin once)
   squeezr disable-claude-desktop  Disable hosts-file redirect for Claude Desktop
@@ -881,6 +884,64 @@ async function configurePorts() {
   await new Promise(r => setTimeout(r, 1500))
   await startDaemon()
   console.log(`\nOpen a new terminal for env vars to apply to other tools.`)
+}
+
+// ── squeezr ip ──────────────────────────────────────────────────────────────
+// Changes the bind IP for the main proxy + Codex MITM listener (config.host /
+// SQUEEZR_HOST). Written to the USER-home toml (~/.squeezr/squeezr.toml), not
+// the bundled package toml — same convention as the Zest setup step, so an
+// `npm install -g squeezr-ai@latest` doesn't silently wipe the choice.
+// Defaults to 127.0.0.1 (loopback-only) unless the user explicitly changes it.
+function isValidHost(addr) {
+  return addr === 'localhost' || net.isIP(addr) !== 0
+}
+
+async function configureIp(newHost) {
+  const userToml = path.join(os.homedir(), '.squeezr', 'squeezr.toml')
+  const tomlContent = fs.existsSync(userToml) ? fs.readFileSync(userToml, 'utf-8') : ''
+  const hostMatch = tomlContent.match(/^host\s*=\s*"([^"]*)"/m)
+  const currentHost = process.env.SQUEEZR_HOST || (hostMatch ? hostMatch[1] : '127.0.0.1')
+
+  if (!newHost) {
+    console.log(`\nCurrent bind IP: ${currentHost}`)
+    console.log(currentHost === '127.0.0.1' || currentHost === 'localhost'
+      ? '(loopback-only — the default, and the safest option: Squeezr holds your API keys)'
+      : '⚠️  non-loopback — reachable from other machines on the network')
+    console.log(`\nChange it:      squeezr ip <address>   (e.g. squeezr ip 0.0.0.0, squeezr ip 192.168.1.10)`)
+    console.log(`Reset to default: squeezr ip 127.0.0.1\n`)
+    return
+  }
+
+  if (!isValidHost(newHost)) {
+    console.error(`Invalid IP address: ${newHost}`)
+    process.exit(1)
+  }
+
+  if (newHost !== '127.0.0.1' && newHost !== 'localhost') {
+    console.log(`\n⚠️  Binding Squeezr to ${newHost} exposes your API keys and control`)
+    console.log('   endpoints to anything that can reach this machine on that address.')
+    console.log('   Only do this on a trusted network.\n')
+  }
+
+  let newToml = tomlContent
+  if (hostMatch) {
+    newToml = newToml.replace(/^host\s*=\s*"[^"]*"/m, `host = "${newHost}"`)
+  } else if (newToml.includes('[proxy]')) {
+    newToml = newToml.replace('[proxy]', `[proxy]\nhost = "${newHost}"`)
+  } else {
+    newToml = `[proxy]\nhost = "${newHost}"\n` + newToml
+  }
+  fs.mkdirSync(path.dirname(userToml), { recursive: true })
+  fs.writeFileSync(userToml, newToml)
+  console.log(`\nSaved to ${userToml}`)
+
+  // Apply to current process so stop/start works immediately
+  process.env.SQUEEZR_HOST = newHost
+
+  console.log('')
+  stopProxy()
+  await new Promise(r => setTimeout(r, 1500))
+  await startDaemon()
 }
 
 // ── squeezr uninstall ─────────────────────────────────────────────────────────
@@ -2547,6 +2608,10 @@ switch (command) {
 
   case 'ports':
     await configurePorts()
+    break
+
+  case 'ip':
+    await configureIp(args[1])
     break
 
   case 'tunnel':
