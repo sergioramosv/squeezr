@@ -1,5 +1,11 @@
 # Changelog
 All notable changes to Squeezr will be documented here.
+## [1.99.9] - 2026-09-15
+### Fixed — `squeezr setup` detectaba WSL2 falsamente positivo dentro de un contenedor Docker Linux y petaba
+- **`bin/squeezr.js`**: `isWSL()` solo miraba `/proc/version` buscando "microsoft"/"wsl". Un contenedor Docker Linux corriendo sobre un host WSL2 comparte el kernel del host, así que `/proc/version` también matchea ahí dentro aunque el contenedor no tenga ningún interop con Windows. `squeezr setup` entonces ejecutaba `setupWSL()`, que llama a `wslpath -w ...` sin try/catch (fallback de Task Scheduler) — `wslpath` no existe en el contenedor, `execSync` lanza, y el comando crashea sin control.
+- `isWSL()` ahora exige además `WSL_DISTRO_NAME` o `WSL_INTEROP` en el entorno — variables que WSL2 real siempre define para el interop y que un contenedor Docker no hereda salvo que se pasen explícitamente. Se soluciona sin que el usuario tenga que hacer nada.
+- Nuevo `squeezr setup <os>` (`windows` / `linux` / `wsl` / `macos`) como red de seguridad manual para el resto de entornos donde la auto-detección pueda seguir fallando.
+- Suite **579/579 verde**, typecheck limpio.
 ## [1.99.7] - 2026-09-14
 ### Fixed — el expand directive instruía llamar `squeezr_expand` cuando la tool real era la namespaced MCP (#8)
 - **`expand.ts`**: `SYSTEM_EXPAND_DIRECTIVE` (el system-reminder inyectado en cada request) lideraba siempre con el nombre plano `squeezr_expand` y mencionaba `mcp__squeezr__squeezr_expand` solo como paréntesis. Cuando el cliente registra la tool vía MCP (namespaced), el modelo seguía la instrucción literal, llamaba `squeezr_expand` y fallaba con `Error: No such tool available: squeezr_expand` — reintentos fallidos cada vez que intentaba expandir un resultado comprimido. `injectExpandDirectiveAnthropic`/`injectExpandDirectiveOpenAI` ahora resuelven el nombre real ya presente en `body.tools` (fijado por `injectExpandTool*` justo antes, en el mismo request) vía `buildExpandDirective(toolName)`, y el directive lidera con ese nombre exacto en vez de una constante fija.
