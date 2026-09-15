@@ -457,10 +457,11 @@ export function startMitmProxy() {
   mitmServer.on('error', (err: NodeJS.ErrnoException) => {
     if (err.code !== 'EADDRINUSE') console.error('[squeezr/mitm] error:', err.message)
   })
-  // Loopback only: the MITM proxy terminates TLS for the user's traffic and must
-  // never be reachable from the LAN (matches the other listeners).
-  mitmServer.listen(MITM_PORT, '127.0.0.1', () => {
-    console.log(`[squeezr/mitm] HTTPS proxy on http://localhost:${MITM_PORT}`)
+  // Defaults to loopback only: the MITM proxy terminates TLS for the user's
+  // traffic and by default must never be reachable from the LAN. Follows the
+  // same configurable bind host as the main proxy (config.host / `squeezr ip`).
+  mitmServer.listen(MITM_PORT, config.host, () => {
+    console.log(`[squeezr/mitm] HTTPS proxy on http://${config.host}:${MITM_PORT}`)
   })
 }
 
