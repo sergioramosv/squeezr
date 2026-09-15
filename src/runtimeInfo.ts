@@ -17,6 +17,7 @@ export interface RuntimeInfo {
   pid: number
   port: number
   mitmPort: number
+  host: string
   version: string
   startedAt: string
 }

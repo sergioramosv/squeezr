@@ -117,6 +117,24 @@ function getPort() {
   return getPortFromToml() || 8080
 }
 
+// Mirrors config.ts's own precedence (env > toml > default) so the CLI's
+// display of the bind host never drifts from what the running daemon
+// actually bound to. Prefers runtime.json (the *actual* bound host, written
+// by index.ts after listen()) over re-parsing toml, since that's the same
+// pattern getPort()/getMitmPort() already use for drift-safety.
+function getHost() {
+  if (process.env.SQUEEZR_HOST) return process.env.SQUEEZR_HOST
+  const runtime = readRuntimeInfo()
+  if (runtime && runtime.host) return runtime.host
+  const userToml = path.join(os.homedir(), '.squeezr', 'squeezr.toml')
+  try {
+    const toml = fs.readFileSync(userToml, 'utf-8')
+    const m = toml.match(/^host\s*=\s*"([^"]*)"/m)
+    if (m) return m[1]
+  } catch {}
+  return '127.0.0.1'
+}
+
 /**
  * Verifies that whatever is listening on `port` is actually a squeezr instance
  * (by checking the magic `identity` field in /squeezr/health), not an unrelated
@@ -350,10 +368,11 @@ async function startDaemon() {
   if (runningVersion) {
     if (runningVersion === pkg.version) {
       const mitmPort = getMitmPort(port)
+      const host = getHost()
       console.log(`Squeezr is already running (v${pkg.version})`)
-      console.log(`  HTTP proxy (Claude/Aider/Gemini): http://localhost:${port}`)
-      console.log(`  MITM proxy (Codex):               http://localhost:${mitmPort}`)
-      console.log(`  Dashboard:                        http://localhost:${port}/squeezr/dashboard`)
+      console.log(`  HTTP proxy (Claude/Aider/Gemini): http://${host}:${port}`)
+      console.log(`  MITM proxy (Codex):               http://${host}:${mitmPort}`)
+      console.log(`  Dashboard:                        http://${host}:${port}/squeezr/dashboard`)
       return
     }
     // Version mismatch — old process from before npm update. Kill and restart.
@@ -378,10 +397,11 @@ async function startDaemon() {
   child.unref()
   fs.closeSync(logFd)
   const mitmPort = getMitmPort(port)
+  const host = getHost()
   console.log(`Squeezr started (pid ${child.pid})`)
-  console.log(`  HTTP proxy (Claude/Aider/Gemini): http://localhost:${port}`)
-  console.log(`  MITM proxy (Codex):               http://localhost:${mitmPort}`)
-  console.log(`  Dashboard:                        http://localhost:${port}/squeezr/dashboard`)
+  console.log(`  HTTP proxy (Claude/Aider/Gemini): http://${host}:${port}`)
+  console.log(`  MITM proxy (Codex):               http://${host}:${mitmPort}`)
+  console.log(`  Dashboard:                        http://${host}:${port}/squeezr/dashboard`)
   console.log(`  Logs: ${logFile}`)
 
   // ── Also start the SEPARATE Desktop proxy (independent process) ────────────
@@ -535,6 +555,7 @@ function stopProxy() {
 async function checkStatus() {
   const port = getPort()
   const mitmPort = getMitmPort(port)
+  const host = getHost()
   const json = await probeSqueezr(port, 2000)
   if (!json) {
     // Distinguish "nothing here" from "something foreign here" so the user gets
@@ -558,9 +579,12 @@ async function checkStatus() {
     return false
   }
   console.log(`Squeezr is running  (v${json.version})`)
-  console.log(`  HTTP proxy (Claude Code, Claude Desktop, Codex Desktop, Aider, Gemini): http://localhost:${port}`)
-  console.log(`  MITM proxy (Codex CLI TLS):  http://localhost:${mitmPort}`)
-  console.log(`  Dashboard:                   http://localhost:${port}/squeezr/dashboard`)
+  console.log(`  HTTP proxy (Claude Code, Claude Desktop, Codex Desktop, Aider, Gemini): http://${host}:${port}`)
+  console.log(`  MITM proxy (Codex CLI TLS):  http://${host}:${mitmPort}`)
+  console.log(`  Dashboard:                   http://${host}:${port}/squeezr/dashboard`)
+  if (host !== '127.0.0.1' && host !== 'localhost') {
+    console.log(`  ⚠️  Non-loopback bind — reachable from other machines on the network`)
+  }
   if (json.mode) console.log(`  Mode:     ${json.mode}`)
   if (json.uptime_seconds != null) {
     const s = json.uptime_seconds
