@@ -96,6 +96,26 @@ describe('injectExpandDirectiveAnthropic', () => {
     injectExpandDirectiveAnthropic(body)
     expect(body.system as string).toContain(EXPAND_DIRECTIVE_SENTINEL)
   })
+
+  // Regression for #8: calling the bare name fails with "No such tool available"
+  // when only the namespaced MCP tool is registered — the directive must lead
+  // with whichever name is actually callable.
+  it('leads with the namespaced MCP tool name when that is what is registered (#8)', () => {
+    const body: Record<string, unknown> = {
+      tools: [{ name: 'mcp__squeezr__squeezr_expand' }],
+    }
+    injectExpandDirectiveAnthropic(body)
+    expect(body.system as string).toContain('call the `mcp__squeezr__squeezr_expand` tool')
+    expect(body.system as string).not.toMatch(/MUST call the `squeezr_expand`/)
+  })
+
+  it('falls back to the bare name when only the bare tool is registered', () => {
+    const body: Record<string, unknown> = {
+      tools: [{ name: 'squeezr_expand' }],
+    }
+    injectExpandDirectiveAnthropic(body)
+    expect(body.system as string).toContain('call the `squeezr_expand` tool')
+  })
 })
 
 describe('injectExpandDirectiveOpenAI', () => {

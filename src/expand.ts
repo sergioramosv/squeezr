@@ -216,18 +216,48 @@ export function injectExpandToolOpenAI(body: Record<string, unknown>): void {
 // system prompt so the instruction sits in the highest-weight channel. A unique
 // sentinel makes injection idempotent and detectable.
 export const EXPAND_DIRECTIVE_SENTINEL = '[Squeezr/expand-directive]'
-export const SYSTEM_EXPAND_DIRECTIVE =
-  `${EXPAND_DIRECTIVE_SENTINEL} Some tool results below are compressed to save tokens and ` +
-  'tagged `[squeezr:ID -N%]` — these are LOSSY summaries that omit detail. The moment you ' +
-  'need the exact contents of one (to edit or quote code precisely, copy an error/log line ' +
-  'verbatim, read an exact value/path/ID, or apply a diff), you MUST call the squeezr_expand ' +
-  'tool (it may be listed as `mcp__squeezr__squeezr_expand`) with that ID and use the returned ' +
-  'text — do NOT guess, paraphrase, or reconstruct compressed content from its summary. ' +
-  'Some markers also expose PART ids like `ID~2` next to a single function, file or line ' +
-  'range — call squeezr_expand("ID~2") to get ONLY that part instead of the whole block. ' +
-  'Expansion is instant and free.'
+
+/**
+ * Builds the directive text, leading with the EXACT tool name the model must call.
+ * Calling the bare name when only the namespaced MCP tool is registered fails with
+ * "No such tool available" — so the directive must never lead with a name that
+ * doesn't resolve. See https://github.com/sergioramosv/squeezr/issues/8
+ */
+export function buildExpandDirective(toolName: string): string {
+  return `${EXPAND_DIRECTIVE_SENTINEL} Some tool results below are compressed to save tokens and ` +
+    'tagged `[squeezr:ID -N%]` — these are LOSSY summaries that omit detail. The moment you ' +
+    'need the exact contents of one (to edit or quote code precisely, copy an error/log line ' +
+    `verbatim, read an exact value/path/ID, or apply a diff), you MUST call the \`${toolName}\` ` +
+    'tool with that ID and use the returned text — do NOT guess, paraphrase, or reconstruct ' +
+    'compressed content from its summary. Some markers also expose PART ids like `ID~2` next ' +
+    `to a single function, file or line range — call ${toolName}("ID~2") to get ONLY that part ` +
+    'instead of the whole block. Expansion is instant and free.'
+}
+
+/** Fallback directive used when the actual registered tool name isn't known yet. */
+export const SYSTEM_EXPAND_DIRECTIVE = buildExpandDirective('squeezr_expand')
 
 export const SYSTEM_EXPAND_DIRECTIVE_CHARS = SYSTEM_EXPAND_DIRECTIVE.length
+
+/** Extracts tool names from either Anthropic-style ({name}) or OpenAI-style ({function:{name}}) tool defs. */
+function extractToolNames(tools: unknown[]): string[] {
+  return tools.map((t) => {
+    const anthropicName = (t as { name?: string }).name
+    if (typeof anthropicName === 'string') return anthropicName
+    return (t as { function?: { name?: string } }).function?.name ?? ''
+  })
+}
+
+/** Resolves the actual expand tool name already present in body.tools (namespaced MCP tool
+ *  takes priority since that's what's client-executable), falling back to the bare name. */
+function resolveExpandToolName(body: Record<string, unknown>): string {
+  const tools = body.tools
+  if (Array.isArray(tools)) {
+    const found = extractToolNames(tools).find((n) => n === 'squeezr_expand' || n.endsWith('__squeezr_expand'))
+    if (found) return found
+  }
+  return 'squeezr_expand'
+}
 
 /**
  * Append the expand directive to an Anthropic request's system prompt.
@@ -239,22 +269,23 @@ export const SYSTEM_EXPAND_DIRECTIVE_CHARS = SYSTEM_EXPAND_DIRECTIVE.length
  * Returns chars added (0 if already present / no system to attach to).
  */
 export function injectExpandDirectiveAnthropic(body: Record<string, unknown>): number {
+  const directive = buildExpandDirective(resolveExpandToolName(body))
   const sys = body.system
   if (typeof sys === 'string') {
     if (sys.includes(EXPAND_DIRECTIVE_SENTINEL)) return 0
-    body.system = sys + '\n\n' + SYSTEM_EXPAND_DIRECTIVE
-    return SYSTEM_EXPAND_DIRECTIVE.length + 2
+    body.system = sys + '\n\n' + directive
+    return directive.length + 2
   }
   if (Array.isArray(sys)) {
     const blocks = sys as Array<{ type?: string; text?: string }>
     if (blocks.some(b => b.type === 'text' && typeof b.text === 'string' && b.text.includes(EXPAND_DIRECTIVE_SENTINEL))) return 0
-    blocks.push({ type: 'text', text: SYSTEM_EXPAND_DIRECTIVE })
-    return SYSTEM_EXPAND_DIRECTIVE.length
+    blocks.push({ type: 'text', text: directive })
+    return directive.length
   }
   // No system prompt at all — create one so the directive still lands.
   if (sys === undefined) {
-    body.system = SYSTEM_EXPAND_DIRECTIVE
-    return SYSTEM_EXPAND_DIRECTIVE.length
+    body.system = directive
+    return directive.length
   }
   return 0
 }
@@ -263,15 +294,16 @@ export function injectExpandDirectiveAnthropic(body: Record<string, unknown>): n
 export function injectExpandDirectiveOpenAI(body: Record<string, unknown>): number {
   const msgs = body.messages as Array<{ role?: string; content?: unknown }> | undefined
   if (!Array.isArray(msgs)) return 0
+  const directive = buildExpandDirective(resolveExpandToolName(body))
   const sysMsg = msgs.find(m => m.role === 'system' || m.role === 'developer')
   if (sysMsg && typeof sysMsg.content === 'string') {
     if (sysMsg.content.includes(EXPAND_DIRECTIVE_SENTINEL)) return 0
-    sysMsg.content = sysMsg.content + '\n\n' + SYSTEM_EXPAND_DIRECTIVE
-    return SYSTEM_EXPAND_DIRECTIVE.length + 2
+    sysMsg.content = sysMsg.content + '\n\n' + directive
+    return directive.length + 2
   }
   if (!sysMsg) {
-    msgs.unshift({ role: 'system', content: SYSTEM_EXPAND_DIRECTIVE })
-    return SYSTEM_EXPAND_DIRECTIVE.length
+    msgs.unshift({ role: 'system', content: directive })
+    return directive.length
   }
   return 0
 }
