@@ -1,5 +1,11 @@
 # Changelog
 All notable changes to Squeezr will be documented here.
+## [1.99.9] - 2026-09-15
+### Fixed — `squeezr status`/`squeezr start`/`squeezr ip` mostraban siempre `localhost`, ignorando el host configurado
+- **`bin/squeezr.js`**: `checkStatus()` y los banners impresos por `startDaemon()` tenían `http://localhost:${port}` hardcodeado como string literal, así que tras un `squeezr ip 0.0.0.0` el bind real cambiaba correctamente (verificado con `lsof` → escucha en todas las interfaces) pero la CLI seguía mostrando `localhost:8080`, dando la falsa impresión de que el comando no había hecho nada.
+- Nuevo `getHost()` (mismo patrón que `getPort()`/`getMitmPort()`: `SQUEEZR_HOST` → `runtime.json` → `~/.squeezr/squeezr.toml` → default `127.0.0.1`), usado en los tres sitios. `checkStatus()` además añade un aviso `⚠️` cuando el bind no es loopback.
+- **`runtimeInfo.ts`**: `RuntimeInfo` no guardaba el host real con el que arrancó el daemon — añadido el campo `host`, escrito por `index.ts` desde `config.host` justo tras el `listen()` exitoso.
+- Suite **579/579 verde**, typecheck limpio.
 ## [1.99.7] - 2026-09-14
 ### Fixed — el expand directive instruía llamar `squeezr_expand` cuando la tool real era la namespaced MCP (#8)
 - **`expand.ts`**: `SYSTEM_EXPAND_DIRECTIVE` (el system-reminder inyectado en cada request) lideraba siempre con el nombre plano `squeezr_expand` y mencionaba `mcp__squeezr__squeezr_expand` solo como paréntesis. Cuando el cliente registra la tool vía MCP (namespaced), el modelo seguía la instrucción literal, llamaba `squeezr_expand` y fallaba con `Error: No such tool available: squeezr_expand` — reintentos fallidos cada vez que intentaba expandir un resultado comprimido. `injectExpandDirectiveAnthropic`/`injectExpandDirectiveOpenAI` ahora resuelven el nombre real ya presente en `body.tools` (fijado por `injectExpandTool*` justo antes, en el mismo request) vía `buildExpandDirective(toolName)`, y el directive lidera con ese nombre exacto en vez de una constante fija.
