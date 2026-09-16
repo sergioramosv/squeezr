@@ -79,7 +79,7 @@ httpServer.listen(PORT, config.host, () => {
   // Persist runtime info so external tools (shell wrapper, auto-heal) can
   // discover where we actually ended up bound, regardless of squeezr.toml.
   const mitmPort = Number(process.env.SQUEEZR_MITM_PORT) || (PORT + 1)
-  writeRuntimeInfo({ pid: process.pid, port: PORT, mitmPort })
+  writeRuntimeInfo({ pid: process.pid, port: PORT, mitmPort, host: config.host })
 
   // Run self-test asynchronously — never block accepting requests on it. The
   // test exercises loopback health, env-var coherence, upstream reachability
