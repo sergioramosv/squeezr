@@ -263,6 +263,9 @@ Usage:
   squeezr                  Start the proxy (default)
   squeezr start            Start the proxy
   squeezr setup            One-time setup: auto-start on login + configure all CLIs
+  squeezr setup <os>       Force setup for a specific OS instead of auto-detecting
+                           (windows, linux, wsl, macos) — for environments where
+                           detection can't win, e.g. a Linux Docker container on WSL2
   squeezr stop             Stop the running proxy
   squeezr restart          Stop and restart the proxy (reloads config)
   squeezr logs             Show last 50 lines of the log file
@@ -1907,13 +1910,21 @@ Done!
 
 // ── WSL2 detection ───────────────────────────────────────────────────────────
 
+// A Docker container running Linux on top of a WSL2 host shares the host's
+// kernel, so /proc/version alone is NOT enough to detect WSL2 — it also
+// matches inside a plain Linux container, which then wrongly runs setupWSL()
+// (wslpath, powershell.exe, Windows interop) and crashes since none of that
+// exists inside the container. Real WSL2 always sets WSL_DISTRO_NAME/
+// WSL_INTEROP for interop — a Docker container does not inherit them unless
+// explicitly passed through — so require both signals.
 function isWSL() {
   try {
     const release = fs.readFileSync('/proc/version', 'utf-8')
-    return /microsoft|wsl/i.test(release)
+    if (!/microsoft|wsl/i.test(release)) return false
   } catch {
     return false
   }
+  return Boolean(process.env.WSL_DISTRO_NAME || process.env.WSL_INTEROP)
 }
 
 // ── squeezr setup — WSL2 ────────────────────────────────────────────────────
@@ -2507,11 +2518,24 @@ switch (command) {
     startDaemon()
     break
 
-  case 'setup':
-    if (process.platform === 'win32') setupWindows()
+  case 'setup': {
+    // Optional override for environments where auto-detection can't win —
+    // e.g. a Linux Docker container sharing a WSL2 host's kernel (/proc/version
+    // says "microsoft" but there's no wslpath/powershell.exe interop inside it).
+    const osOverride = (args[1] || '').toLowerCase()
+    const validOverrides = { windows: setupWindows, wsl: setupWSL, linux: setupUnix, macos: setupUnix }
+    if (osOverride) {
+      const fn = validOverrides[osOverride]
+      if (!fn) {
+        console.error(`Unknown OS "${args[1]}". Valid values: ${Object.keys(validOverrides).join(', ')}`)
+        process.exit(1)
+      }
+      fn()
+    } else if (process.platform === 'win32') setupWindows()
     else if (isWSL()) setupWSL()
     else setupUnix()
     break
+  }
 
   case 'update':
     await (async () => {
