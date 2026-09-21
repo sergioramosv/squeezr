@@ -1,6 +1,6 @@
 # Changelog
 All notable changes to Squeezr will be documented here.
-## [1.99.9] - 2026-09-15
+## [1.99.10] - 2026-09-21
 ### Fixed — `squeezr setup` detectaba WSL2 falsamente positivo dentro de un contenedor Docker Linux y petaba
 - **`bin/squeezr.js`**: `isWSL()` solo miraba `/proc/version` buscando "microsoft"/"wsl". Un contenedor Docker Linux corriendo sobre un host WSL2 comparte el kernel del host, así que `/proc/version` también matchea ahí dentro aunque el contenedor no tenga ningún interop con Windows. `squeezr setup` entonces ejecutaba `setupWSL()`, que llama a `wslpath -w ...` sin try/catch (fallback de Task Scheduler) — `wslpath` no existe en el contenedor, `execSync` lanza, y el comando crashea sin control.
 - `isWSL()` ahora exige además `WSL_DISTRO_NAME` o `WSL_INTEROP` en el entorno — variables que WSL2 real siempre define para el interop y que un contenedor Docker no hereda salvo que se pasen explícitamente. Se soluciona sin que el usuario tenga que hacer nada.
