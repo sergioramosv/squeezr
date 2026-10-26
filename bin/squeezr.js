@@ -1455,6 +1455,12 @@ async function isClaudeDesktopHostsActive() {
 // Writes openai_base_url to ~/.codex/config.toml so Codex Desktop routes
 // through Squeezr's HTTP proxy (no MITM needed — uses standard base URL).
 
+function codexUsesChatGptAuth(codexDir) {
+  try {
+    const auth = JSON.parse(fs.readFileSync(path.join(codexDir, 'auth.json'), 'utf-8'))
+    return auth?.auth_mode === 'chatgpt' && !auth?.OPENAI_API_KEY
+  } catch { return false }
+}
 function configureCodexDesktop(port) {
   const codexDir  = path.join(os.homedir(), '.codex')
   const codexToml = path.join(codexDir, 'config.toml')
@@ -1462,10 +1468,31 @@ function configureCodexDesktop(port) {
   const marker = 'openai_base_url'
   const line = `openai_base_url = "${url}"`
 
+  // ChatGPT-login auth (no API key): the session token only works against the ChatGPT
+  // Codex backend. Routing it through the OpenAI API proxy yields 401/403 missing scopes.
+  if (codexUsesChatGptAuth(codexDir)) {
+    console.log(`  [skip] Codex: signed in with ChatGPT (auth_mode=chatgpt) — not routing through the proxy (would fail with 401/403 missing API scopes)`)
+    try {
+      if (fs.existsSync(codexToml)) {
+        const content = fs.readFileSync(codexToml, 'utf-8')
+        const re = /^([ \t]*)(openai_base_url\s*=\s*"http:\/\/(?:localhost|127\.0\.0\.1)[^"]*")/m
+        if (re.test(content)) {
+          fs.writeFileSync(codexToml, content.replace(re, '$1# $2  # disabled by Squeezr: incompatible with ChatGPT login'))
+          console.log(`  [ok] Codex: disabled previous Squeezr openai_base_url in ${codexToml}`)
+        }
+      }
+    } catch (err) {
+      console.log(`  [warn] Codex config: ${err.message}`)
+    }
+    return
+  }
+
   try {
     fs.mkdirSync(codexDir, { recursive: true })
     if (fs.existsSync(codexToml)) {
       let content = fs.readFileSync(codexToml, 'utf-8')
+      // Re-enable a line we previously disabled for ChatGPT login (user now on API key).
+      content = content.replace(/^([ \t]*)# (openai_base_url\s*=\s*"[^"]*")  # disabled by Squeezr.*$/m, '$1$2')
       // Match openai_base_url = "anything" — including empty "" which Codex Desktop
       // sometimes writes back to its config (bug we observed in the wild).
       // Force-overwrite any existing value, even if empty.
@@ -2029,6 +2056,7 @@ async function setupWSL() {
     const winMountedToml = winMountedDir + '/config.toml'
     const winUrl = `http://localhost:${port}/v1`
     const winLine = `openai_base_url = "${winUrl}"`
+    if (codexUsesChatGptAuth(winMountedDir)) throw new Error('ChatGPT login')
     fs.mkdirSync(winMountedDir, { recursive: true })
     if (fs.existsSync(winMountedToml)) {
       let content = fs.readFileSync(winMountedToml, 'utf-8')
