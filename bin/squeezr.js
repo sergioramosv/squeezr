@@ -1675,7 +1675,7 @@ async function setupWindows() {
     check(retries)
   })
 
-  waitForCa().then(found => {
+  void waitForCa().then(found => {
     if (!found) {
       console.log(`  [warn] MITM CA not found yet — run 'squeezr setup' again after first start`)
       printDone()
@@ -1880,7 +1880,7 @@ async function setupUnix() {
       }
       check(retries)
     })
-    waitForCa().then(found => {
+    void waitForCa().then(found => {
       if (found) {
         try {
           execSync(`security add-trusted-cert -d -r trustRoot -k ~/Library/Keychains/login.keychain-db "${caPath}" 2>/dev/null`, { stdio: 'pipe' })
@@ -2546,7 +2546,7 @@ async function installZest() {
 switch (command) {
   case undefined:
   case 'start':
-    startDaemon()
+    void startDaemon()
     break
 
   case 'setup': {
@@ -2562,9 +2562,9 @@ switch (command) {
         process.exit(1)
       }
       fn()
-    } else if (process.platform === 'win32') setupWindows()
-    else if (isWSL()) setupWSL()
-    else setupUnix()
+    } else if (process.platform === 'win32') void setupWindows()
+    else if (isWSL()) void setupWSL()
+    else void setupUnix()
     break
   }
 
@@ -2682,7 +2682,7 @@ switch (command) {
     break
 
   case 'status':
-    checkStatus()
+    void checkStatus()
     break
 
   case 'ports':
