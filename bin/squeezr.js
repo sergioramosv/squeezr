@@ -1461,6 +1461,20 @@ function codexUsesChatGptAuth(codexDir) {
     return auth?.auth_mode === 'chatgpt' && !auth?.OPENAI_API_KEY
   } catch { return false }
 }
+// Comments out a localhost openai_base_url (set by an earlier `squeezr setup`) so Codex
+// talks to its own backend again. Leaves any non-localhost value untouched.
+function disableCodexProxyRouting(codexToml) {
+  try {
+    if (!fs.existsSync(codexToml)) return
+    const content = fs.readFileSync(codexToml, 'utf-8')
+    const re = /^([ \t]*)(openai_base_url\s*=\s*"http:\/\/(?:localhost|127\.0\.0\.1)[^"]*")/m
+    if (!re.test(content)) return
+    fs.writeFileSync(codexToml, content.replace(re, '$1# $2  # disabled by Squeezr: incompatible with ChatGPT login'))
+    console.log(`  [ok] Codex: disabled previous Squeezr openai_base_url in ${codexToml}`)
+  } catch (err) {
+    console.log(`  [warn] Codex config: ${err.message}`)
+  }
+}
 function configureCodexDesktop(port) {
   const codexDir  = path.join(os.homedir(), '.codex')
   const codexToml = path.join(codexDir, 'config.toml')
@@ -1472,18 +1486,7 @@ function configureCodexDesktop(port) {
   // Codex backend. Routing it through the OpenAI API proxy yields 401/403 missing scopes.
   if (codexUsesChatGptAuth(codexDir)) {
     console.log(`  [skip] Codex: signed in with ChatGPT (auth_mode=chatgpt) — not routing through the proxy (would fail with 401/403 missing API scopes)`)
-    try {
-      if (fs.existsSync(codexToml)) {
-        const content = fs.readFileSync(codexToml, 'utf-8')
-        const re = /^([ \t]*)(openai_base_url\s*=\s*"http:\/\/(?:localhost|127\.0\.0\.1)[^"]*")/m
-        if (re.test(content)) {
-          fs.writeFileSync(codexToml, content.replace(re, '$1# $2  # disabled by Squeezr: incompatible with ChatGPT login'))
-          console.log(`  [ok] Codex: disabled previous Squeezr openai_base_url in ${codexToml}`)
-        }
-      }
-    } catch (err) {
-      console.log(`  [warn] Codex config: ${err.message}`)
-    }
+    disableCodexProxyRouting(codexToml)
     return
   }
 
@@ -1492,7 +1495,7 @@ function configureCodexDesktop(port) {
     if (fs.existsSync(codexToml)) {
       let content = fs.readFileSync(codexToml, 'utf-8')
       // Re-enable a line we previously disabled for ChatGPT login (user now on API key).
-      content = content.replace(/^([ \t]*)# (openai_base_url\s*=\s*"[^"]*")  # disabled by Squeezr.*$/m, '$1$2')
+      content = content.replace(/^([ \t]*)# (openai_base_url\s*=\s*"[^"]*") {2}# disabled by Squeezr.*$/m, '$1$2')
       // Match openai_base_url = "anything" — including empty "" which Codex Desktop
       // sometimes writes back to its config (bug we observed in the wild).
       // Force-overwrite any existing value, even if empty.
