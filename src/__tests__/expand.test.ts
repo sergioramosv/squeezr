@@ -12,6 +12,7 @@ import {
   handleOpenAIExpandCall,
   EXPAND_DIRECTIVE_SENTINEL,
   EXPAND_TOOL_DESCRIPTION,
+  findDeferredExpandToolName,
 } from '../expand.js'
 
 describe('storeOriginal — collision-safety + bounded store', () => {
@@ -359,5 +360,78 @@ describe('handleOpenAIExpandCall', () => {
       }],
     }
     expect(handleOpenAIExpandCall(resp)).toBeNull()
+  })
+})
+
+// ── Deferred MCP expand tool (Claude Code tool search) ────────────────────────
+// Claude Code defers MCP tools: tools[] does NOT contain mcp__squeezr__squeezr_expand,
+// only its name in a system-reminder. Injecting the bare tool there made the model call
+// `squeezr_expand`, which fails in streaming with "No such tool available".
+const DEFERRED_REMINDER =
+  '<system-reminder>The following deferred tools are now available via ToolSearch. ' +
+  'Their schemas are NOT loaded:\nmcp__serena__find_symbol\nmcp__squeezr__squeezr_expand\nmcp__squeezr__squeezr_stats\n</system-reminder>'
+
+describe('deferred MCP expand tool', () => {
+  it('finds the deferred tool name in a user-turn system-reminder', () => {
+    const body: Record<string, unknown> = {
+      tools: [{ name: 'Read' }, { name: 'ToolSearch' }],
+      messages: [{ role: 'user', content: [{ type: 'text', text: DEFERRED_REMINDER }] }],
+    }
+    expect(findDeferredExpandToolName(body)).toBe('mcp__squeezr__squeezr_expand')
+  })
+
+  it('finds it in a string system prompt and in tool_result content', () => {
+    expect(findDeferredExpandToolName({ system: DEFERRED_REMINDER })).toBe('mcp__squeezr__squeezr_expand')
+    expect(findDeferredExpandToolName({
+      messages: [{ role: 'user', content: [{ type: 'tool_result', tool_use_id: 't1', content: [{ type: 'text', text: DEFERRED_REMINDER }] }] }],
+    })).toBe('mcp__squeezr__squeezr_expand')
+  })
+
+  it('finds a tools[] entry flagged defer_loading', () => {
+    const body: Record<string, unknown> = { tools: [{ name: 'mcp__squeezr__squeezr_expand', defer_loading: true }] }
+    expect(findDeferredExpandToolName(body)).toBe('mcp__squeezr__squeezr_expand')
+  })
+
+  it('ignores assistant text and returns null when absent', () => {
+    expect(findDeferredExpandToolName({
+      messages: [{ role: 'assistant', content: 'call mcp__squeezr__squeezr_expand' }],
+    })).toBeNull()
+    expect(findDeferredExpandToolName({ tools: [], messages: [{ role: 'user', content: 'hi' }] })).toBeNull()
+  })
+
+  it('does NOT inject the bare tool when the MCP tool is deferred (Anthropic + OpenAI)', () => {
+    const a: Record<string, unknown> = { tools: [{ name: 'Read' }], messages: [{ role: 'user', content: DEFERRED_REMINDER }] }
+    injectExpandToolAnthropic(a)
+    expect((a.tools as Array<{ name: string }>).map(t => t.name)).toEqual(['Read'])
+    const o: Record<string, unknown> = { tools: [], messages: [{ role: 'user', content: DEFERRED_REMINDER }] }
+    injectExpandToolOpenAI(o)
+    expect(o.tools).toEqual([])
+  })
+
+  it('directive names the namespaced tool and tells the model to load it first', () => {
+    const body: Record<string, unknown> = {
+      system: [{ type: 'text', text: 'You are Claude Code.' }],
+      tools: [{ name: 'Read' }],
+      messages: [{ role: 'user', content: [{ type: 'text', text: DEFERRED_REMINDER }] }],
+    }
+    injectExpandToolAnthropic(body)
+    injectExpandDirectiveAnthropic(body)
+    const directive = (body.system as Array<{ text: string }>).at(-1)!.text
+    expect(directive).toContain('`mcp__squeezr__squeezr_expand`')
+    expect(directive).toContain('select:mcp__squeezr__squeezr_expand')
+    expect(directive).not.toMatch(/call the `squeezr_expand`/)
+  })
+
+  it('a loaded MCP tool still wins and gets no load hint', () => {
+    const body: Record<string, unknown> = {
+      system: 'sys',
+      tools: [{ name: 'mcp__squeezr__squeezr_expand' }],
+      messages: [{ role: 'user', content: DEFERRED_REMINDER }],
+    }
+    injectExpandToolAnthropic(body)
+    injectExpandDirectiveAnthropic(body)
+    expect((body.tools as unknown[]).length).toBe(1)
+    expect(body.system as string).toContain('call the `mcp__squeezr__squeezr_expand`')
+    expect(body.system as string).not.toContain('ToolSearch')
   })
 })

@@ -200,14 +200,63 @@ export function injectExpandToolAnthropic(body: Record<string, unknown>): void {
   if (!body.tools) body.tools = []
   const tools = body.tools as unknown[]
   const names = tools.map((t) => String((t as { name?: string }).name ?? ''))
-  if (!hasExpandTool(names)) tools.push(EXPAND_TOOL_ANTHROPIC)
+  // A DEFERRED MCP expand tool (Claude Code tool search) is not in tools[] yet, but it
+  // is still the one the client can execute — injecting the bare tool next to it makes
+  // the model call `squeezr_expand`, which fails with "No such tool available".
+  if (!hasExpandTool(names) && !findDeferredExpandToolName(body)) tools.push(EXPAND_TOOL_ANTHROPIC)
 }
 
 export function injectExpandToolOpenAI(body: Record<string, unknown>): void {
   if (!body.tools) body.tools = []
   const tools = body.tools as unknown[]
   const names = tools.map((t) => String((t as { function?: { name?: string } }).function?.name ?? ''))
-  if (!hasExpandTool(names)) tools.push(EXPAND_TOOL_OPENAI)
+  if (!hasExpandTool(names) && !findDeferredExpandToolName(body)) tools.push(EXPAND_TOOL_OPENAI)
+}
+
+// ── Deferred (tool-search) MCP expand tool ────────────────────────────────────
+// Claude Code defers MCP tools: their schemas are NOT sent in tools[]; only their
+// names are listed in the conversation text (system-reminder / user turn) and the
+// model must load them via ToolSearch before calling. The API-native variant keeps
+// them in tools[] flagged `defer_loading: true`. Either way the namespaced tool is
+// the client-executable one and the bare proxy tool must not be offered.
+const DEFERRED_EXPAND_RE = /\bmcp__[A-Za-z0-9_-]+?__squeezr_expand\b/
+
+function firstDeferredMatch(text: unknown): string | null {
+  if (typeof text !== 'string' || !text.includes('__squeezr_expand')) return null
+  const m = DEFERRED_EXPAND_RE.exec(text)
+  return m ? m[0] : null
+}
+
+function scanContent(content: unknown): string | null {
+  if (typeof content === 'string') return firstDeferredMatch(content)
+  if (!Array.isArray(content)) return null
+  for (const block of content as Array<{ type?: string; text?: unknown; content?: unknown }>) {
+    if (!block || typeof block !== 'object') continue
+    const hit = firstDeferredMatch(block.text) ?? (block.type === 'tool_result' ? scanContent(block.content) : null)
+    if (hit) return hit
+  }
+  return null
+}
+
+/** Returns the namespaced expand tool name when it is available to the client but
+ *  deferred (not loaded into tools[]), else null. */
+export function findDeferredExpandToolName(body: Record<string, unknown>): string | null {
+  if (Array.isArray(body.tools)) {
+    for (const t of body.tools as Array<{ name?: string; defer_loading?: boolean }>) {
+      if (t && t.defer_loading === true && typeof t.name === 'string' && t.name.endsWith('__squeezr_expand')) return t.name
+    }
+  }
+  const sysHit = scanContent(body.system)
+  if (sysHit) return sysHit
+  const msgs = body.messages
+  if (!Array.isArray(msgs)) return null
+  for (const m of msgs as Array<{ role?: string; content?: unknown }>) {
+    if (m && (m.role === 'user' || m.role === 'system' || m.role === 'developer')) {
+      const hit = scanContent(m.content)
+      if (hit) return hit
+    }
+  }
+  return null
 }
 
 // ── System-prompt directive ────────────────────────────────────────────────────
@@ -223,7 +272,12 @@ export const EXPAND_DIRECTIVE_SENTINEL = '[Squeezr/expand-directive]'
  * "No such tool available" — so the directive must never lead with a name that
  * doesn't resolve. See https://github.com/sergioramosv/squeezr/issues/8
  */
-export function buildExpandDirective(toolName: string): string {
+export function buildExpandDirective(toolName: string, deferred = false): string {
+  const loadHint = deferred
+    ? ` It is a deferred tool: if its schema is not loaded yet, load it first (e.g. ToolSearch with ` +
+      `query "select:${toolName}") and then call it. Never call the bare name \`squeezr_expand\` — ` +
+      'it does not exist in this client.'
+    : ''
   return `${EXPAND_DIRECTIVE_SENTINEL} Some tool results below are compressed to save tokens and ` +
     'tagged `[squeezr:ID -N%]` — these are LOSSY summaries that omit detail. The moment you ' +
     'need the exact contents of one (to edit or quote code precisely, copy an error/log line ' +
@@ -231,7 +285,7 @@ export function buildExpandDirective(toolName: string): string {
     'tool with that ID and use the returned text — do NOT guess, paraphrase, or reconstruct ' +
     'compressed content from its summary. Some markers also expose PART ids like `ID~2` next ' +
     `to a single function, file or line range — call ${toolName}("ID~2") to get ONLY that part ` +
-    'instead of the whole block. Expansion is instant and free.'
+    'instead of the whole block. Expansion is instant and free.' + loadHint
 }
 
 /** Fallback directive used when the actual registered tool name isn't known yet. */
@@ -250,13 +304,28 @@ function extractToolNames(tools: unknown[]): string[] {
 
 /** Resolves the actual expand tool name already present in body.tools (namespaced MCP tool
  *  takes priority since that's what's client-executable), falling back to the bare name. */
-function resolveExpandToolName(body: Record<string, unknown>): string {
+function resolveExpandToolName(body: Record<string, unknown>): { name: string; deferred: boolean } {
   const tools = body.tools
   if (Array.isArray(tools)) {
-    const found = extractToolNames(tools).find((n) => n === 'squeezr_expand' || n.endsWith('__squeezr_expand'))
-    if (found) return found
+    const loaded = (tools as Array<{ defer_loading?: boolean }>).filter((t) => !(t && t.defer_loading === true))
+    const found = extractToolNames(loaded).find((n) => n.endsWith('__squeezr_expand'))
+      ?? extractToolNames(loaded).find((n) => n === 'squeezr_expand')
+    // The namespaced MCP tool wins over the bare one; a loaded bare tool only wins
+    // when no client tool exists (loaded or deferred).
+    if (found && found !== 'squeezr_expand') return { name: found, deferred: false }
+    const deferred = findDeferredExpandToolName(body)
+    if (deferred) return { name: deferred, deferred: true }
+    if (found) return { name: found, deferred: false }
+  } else {
+    const deferred = findDeferredExpandToolName(body)
+    if (deferred) return { name: deferred, deferred: true }
   }
-  return 'squeezr_expand'
+  return { name: 'squeezr_expand', deferred: false }
+}
+
+function directiveFor(body: Record<string, unknown>): string {
+  const { name, deferred } = resolveExpandToolName(body)
+  return buildExpandDirective(name, deferred)
 }
 
 /**
@@ -269,7 +338,7 @@ function resolveExpandToolName(body: Record<string, unknown>): string {
  * Returns chars added (0 if already present / no system to attach to).
  */
 export function injectExpandDirectiveAnthropic(body: Record<string, unknown>): number {
-  const directive = buildExpandDirective(resolveExpandToolName(body))
+  const directive = directiveFor(body)
   const sys = body.system
   if (typeof sys === 'string') {
     if (sys.includes(EXPAND_DIRECTIVE_SENTINEL)) return 0
@@ -294,7 +363,7 @@ export function injectExpandDirectiveAnthropic(body: Record<string, unknown>): n
 export function injectExpandDirectiveOpenAI(body: Record<string, unknown>): number {
   const msgs = body.messages as Array<{ role?: string; content?: unknown }> | undefined
   if (!Array.isArray(msgs)) return 0
-  const directive = buildExpandDirective(resolveExpandToolName(body))
+  const directive = directiveFor(body)
   const sysMsg = msgs.find(m => m.role === 'system' || m.role === 'developer')
   if (sysMsg && typeof sysMsg.content === 'string') {
     if (sysMsg.content.includes(EXPAND_DIRECTIVE_SENTINEL)) return 0
